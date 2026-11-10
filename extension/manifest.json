@@ -1,13 +1,15 @@
 {
   "manifest_version": 3,
   "name": "AI 答题助手（预览版）",
-  "version": "0.1.1",
+  "version": "0.4.0",
   "minimum_chrome_version": "114",
   "description": "扫描当前页面题目，调用本地 AI 服务生成答案，并在确认后填入页面。",
   "permissions": [
     "storage",
     "scripting",
     "tabs",
+    "alarms",
+    "offscreen",
     "activeTab",
     "sidePanel"
   ],

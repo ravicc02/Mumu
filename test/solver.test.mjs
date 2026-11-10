@@ -6,6 +6,7 @@ import {
   normalizeQuestion,
   solveQuestion
 } from "../server/solver.mjs";
+import { normalizeSyncPayload } from "../server/assignment-store.mjs";
 
 const question = normalizeQuestion({
   type: "single_choice",
@@ -75,4 +76,51 @@ test("live solver forwards reasoning effort to OpenAI-compatible endpoints", asy
   assert.equal(requestBody.reasoning_effort, "high");
   assert.equal(requestBody.model, "test-model");
   assert.equal(answer.reasoningEffort, "high");
+});
+
+test("assignment sync deduplicates by work and prefers unfinished status", () => {
+  const snapshot = normalizeSyncPayload({
+    academicYear: 2026,
+    coursesScanned: 1,
+    assignments: [
+      {
+        courseName: "测试课程",
+        courseId: "1",
+        classId: "2",
+        workId: "3",
+        title: "作业 A",
+        status: "待互评"
+      },
+      {
+        courseName: "测试课程",
+        courseId: "1",
+        classId: "2",
+        workId: "3",
+        title: "作业 A",
+        status: "未交"
+      }
+    ]
+  });
+
+  assert.equal(snapshot.assignments.length, 1);
+  assert.equal(snapshot.assignments[0].status, "unfinished");
+});
+
+test("assignment sync preserves submission availability", () => {
+  const snapshot = normalizeSyncPayload({
+    academicYear: 2026,
+    assignments: [{
+      courseName: "测试课程",
+      courseId: "1",
+      classId: "2",
+      workId: "3",
+      title: "作业 A",
+      status: "未交",
+      submittable: true,
+      deadlineText: "11-01 至 11-30"
+    }]
+  });
+
+  assert.equal(snapshot.assignments[0].submittable, true);
+  assert.equal(snapshot.assignments[0].deadlineText, "11-01 至 11-30");
 });

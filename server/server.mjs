@@ -6,6 +6,13 @@ import {
   normalizeQuestion,
   solveQuestion
 } from "./solver.mjs";
+import {
+  getAssignmentSnapshot,
+  getAssignmentSummary,
+  loadAssignmentStore,
+  queryAssignments,
+  saveAssignmentSnapshot
+} from "./assignment-store.mjs";
 
 const serverDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(serverDirectory, "..");
@@ -47,6 +54,7 @@ async function loadEnvironmentFile() {
 }
 
 await loadEnvironmentFile();
+await loadAssignmentStore();
 
 const apiKey = process.env.OPENAI_API_KEY?.trim() || "";
 const explicitMockMode = process.env.AI_MOCK === "true";
@@ -192,6 +200,56 @@ const server = createServer(async (request, response) => {
       reasoningEffort: config.mockMode ? "" : config.reasoningEffort,
       configured: !config.mockMode
     });
+    return;
+  }
+
+  if (request.method === "GET" && requestPath === "/api/assignments") {
+    const assignments = queryAssignments({
+      academicYear: requestUrl.searchParams.get("academicYear"),
+      status: requestUrl.searchParams.get("status"),
+      courseId: requestUrl.searchParams.get("courseId"),
+      submittable: requestUrl.searchParams.has("submittable")
+        ? requestUrl.searchParams.get("submittable") === "true"
+        : undefined
+    });
+    sendJson(response, 200, {
+      ok: true,
+      academicYear: getAssignmentSnapshot().academicYear,
+      syncedAt: getAssignmentSnapshot().syncedAt,
+      assignments
+    });
+    return;
+  }
+
+  if (request.method === "GET" && requestPath === "/api/assignments/summary") {
+    sendJson(response, 200, getAssignmentSummary({
+      academicYear: requestUrl.searchParams.get("academicYear"),
+      status: requestUrl.searchParams.get("status"),
+      submittable: requestUrl.searchParams.has("submittable")
+        ? requestUrl.searchParams.get("submittable") === "true"
+        : undefined
+    }));
+    return;
+  }
+
+  if (request.method === "POST" && requestPath === "/api/assignments/sync") {
+    try {
+      const body = await readJsonBody(request);
+      const stored = await saveAssignmentSnapshot(body);
+      sendJson(response, 200, {
+        ok: true,
+        syncedAt: stored.syncedAt,
+        academicYear: stored.academicYear,
+        coursesScanned: stored.coursesScanned,
+        assignmentCount: stored.assignments.length,
+        unfinishedCount: stored.assignments.filter((item) => item.status === "unfinished").length
+      });
+    } catch (error) {
+      sendJson(response, 400, {
+        ok: false,
+        error: error instanceof Error ? error.message : "作业同步失败"
+      });
+    }
     return;
   }
 

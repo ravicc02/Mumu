@@ -42,6 +42,11 @@
           </div>
           <span id="questionType" class="badge badge-neutral">未知</span>
         </div>
+        <div id="questionNavigator" class="question-navigator" hidden>
+          <label for="questionPicker">题目</label>
+          <select id="questionPicker"></select>
+          <span id="questionCount" class="meta-text"></span>
+        </div>
         <ol id="optionList" class="option-list"></ol>
       </section>
 
@@ -59,6 +64,22 @@
           <span id="answerModel" class="meta-text"></span>
           <button id="discardAnswer" class="text-button" type="button">清除</button>
         </div>
+      </section>
+
+      <section class="panel assignment-panel">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">2026 学年</span>
+            <h2>当前可提交作业</h2>
+          </div>
+          <span id="assignmentBadge" class="badge badge-neutral">未同步</span>
+        </div>
+        <div class="assignment-actions">
+          <button id="syncAssignments" class="button button-primary" type="button">同步未完成作业</button>
+          <button id="toggleAutoSync" class="button button-secondary" type="button">自动检测：关闭</button>
+        </div>
+        <p id="assignmentSyncStatus" class="meta-text assignment-sync-status">尚未同步</p>
+        <div id="assignmentList" class="assignment-list"></div>
       </section>
 
       <details id="rulesPanel" class="settings-panel">

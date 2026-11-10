@@ -154,6 +154,7 @@ function buildSystemPrompt() {
     "单选题 selectedIndices 必须恰好包含一个从 0 开始的选项索引。",
     "多选题 selectedIndices 可以包含多个从 0 开始的选项索引。",
     "文本题使用 textAnswer，选择题将 textAnswer 设为空字符串。",
+    "如果文本题要求画图，请在 textAnswer 中给出可直接提交的 PlantUML 代码和必要文字说明。",
     "confidence 使用 0 到 1 之间的小数。信息不足时降低置信度，不要编造。",
     "explanation 使用简短中文说明判断依据。"
   ].join("\n");

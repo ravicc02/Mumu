@@ -1,72 +1,129 @@
-# AI Quiz Assistant
+# AI Assignment Studio
 
-一个用于自有或获授权页面的 Chrome 侧边栏答题助手。扩展复用当前浏览器登录状态，不读取或上传 Cookie；本地服务负责调用 AI。
+本地 Windows 作业工作台。使用 Electron + Vue 管理多个学习通账号，通过 Playwright 无头采集当前仍可提交的未完成作业，再用 browser-use 驱动可操控 Chrome 完成答题并实时显示 Agent 日志。
 
-## 当前功能
+登录 Cookie、模型 Key、任务记录和截图都保存在本机，不上传到本项目仓库。
 
-- 扫描当前页面题目，支持单选、多选和文本题
-- 调用 OpenAI-compatible `/chat/completions` 接口
-- 生成答案后先预览，点击后才填入页面
-- 支持按站点保存 CSS 选择器规则
-- 未配置 API Key 时进入明确标注的演示模式
-- 不自动提交，不处理或绕过验证码
+## 功能
 
-## 启动
+- 多账号独立 Playwright Profile 和 `storage-state.json`
+- 学习通新版/旧版课程表兼容采集
+- 按开课学年和学期筛选未完成、当前仍可提交的作业
+- 作业多选和批量创建 Agent 任务
+- 每账号任务串行排队，避免多个 Agent 抢占同一个浏览器 Profile
+- 可操控 Chrome 窗口，Agent 执行时仍可人工查看和接管
+- 任务状态：排队、运行、暂停、停止中、停止、完成、失败、中断
+- 暂停、继续、停止和重试
+- WebSocket 实时日志、当前 URL、步骤、问题、截图和最终凭证
+- 模型供应商、API 地址、Key、模型列表和思考强度配置
+- 微信 iLink Bot 扫码绑定和任务完成通知
+
+## AI 配置
+
+打开桌面应用左侧的“设置”，点击“配置模型”，填写：
+
+- API 地址，例如 `https://sshzyu.com/v1`
+- API Key
+- 模型名称，例如 `deepseek-v4.1-flash`
+- 思考强度
+
+配置会保存到本地 SQLite。也可以先用项目根目录 `.env` 提供默认值，界面配置优先：
+
+```dotenv
+OPENAI_BASE_URL=https://sshzyu.com/v1
+OPENAI_API_KEY=
+OPENAI_MODEL=deepseek-v4.1-flash
+AI_REASONING_EFFORT=medium
+ANSWER_STUDIO_PORT=8877
+```
+
+`.env` 已被 Git 忽略，不要把真实 Key 写进源码或提交到远端。
+
+## 用户怎么用
+
+1. 进入“平台”，点击“添加”创建学习通账号。
+2. 点击账号右侧“...”，选择“刷新 Cookie”，在弹出的 Chrome 中完成登录。
+3. 回到“平台”，选择学年/学期后点击“采集”。
+4. 在作业列表勾选一个或多个当前可提交作业，点击“启动 Agent”或“批量启动 Agent”。
+5. 在“面板”右侧查看实时状态、URL、步骤日志和截图。
+6. 运行中可暂停、继续或停止；失败或中断后可重试。
+7. 在“执行凭证”中打开步骤截图、最终截图和 `result.json`。
+
+默认不点击最终提交。只有勾选“允许 Agent 最终提交”后，任务提示词才允许提交。建议保留人工核对。
+
+## 本地开发
 
 ```powershell
 cd E:\Desktop\workshop\ai-quiz-assistant
-npm start
+python -m pip install -r backend/requirements.txt
+python -m playwright install chromium
+
+cd desktop
+npm install
+npm run dev
 ```
 
-服务默认运行在 `http://127.0.0.1:8787`，示例页面：
+Electron 会启动本地 FastAPI：`http://127.0.0.1:8877`。只预览前端时运行：
+
+```powershell
+cd desktop
+npm run web
+```
+
+前端地址：`http://127.0.0.1:5174`。
+
+## 数据目录
+
+默认位置：
 
 ```text
-http://127.0.0.1:8787/demo/quiz.html
+%LOCALAPPDATA%\AIAssistantStudio
 ```
 
-## 加载扩展
+包含 SQLite、账号 Profile、浏览器登录态、任务截图、结果 JSON 和日志。该目录不会提交 Git。
 
-1. 打开 Chrome 的 `chrome://extensions/`。
-2. 开启右上角“开发者模式”。
-3. 点击“加载已解压的扩展程序”。
-4. 选择 `E:\Desktop\workshop\ai-quiz-assistant\extension`。
-5. 打开示例页面，点击工具栏中的扩展图标。
-6. 在侧边栏依次点击“授权并扫描”、“获取答案”、“填入答案”，核对后手动点击页面上的“下一题”。
+## API
 
-## 配置真实 AI
+核心接口：
 
-在项目根目录创建 `.env`，字段参考 `.env.example`：
-
-```dotenv
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_API_KEY=your-key
-OPENAI_MODEL=gpt-4.1-mini
-AI_REASONING_EFFORT=medium
-OPENAI_JSON_MODE=false
-AI_MOCK=false
+```text
+GET  /api/health
+GET  /api/accounts
+POST /api/accounts
+POST /api/accounts/{account_id}/login
+POST /api/accounts/{account_id}/refresh-session
+GET  /api/accounts/{account_id}/preview
+POST /api/accounts/{account_id}/collect?academic_year=2026
+GET  /api/assignments?account_id=...&academic_year=2026&submittable=true
+POST /api/jobs
+POST /api/jobs/{job_id}/pause
+POST /api/jobs/{job_id}/resume
+POST /api/jobs/{job_id}/stop
+POST /api/jobs/{job_id}/retry
+WS   /ws/jobs/{job_id}
 ```
-
-实际配置文件位于项目根目录 `.env`。`OPENAI_BASE_URL` 填 API 根地址，本地服务会自动拼接 `/chat/completions`。`AI_REASONING_EFFORT` 可填 `low`、`medium`、`high`，留空则不发送该参数。修改后重启 `npm start`。如果服务商不支持 `response_format={"type":"json_object"}`，保持 `OPENAI_JSON_MODE=false`。
-
-## 接入其他网站
-
-侧边栏的“站点规则”可以按域名保存以下选择器：
-
-- 题目容器，例如 `[data-question]`
-- 题干，例如 `.question-title`
-- 选项，例如 `label.option`
-- 下一题按钮，例如 `#next`
-
-选择器留空时，扩展会尝试使用内置的通用 DOM 识别。不同网站结构差异较大，稳定使用时通常需要为每个网站补一套选择器。
 
 ## 验证
 
 ```powershell
-npm test
-node --check extension/content.js
-node --check extension/sidepanel.js
+cd backend
+python -m unittest discover -s test -v
+
+cd ..\desktop
+npm run build:web
 ```
+
+## Windows 打包
+
+```powershell
+cd desktop
+npm run build:win
+```
+
+构建流程会生成 Vue 前端、PyInstaller 后端和 electron-builder NSIS 安装包，输出在 `desktop/release/`。
 
 ## 使用边界
 
-仅用于自己拥有或明确获授权的页面、内部培训、表单和测试环境。自动答题可能违反考试、认证平台或第三方网站规则，提交前应人工核对，并遵守目标网站条款。
+仅用于自己拥有或明确获授权的页面、课程和内部测试环境。自动答题或自动提交可能违反目标平台条款，使用前应确认授权并在提交前人工核对。
+
+仓库中的 `extension/` 和旧 Node 服务保留为早期 Chrome 扩展原型，当前主要开发方向是 `desktop/` + `backend/`。

@@ -5,6 +5,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 DEMO_URL = "http://127.0.0.1:8787/demo/quiz.html"
+MULTI_QUIZ_URL = "http://127.0.0.1:8787/demo/multi-quiz.html"
 CONTENT_SCRIPT = ROOT / "extension" / "content.js"
 SIDEPANEL_HTML = (ROOT / "extension" / "sidepanel.html").resolve().as_uri()
 ARTIFACTS = ROOT / ".runtime"
@@ -119,6 +120,62 @@ def run_quiz_dom_smoke(page):
     page.screenshot(path=str(ARTIFACTS / "demo-mobile-smoke.png"), full_page=True)
 
 
+def run_multi_question_smoke(page):
+    page.goto(MULTI_QUIZ_URL, wait_until="networkidle")
+    install_chrome_stub(page)
+    page.add_script_tag(path=str(CONTENT_SCRIPT))
+
+    questions = page.evaluate(
+        "() => window.__AI_QUIZ_ASSISTANT_INTERNALS__.captureQuestions({})"
+    )
+    assert len(questions) == 4
+    assert [question["type"] for question in questions] == [
+        "single_choice",
+        "multiple_choice",
+        "text",
+        "text"
+    ]
+    assert questions[3]["containerId"] == "question1004"
+    assert questions[3]["editor"]["kind"] == "ueditor"
+    assert questions[3]["editor"]["iframeId"] == "ueditor_0"
+
+    page.evaluate(
+        """
+        async ({ question, answer }) => {
+          return window.__AI_QUIZ_ASSISTANT_INTERNALS__.applyAnswer(question, answer, {});
+        }
+        """,
+        {
+            "question": questions[2],
+            "answer": {
+                "type": "text",
+                "selectedIndices": [],
+                "textAnswer": "Cookie 是敏感凭据，不应离开当前浏览器。"
+            }
+        }
+    )
+    assert "敏感凭据" in page.locator("#question1003 textarea").input_value()
+
+    page.evaluate(
+        """
+        async ({ question, answer }) => {
+          return window.__AI_QUIZ_ASSISTANT_INTERNALS__.applyAnswer(question, answer, {});
+        }
+        """,
+        {
+            "question": questions[1],
+            "answer": {
+                "type": "multiple_choice",
+                "selectedIndices": [0, 2],
+                "textAnswer": ""
+            }
+        }
+    )
+    assert page.locator("#question1002 input[value='0']").is_checked()
+    assert page.locator("#question1002 input[value='2']").is_checked()
+    page.screenshot(path=str(ARTIFACTS / "multi-question-smoke.png"), full_page=True)
+
+
 def run_sidepanel_visual_smoke(browser):
     context = browser.new_context(viewport={"width": 420, "height": 900})
     page = context.new_page()
@@ -128,6 +185,8 @@ def run_sidepanel_visual_smoke(browser):
           const noop = () => {};
           const question = {
             signature: "demo0001",
+            containerId: "question1001",
+            number: 1,
             type: "single_choice",
             stem: "Manifest V3 扩展的后台脚本通常使用哪一种工作线程？",
             options: [
@@ -135,6 +194,20 @@ def run_sidepanel_visual_smoke(browser):
               { index: 1, text: "Content Script", value: "1" },
               { index: 2, text: "Popup Page", value: "2" },
               { index: 3, text: "Renderer Thread", value: "3" }
+            ],
+            textEntry: null,
+            pageTitle: "浏览器扩展知识测验",
+            pageUrl: "http://127.0.0.1:8787/demo/quiz.html"
+          };
+          const question2 = {
+            signature: "demo0002",
+            containerId: "question1002",
+            number: 2,
+            type: "single_choice",
+            stem: "以下哪一项适合保存扩展配置？",
+            options: [
+              { index: 0, text: "chrome.storage", value: "0" },
+              { index: 1, text: "页面标题", value: "1" }
             ],
             textEntry: null,
             pageTitle: "浏览器扩展知识测验",
@@ -159,6 +232,9 @@ def run_sidepanel_visual_smoke(browser):
                 sendMessage: async (_tabId, message) => {
                   if (message.type === "CAPTURE_QUESTION") {
                     return { ok: true, question };
+                  }
+                  if (message.type === "CAPTURE_QUESTIONS") {
+                    return { ok: true, questions: [question, question2] };
                   }
                   if (message.type === "APPLY_ANSWER") {
                     return {
@@ -228,13 +304,18 @@ def run_sidepanel_visual_smoke(browser):
     )
     page.get_by_role("button", name="授权并扫描").click()
     page.locator("#questionSection").wait_for(state="visible")
-    page.get_by_role("button", name="获取答案").click()
+    page.get_by_role("button", name="获取全部答案").click()
     page.locator("#answerSection").wait_for(state="visible")
-    page.get_by_role("button", name="填入答案").click()
+    page.get_by_role("button", name="填入全部答案").click()
     page.wait_for_function(
-        "() => document.querySelector('#status')?.textContent.includes('答案已填入')"
+        "() => document.querySelector('#status')?.textContent.includes('已填入 2 道')"
     )
-    assert page.get_by_role("button", name="下一题").is_enabled()
+    assert page.locator("#questionPicker option").count() == 2
+    assert page.get_by_role("button", name="下一题").is_hidden()
+    page.locator("#questionPicker").select_option("1")
+    page.wait_for_function(
+        "() => document.querySelector('#questionTitle')?.textContent.includes('保存扩展配置')"
+    )
     page.screenshot(path=str(ARTIFACTS / "sidepanel-smoke.png"), full_page=True)
     page.set_viewport_size({"width": 320, "height": 720})
     assert page.evaluate(
@@ -253,6 +334,7 @@ def main():
         context = browser.new_context(viewport={"width": 1280, "height": 900})
         page = context.new_page()
         run_quiz_dom_smoke(page)
+        run_multi_question_smoke(page)
         context.close()
         run_sidepanel_visual_smoke(browser)
         browser.close()
@@ -260,6 +342,7 @@ def main():
     print("Browser smoke test passed")
     print(ARTIFACTS / "demo-smoke.png")
     print(ARTIFACTS / "demo-mobile-smoke.png")
+    print(ARTIFACTS / "multi-question-smoke.png")
     print(ARTIFACTS / "sidepanel-smoke.png")
     print(ARTIFACTS / "sidepanel-mobile-smoke.png")
 

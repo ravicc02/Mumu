@@ -1,13 +1,17 @@
 {
   "name": "ai-quiz-assistant",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Chrome side-panel quiz assistant with a local AI solver service.",
   "scripts": {
     "start": "node server/server.mjs",
     "dev": "node --watch server/server.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "test:backend": "powershell -Command \"$env:PYTHONPATH='backend'; python -m unittest discover -s backend/test -v\"",
+    "desktop:dev": "npm --prefix desktop run dev",
+    "desktop:web": "npm --prefix desktop run web",
+    "desktop:build": "npm --prefix desktop run build:win"
   },
   "engines": {
     "node": ">=20"

@@ -10,6 +10,7 @@
     "fieldset",
     "[role='group']",
     ".question",
+    ".questionLi",
     ".quiz-question",
     ".question-item",
     ".question-card",
@@ -117,6 +118,29 @@
     return controls.find(isElementVisible) || null;
   }
 
+  function findRichTextEditor(container) {
+    const iframe = [...container.querySelectorAll("iframe")]
+      .find((element) => /^ueditor_\d+$/.test(element.id));
+    if (!iframe) {
+      return null;
+    }
+
+    const hiddenInput = [...container.querySelectorAll("textarea")]
+      .find((element) => /^answer/i.test(element.id || element.name || ""));
+    if (!hiddenInput) {
+      return null;
+    }
+
+    const indexMatch = iframe.id.match(/^ueditor_(\d+)$/);
+    return {
+      kind: "ueditor",
+      iframeId: iframe.id,
+      hiddenInputId: hiddenInput.id || "",
+      hiddenInputName: hiddenInput.name || "",
+      instanceKey: indexMatch ? `ueditorInstant${indexMatch[1]}` : ""
+    };
+  }
+
   function countControls(container) {
     return container.querySelectorAll(
       "input[type='radio'], input[type='checkbox'], textarea, input[type='text'], input[type='search'], [contenteditable='true']"
@@ -146,7 +170,20 @@
     return score;
   }
 
-  function findQuestionContainer(config) {
+  function removeNestedQuestionContainers(elements) {
+    return elements.filter((element) => {
+      let parent = element.parentElement;
+      while (parent) {
+        if (elements.includes(parent)) {
+          return false;
+        }
+        parent = parent.parentElement;
+      }
+      return true;
+    });
+  }
+
+  function findQuestionContainers(config) {
     if (config.questionSelector) {
       const configured = queryAll(config.questionSelector)
         .map((element, index) => ({
@@ -157,8 +194,15 @@
         .filter((item) => item.score >= 0)
         .sort((a, b) => b.score - a.score || a.index - b.index);
       if (configured.length > 0) {
-        return configured[0].element;
+        return removeNestedQuestionContainers(configured.map((item) => item.element));
       }
+    }
+
+    const explicitContainers = queryAll(
+      "[data-aqa-question], [data-question], .questionLi, .quiz-question"
+    ).filter((element) => scoreQuestionCandidate(element, false) >= 0);
+    if (explicitContainers.length > 0) {
+      return removeNestedQuestionContainers(explicitContainers);
     }
 
     const candidates = [];
@@ -177,7 +221,19 @@
 
     if (candidates.length > 0) {
       candidates.sort((a, b) => b.score - a.score || a.index - b.index);
-      return candidates[0].element;
+      const selected = [];
+      for (const candidate of candidates) {
+        if (selected.some((element) => (
+          element.contains(candidate.element) || candidate.element.contains(element)
+        ))) {
+          continue;
+        }
+        selected.push(candidate.element);
+      }
+      return selected.sort((a, b) => {
+        const position = a.compareDocumentPosition(b);
+        return position & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+      });
     }
 
     const firstControl = [
@@ -189,12 +245,16 @@
     let ancestor = firstControl?.parentElement || null;
     while (ancestor && ancestor !== document.body) {
       if (countControls(ancestor) > 0 && cleanText(ancestor.innerText).length >= 4) {
-        return ancestor;
+        return [ancestor];
       }
       ancestor = ancestor.parentElement;
     }
 
-    return null;
+    return [];
+  }
+
+  function findQuestionContainer(config) {
+    return findQuestionContainers(config)[0] || null;
   }
 
   function extractStem(container, config) {
@@ -277,7 +337,7 @@
     return (hash >>> 0).toString(16).padStart(8, "0");
   }
 
-  function detectQuestionType(container, config, options, textControl) {
+  function detectQuestionType(container, config, options, textControl, richTextEditor) {
     if (["single_choice", "multiple_choice", "text"].includes(config.type)) {
       return config.type;
     }
@@ -289,38 +349,41 @@
     if (options.length > 0) {
       return "single_choice";
     }
-    if (textControl) {
+    if (textControl || richTextEditor) {
       return "text";
     }
     return "unknown";
   }
 
-  function captureQuestion(config = {}) {
-    const container = findQuestionContainer(config);
-    if (!container) {
-      throw new Error("没有找到题目容器，请在站点规则中填写题目选择器");
-    }
-
+  function buildQuestion(container, config, ordinal) {
     const options = extractOptionRecords(container, config);
+    const richTextEditor = findRichTextEditor(container);
     const textControl = getTextControl(container);
     const stem = extractStem(container, config);
     if (!stem) {
       throw new Error("找到题目容器，但没有识别到题干");
     }
 
-    const type = detectQuestionType(container, config, options, textControl);
+    const type = detectQuestionType(container, config, options, textControl, richTextEditor);
     const signatureSource = [
       location.href,
+      container.id || "",
+      String(ordinal),
       type,
       stem,
       ...options.map((option) => option.text)
     ].join("\n");
     const question = {
       signature: hashSignature(signatureSource),
+      containerId: container.id || "",
+      number: ordinal + 1,
       type,
       stem,
       options: options.map(({ index, text, value }) => ({ index, text, value })),
-      textEntry: textControl
+      editor: richTextEditor,
+      textEntry: richTextEditor
+        ? { kind: "rich_text", placeholder: "" }
+        : textControl
         ? {
             placeholder: cleanText(
               textControl.getAttribute("placeholder")
@@ -332,8 +395,19 @@
       pageUrl: location.href
     };
 
-    container.scrollIntoView({ block: "center", behavior: "smooth" });
     return question;
+  }
+
+  function captureQuestions(config = {}) {
+    const containers = findQuestionContainers(config);
+    if (containers.length === 0) {
+      throw new Error("没有找到题目容器，请在站点规则中填写题目选择器");
+    }
+    return containers.map((container, index) => buildQuestion(container, config, index));
+  }
+
+  function captureQuestion(config = {}) {
+    return captureQuestions(config)[0];
   }
 
   function setNativeValue(element, value) {
@@ -363,14 +437,36 @@
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
   }
 
+  function findQuestionByReference(question, config) {
+    if (question.containerId) {
+      const byId = document.getElementById(question.containerId);
+      if (byId) {
+        return byId;
+      }
+    }
+
+    const containers = findQuestionContainers(config);
+    return containers.find((container, index) => {
+      const candidate = buildQuestion(container, config, index);
+      return candidate.signature === question.signature;
+    }) || containers[0] || null;
+  }
+
   async function applyAnswer(question, answer, config = {}) {
-    const currentQuestion = captureQuestion(config);
+    const container = findQuestionByReference(question, config);
+    if (!container) {
+      throw new Error("页面中找不到对应题目");
+    }
+
+    const currentQuestion = buildQuestion(container, config, (question.number || 1) - 1);
     if (currentQuestion.signature !== question.signature) {
       throw new Error("页面题目已经变化，请重新扫描");
     }
 
     if (answer.type === "text") {
-      const container = findQuestionContainer(config);
+      if (currentQuestion.editor) {
+        throw new Error("富文本编辑器需要使用增强写入模式");
+      }
       const control = getTextControl(container);
       if (!control) {
         throw new Error("没有找到文本输入框");
@@ -381,7 +477,6 @@
       return { applied: true, kind: "text" };
     }
 
-    const container = findQuestionContainer(config);
     const optionRecords = extractOptionRecords(container, config);
     const selected = new Set(answer.selectedIndices || []);
     if ([...selected].some((index) => !optionRecords.some((option) => option.index === index))) {
@@ -442,9 +537,11 @@
 
   globalThis.__AI_QUIZ_ASSISTANT_INTERNALS__ = {
     captureQuestion,
+    captureQuestions,
     applyAnswer,
     clickNext,
-    findQuestionContainer
+    findQuestionContainer,
+    findQuestionContainers
   };
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -459,6 +556,9 @@
         }
         if (message.type === "CAPTURE_QUESTION") {
           return { ok: true, question: captureQuestion(message.config) };
+        }
+        if (message.type === "CAPTURE_QUESTIONS") {
+          return { ok: true, questions: captureQuestions(message.config) };
         }
         if (message.type === "APPLY_ANSWER") {
           return {
