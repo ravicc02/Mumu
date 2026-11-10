@@ -95,6 +95,7 @@ POST /api/accounts/{account_id}/refresh-session
 GET  /api/accounts/{account_id}/preview
 POST /api/accounts/{account_id}/collect?academic_year=2026
 GET  /api/assignments?account_id=...&academic_year=2026&submittable=true
+POST /api/assignments/{assignment_id}/open
 POST /api/jobs
 POST /api/jobs/{job_id}/pause
 POST /api/jobs/{job_id}/resume

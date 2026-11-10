@@ -69,9 +69,36 @@ class ProfilePreviewManager:
                 "captured_at": asyncio.get_running_loop().time(),
             }
 
-    async def open_interactive(self, database: Database, account_id: str) -> dict[str, Any]:
+    async def open_interactive(
+        self,
+        database: Database,
+        account_id: str,
+        target_url: str | None = None,
+    ) -> dict[str, Any]:
         async with self._lock:
             account = database.get_account(account_id)
+            destination = target_url or "https://i.chaoxing.com/base?ws=1"
+            existing_page = self._pages.get(account_id)
+            existing_context = self._contexts.get(account_id)
+            if (
+                account_id in self._interactive_accounts
+                and existing_context is not None
+                and existing_page is not None
+                and not existing_page.is_closed()
+            ):
+                if existing_page.url != destination:
+                    await existing_page.goto(
+                        destination,
+                        wait_until="domcontentloaded",
+                        timeout=60000,
+                    )
+                    await existing_page.wait_for_timeout(500)
+                await existing_page.bring_to_front()
+                return {
+                    "ok": True,
+                    "message": "已在当前账号浏览器中打开",
+                    "url": existing_page.url,
+                }
             old_page = self._pages.pop(account_id, None)
             if old_page and not old_page.is_closed():
                 await old_page.close()
@@ -90,7 +117,7 @@ class ProfilePreviewManager:
             await self._restore_cookies(context, account["storage_state_path"])
             page = context.pages[0] if context.pages else await context.new_page()
             await page.goto(
-                "https://i.chaoxing.com/base?ws=1",
+                destination,
                 wait_until="domcontentloaded",
                 timeout=60000,
             )
@@ -100,7 +127,11 @@ class ProfilePreviewManager:
             self._interactive_accounts.add(account_id)
             return {
                 "ok": True,
-                "message": "可操控浏览器已打开",
+                "message": (
+                    "已在当前账号浏览器中打开"
+                    if target_url
+                    else "可操控浏览器已打开"
+                ),
                 "url": page.url,
             }
 

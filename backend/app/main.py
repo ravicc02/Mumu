@@ -346,6 +346,23 @@ async def open_account_browser(account_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+@app.post("/api/assignments/{assignment_id}/open")
+async def open_assignment(assignment_id: str) -> dict[str, Any]:
+    try:
+        assignment = database.get_assignment(assignment_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    ensure_account_idle(assignment["account_id"])
+    try:
+        return await preview_manager.open_interactive(
+            database,
+            assignment["account_id"],
+            target_url=assignment["task_url"],
+        )
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @app.post("/api/accounts/{account_id}/collect")
 async def collect_account(account_id: str, academic_year: int = 2026) -> dict[str, Any]:
     try:

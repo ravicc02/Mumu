@@ -67,6 +67,10 @@ export const api = {
     `/api/accounts/${accountId}/open-browser`,
     { method: "POST" }
   ),
+  openAssignment: (assignmentId) => request(
+    `/api/assignments/${assignmentId}/open`,
+    { method: "POST" }
+  ),
   collect: (accountId, academicYear) => request(
     `/api/accounts/${accountId}/collect?academic_year=${academicYear}`,
     { method: "POST" }

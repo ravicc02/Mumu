@@ -43,6 +43,7 @@ const autoSubmit = ref(false);
 const interactiveBrowser = ref(true);
 const selectedAssignmentIds = ref([]);
 const batchCreating = ref(false);
+const openingAssignmentId = ref("");
 const accountModalOpen = ref(false);
 const accountForm = ref({ name: "", platform: "chaoxing" });
 const accountMenuId = ref("");
@@ -440,6 +441,21 @@ async function createJob(assignment) {
     setError(jobError);
   } finally {
     busy.value = false;
+  }
+}
+
+async function openAssignment(assignment) {
+  openingAssignmentId.value = assignment.id;
+  error.value = "";
+  notice.value = `正在打开：${assignment.title}`;
+  try {
+    const result = await api.openAssignment(assignment.id);
+    notice.value = result.message;
+    await refreshProfilePreview(false);
+  } catch (openError) {
+    setError(openError);
+  } finally {
+    openingAssignmentId.value = "";
   }
 }
 
@@ -1107,7 +1123,14 @@ onUnmounted(() => {
                 <p>{{ assignment.deadline_text || "未显示截止时间" }}</p>
               </div>
               <div class="assignment-actions">
-                <a :href="assignment.task_url" target="_blank" rel="noreferrer">查看</a>
+                <button
+                  class="assignment-view"
+                  type="button"
+                  :disabled="openingAssignmentId === assignment.id"
+                  @click="openAssignment(assignment)"
+                >
+                  {{ openingAssignmentId === assignment.id ? "打开中" : "查看" }}
+                </button>
                 <button
                   class="button dark"
                   type="button"
