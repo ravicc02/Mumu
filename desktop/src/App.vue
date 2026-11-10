@@ -322,6 +322,7 @@ async function authorizeAccount(account) {
 }
 
 async function refreshAccountCookie(account) {
+  accountMenuId.value = "";
   busy.value = true;
   try {
     const result = await api.refreshSession(account.id);
@@ -340,6 +341,20 @@ async function refreshAccountCookie(account) {
 
 function toggleAccountMenu(accountId) {
   accountMenuId.value = accountMenuId.value === accountId ? "" : accountId;
+}
+
+function closeAccountMenuOnOutsideClick(event) {
+  if (!accountMenuId.value) return;
+  if (event.target instanceof Element && event.target.closest(".account-menu-wrap")) {
+    return;
+  }
+  accountMenuId.value = "";
+}
+
+function closeAccountMenuOnEscape(event) {
+  if (event.key === "Escape") {
+    accountMenuId.value = "";
+  }
 }
 
 function openRenameAccount(account) {
@@ -747,6 +762,8 @@ watch(activePage, () => {
 });
 
 onMounted(async () => {
+  document.addEventListener("click", closeAccountMenuOnOutsideClick);
+  document.addEventListener("keydown", closeAccountMenuOnEscape);
   await connectBackend();
   connectionTimer = setInterval(async () => {
     if (!health.value) {
@@ -756,6 +773,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  document.removeEventListener("click", closeAccountMenuOnOutsideClick);
+  document.removeEventListener("keydown", closeAccountMenuOnEscape);
   if (socket) socket.close();
   if (loginTimer) clearInterval(loginTimer);
   if (weixinTimer) clearInterval(weixinTimer);
