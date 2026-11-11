@@ -84,12 +84,19 @@ let socketGeneration = 0;
 let loginTimer = null;
 let weixinTimer = null;
 let profilePreviewTimer = null;
+let agentSnapshotTimer = null;
+let agentSnapshotBusy = false;
 let collectionPollTimer = null;
 let connectionTimer = null;
 let connecting = false;
 let appUnmounted = false;
 
 const activeJobStatuses = new Set(["queued", "running", "paused", "stopping"]);
+const attentionJobStatuses = new Set(["needs_intervention"]);
+const busyJobStatuses = new Set([
+  ...activeJobStatuses,
+  ...attentionJobStatuses
+]);
 
 const selectedAccount = computed(() => (
   accounts.value.find((account) => account.id === selectedAccountId.value) || null
@@ -120,7 +127,7 @@ const selectedJob = computed(() => (
 const selectedAccountActiveJob = computed(() => (
   jobs.value.find((job) => (
     job.account_id === selectedAccountId.value
-    && activeJobStatuses.has(job.status)
+    && busyJobStatuses.has(job.status)
   )) || null
 ));
 const selectedAccountLatestJob = computed(() => (
@@ -146,13 +153,23 @@ const groupedAssignments = computed(() => {
   return [...groups.values()];
 });
 
-const visibleEvents = computed(() => events.value
-  .filter((event) => (
-    event.kind !== "heartbeat"
-    && (event.kind !== "screenshot" || event.message)
-  ))
-  .slice()
-  .reverse());
+const visibleEvents = computed(() => {
+  let stepNumber = 0;
+  return events.value
+    .filter((event) => (
+      event.kind !== "heartbeat"
+      && (event.kind !== "screenshot" || event.message)
+    ))
+    .map((event) => {
+      if (event.kind === "step") stepNumber += 1;
+      return {
+        ...event,
+        step_number: event.kind === "step" ? stepNumber : null,
+        state_label: logEventStateLabel(event.kind)
+      };
+    })
+    .reverse();
+});
 
 const currentAgentState = computed(() => (
   [...events.value]
@@ -161,8 +178,75 @@ const currentAgentState = computed(() => (
   || null
 ));
 
+const completedStepCount = computed(() => (
+  events.value.filter((event) => event.kind === "step").length
+));
+
+const workflowStages = computed(() => {
+  if (!selectedJob.value) return [];
+  const kinds = new Set(events.value.map((event) => event.kind));
+  const status = selectedJob.value.status;
+  const running = activeJobStatuses.has(status);
+  const needsIntervention = status === "needs_intervention";
+  const completed = status === "completed";
+  const failedLike = ["failed", "stopped", "interrupted", "incomplete"].includes(status);
+  const browserDone = ["session_ready", "browser"].some((kind) => kinds.has(kind));
+  const agentDone = kinds.has("agent_ready");
+  const hasStep = completedStepCount.value > 0;
+  const latestKind = currentAgentState.value?.kind || "";
+  const stages = [
+    {
+      id: "queued",
+      label: "任务排队",
+      detail: running || needsIntervention ? "当前账号浏览器已分配" : "已创建任务",
+      state: running || needsIntervention || browserDone ? "done" : "active"
+    },
+    {
+      id: "browser",
+      label: "登录与浏览器",
+      detail: browserDone ? "Cookie 已注入，浏览器已连接" : "准备学习通浏览器",
+      state: browserDone ? "done" : (kinds.has("browser_starting") ? "active" : "pending")
+    },
+    {
+      id: "agent",
+      label: "Agent 初始化",
+      detail: agentDone ? "模型和页面控制已就绪" : "等待 Agent 就绪",
+      state: agentDone ? "done" : (browserDone ? "active" : "pending")
+    },
+    {
+      id: "analyze",
+      label: "页面分析",
+      detail: latestKind === "thinking" ? "正在分析当前页面和下一步" : "读取题目与控件",
+      state: latestKind === "thinking"
+        ? "active"
+        : (hasStep || completed || needsIntervention ? "done" : (agentDone ? "active" : "pending"))
+    },
+    {
+      id: "execute",
+      label: "执行步骤",
+      detail: `已完成 ${completedStepCount.value} 个动作步骤`,
+      state: needsIntervention
+        ? "attention"
+        : (completed
+          ? "done"
+          : (failedLike ? "error" : (running ? "active" : "pending")))
+    },
+    {
+      id: "result",
+      label: "结果确认",
+      detail: needsIntervention
+        ? "等待人工进入浏览器补充"
+        : (completed ? "填写完成，待人工核对" : (failedLike ? "任务已结束" : "等待执行结果")),
+      state: completed
+        ? "done"
+        : (needsIntervention ? "attention" : (failedLike ? "error" : "pending"))
+    }
+  ];
+  return stages;
+});
+
 const activeJobs = computed(() => (
-  jobs.value.filter((job) => activeJobStatuses.has(job.status))
+  jobs.value.filter((job) => busyJobStatuses.has(job.status))
 ));
 const activeJob = computed(() => activeJobs.value[0] || null);
 
@@ -181,6 +265,7 @@ const jobStatusLabels = {
   stopped: "已停止",
   completed: "执行完成",
   incomplete: "未完成",
+  needs_intervention: "待介入",
   failed: "执行失败",
   interrupted: "已中断"
 };
@@ -363,7 +448,7 @@ function queuePosition(job) {
 function assignmentJobLabel(assignmentId) {
   const job = latestJobForAssignment(assignmentId);
   if (!job) return "执行";
-  if (activeJobStatuses.has(job.status)) return "查看任务";
+  if (busyJobStatuses.has(job.status)) return "查看任务";
   return "再次执行";
 }
 
@@ -371,9 +456,13 @@ function isActiveJob(job) {
   return Boolean(job && activeJobStatuses.has(job.status));
 }
 
+function isNeedsIntervention(job) {
+  return Boolean(job && attentionJobStatuses.has(job.status));
+}
+
 function hasActiveJobForAccount(accountId) {
   return jobs.value.some((job) => (
-    job.account_id === accountId && activeJobStatuses.has(job.status)
+    job.account_id === accountId && busyJobStatuses.has(job.status)
   ));
 }
 
@@ -385,8 +474,12 @@ function artifactLabel(kind) {
   }[kind] || kind;
 }
 
-function actionSummary(actions) {
-  if (!Array.isArray(actions) || actions.length === 0) return "";
+function shortText(value, limit = 42) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function actionSummary(actions, details = []) {
   const labels = {
     ClickActionModel: "点击",
     InputActionModel: "输入",
@@ -399,12 +492,73 @@ function actionSummary(actions) {
     UploadFileActionModel: "上传文件",
     SelectDropdownActionModel: "选择下拉项"
   };
+  if (Array.isArray(details) && details.length > 0) {
+    return details.map((item) => {
+      const type = item?.type || "";
+      const data = item?.data || {};
+      const nested = Object.values(data).find((value) => (
+        value && typeof value === "object" && !Array.isArray(value)
+      )) || data;
+      const label = labels[type] || type || "动作";
+      if (type.includes("Navigate") && nested.url) {
+        return `打开 ${shortText(nested.url, 56)}`;
+      }
+      if (type.includes("Input") && nested.text) {
+        return `输入「${shortText(nested.text)}」`;
+      }
+      if (type.includes("SendKeys") && nested.keys) {
+        return `按键 ${shortText(nested.keys, 24)}`;
+      }
+      if (type.includes("Click") && nested.index !== undefined) {
+        return `点击元素 #${nested.index}`;
+      }
+      if (type.includes("Scroll") && nested.amount !== undefined) {
+        return `滚动 ${nested.amount}`;
+      }
+      if (type.includes("Upload") && nested.path) {
+        return `上传 ${shortText(nested.path, 48)}`;
+      }
+      if (type.includes("Done")) {
+        return "结束任务";
+      }
+      const fallback = shortText(JSON.stringify(nested));
+      return fallback && fallback !== "{}" ? `${label} ${fallback}` : label;
+    }).join("；");
+  }
+  if (!Array.isArray(actions) || actions.length === 0) return "";
   return actions.map((action) => labels[action] || action).join("、");
 }
 
 function eventMessagePreview(message, limit = 140) {
   const text = String(message || "");
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function logEventStateLabel(kind) {
+  return {
+    queued: "排队",
+    browser_starting: "启动浏览器",
+    session_ready: "登录就绪",
+    browser: "浏览器",
+    agent_ready: "Agent 就绪",
+    thinking: "分析中",
+    step: "已完成",
+    screenshot: "页面画面",
+    paused: "已暂停",
+    resumed: "已继续",
+    stopping: "停止中",
+    stopped: "已停止",
+    completed: "已执行",
+    incomplete: "未完成",
+    needs_intervention: "待介入",
+    failed: "失败",
+    error: "异常",
+    stalled: "疑似卡住",
+    interrupted: "已中断",
+    notification: "通知",
+    submission_verified: "已核验",
+    submission_reviewed: "已人工核对"
+  }[kind] || "状态";
 }
 
 function deadlineState(deadlineText) {
@@ -866,9 +1020,9 @@ async function createJob(assignment) {
 
 async function startAssignmentJob(assignment) {
   const existingJob = latestJobForAssignment(assignment.id);
-  if (existingJob && activeJobStatuses.has(existingJob.status)) {
+  if (existingJob && busyJobStatuses.has(existingJob.status)) {
     await selectJob(existingJob.id);
-    notice.value = "已在右侧显示该作业的实时执行页面。";
+    notice.value = "已在浏览器栏显示该作业的当前执行页面。";
     return;
   }
   if (autoSubmit.value) {
@@ -1053,9 +1207,62 @@ async function focusAgentBrowser() {
   if (!selectedJobId.value) return;
   try {
     await api.focusJobBrowser(selectedJobId.value);
-    notice.value = "已切换到 Agent 浏览器";
+    notice.value = "已打开实时浏览器；手动操作会同步到当前页面预览";
   } catch (focusError) {
     setError(focusError);
+  }
+}
+
+async function refreshAgentSnapshot() {
+  const job = selectedAccountActiveJob.value;
+  if (
+    agentSnapshotBusy
+    || activePage.value !== "platforms"
+    || !job
+    || !job.interactive
+  ) {
+    return;
+  }
+  agentSnapshotBusy = true;
+  try {
+    const snapshot = await api.jobSnapshot(job.id);
+    if (selectedAccountActiveJob.value?.id === job.id) {
+      screenshot.value = snapshot.image;
+    }
+  } catch {
+    // The browser may still be starting. The next health/socket event retries.
+  } finally {
+    agentSnapshotBusy = false;
+  }
+}
+
+function startAgentSnapshot() {
+  clearInterval(agentSnapshotTimer);
+  agentSnapshotTimer = null;
+  const job = selectedAccountActiveJob.value;
+  if (activePage.value !== "platforms" || !job || !job.interactive) {
+    return;
+  }
+  refreshAgentSnapshot();
+  agentSnapshotTimer = setInterval(refreshAgentSnapshot, 1500);
+}
+
+async function finishSelectedIntervention(jobId = selectedJobId.value) {
+  if (!jobId) return;
+  try {
+    const job = await api.finishIntervention(jobId);
+    jobs.value = jobs.value.map((item) => (
+      item.id === job.id ? { ...item, ...job } : item
+    ));
+    notice.value = "已结束手动介入，可以继续人工核对提交结果";
+    const [eventData, artifactData] = await Promise.all([
+      api.events(job.id),
+      api.artifacts(job.id)
+    ]);
+    events.value = eventData;
+    artifacts.value = artifactData;
+  } catch (interventionError) {
+    setError(interventionError);
   }
 }
 
@@ -1131,6 +1338,7 @@ function connectJobSocket(jobId) {
       "stopped",
       "completed",
       "incomplete",
+      "needs_intervention",
       "error",
       "interrupted",
       "submission_verified",
@@ -1146,6 +1354,7 @@ function connectJobSocket(jobId) {
       "stopped",
       "completed",
       "incomplete",
+      "needs_intervention",
       "error",
       "interrupted"
     ].includes(event.kind)) {
@@ -1363,15 +1572,20 @@ watch(selectedSemester, () => {
 watch(activePage, async () => {
   await syncPlatformLiveJob();
   startProfilePreview();
+  startAgentSnapshot();
 });
 
 watch(selectedAccountActiveJob, async (job) => {
   if (activePage.value !== "platforms") return;
   if (job) {
     clearInterval(profilePreviewTimer);
+    profilePreviewTimer = null;
+    startAgentSnapshot();
     await syncPlatformLiveJob();
     return;
   }
+  clearInterval(agentSnapshotTimer);
+  agentSnapshotTimer = null;
   startProfilePreview();
 });
 
@@ -1432,6 +1646,7 @@ onUnmounted(() => {
   if (loginTimer) clearInterval(loginTimer);
   if (weixinTimer) clearInterval(weixinTimer);
   if (profilePreviewTimer) clearInterval(profilePreviewTimer);
+  if (agentSnapshotTimer) clearInterval(agentSnapshotTimer);
   if (collectionPollTimer) clearInterval(collectionPollTimer);
   if (connectionTimer) clearInterval(connectionTimer);
 });
@@ -1469,7 +1684,7 @@ onUnmounted(() => {
           <span>{{ item.label }}</span>
         </button>
         <div class="side-nav-footer">
-          <small>v0.3.1</small>
+          <small>v0.3.2</small>
         </div>
       </nav>
 
@@ -1582,12 +1797,20 @@ onUnmounted(() => {
           </div>
           <div v-if="selectedJob" class="job-controls">
             <button
-              v-if="isActiveJob(selectedJob) && selectedJob.interactive"
-              class="button dark"
+              v-if="(isActiveJob(selectedJob) || isNeedsIntervention(selectedJob)) && selectedJob.interactive"
+              class="button dark browser-entry-button"
               type="button"
               @click="focusAgentBrowser"
             >
-              切到浏览器
+              进入实时浏览器
+            </button>
+            <button
+              v-if="isNeedsIntervention(selectedJob)"
+              class="button dark"
+              type="button"
+              @click="finishSelectedIntervention()"
+            >
+              结束介入
             </button>
             <button
               v-if="['queued','running'].includes(selectedJob.status)"
@@ -1648,15 +1871,23 @@ onUnmounted(() => {
                 </template>
               </small>
             </div>
-            <p v-if="selectedJob.error" class="result-error">{{ selectedJob.error }}</p>
+            <p v-if="isNeedsIntervention(selectedJob)" class="result-intervention">
+              浏览器保持开启。请点击“进入实时浏览器”手动补充，处理完成后点击“结束介入”。
+            </p>
+            <p v-else-if="selectedJob.error" class="result-error">{{ selectedJob.error }}</p>
             <p v-else-if="selectedJobResult">{{ selectedJobResult }}</p>
             <p v-else>本次任务没有生成文字摘要，请查看执行凭证。</p>
             <div class="result-actions">
-              <button class="button light" type="button" @click="openSelectedJobAssignment">
+              <button
+                v-if="!isNeedsIntervention(selectedJob)"
+                class="button light"
+                type="button"
+                @click="openSelectedJobAssignment"
+              >
                 打开作业核对
               </button>
               <button
-                v-if="['filled_pending_review','partial_pending_review'].includes(selectedJob.submission_status)"
+                v-if="!isNeedsIntervention(selectedJob) && ['filled_pending_review','partial_pending_review'].includes(selectedJob.submission_status)"
                 class="button dark"
                 type="button"
                 :disabled="verificationBusy"
@@ -1665,7 +1896,7 @@ onUnmounted(() => {
                 确认已核对
               </button>
               <button
-                v-if="['submitted_unverified','submission_unknown'].includes(selectedJob.submission_status)"
+                v-if="!isNeedsIntervention(selectedJob) && ['submitted_unverified','submission_unknown'].includes(selectedJob.submission_status)"
                 class="button dark"
                 type="button"
                 :disabled="verificationBusy"
@@ -1674,7 +1905,7 @@ onUnmounted(() => {
                 确认已提交
               </button>
               <button
-                v-if="['submitted_unverified','submission_unknown','not_submitted'].includes(selectedJob.submission_status)"
+                v-if="!isNeedsIntervention(selectedJob) && ['submitted_unverified','submission_unknown','not_submitted'].includes(selectedJob.submission_status)"
                 class="button light"
                 type="button"
                 :disabled="verificationBusy"
@@ -1700,8 +1931,8 @@ onUnmounted(() => {
             aria-live="polite"
           >
             <strong>{{ currentAgentState?.message || "等待 Agent 日志" }}</strong>
-            <p v-if="actionSummary(currentAgentState?.data?.actions)">
-              {{ actionSummary(currentAgentState.data.actions) }}
+            <p v-if="actionSummary(currentAgentState?.data?.actions, currentAgentState?.data?.action_details)">
+              {{ actionSummary(currentAgentState.data.actions, currentAgentState.data.action_details) }}
             </p>
             <p v-if="currentAgentState?.data?.url">{{ currentAgentState.data.url }}</p>
             <small v-if="currentAgentState">
@@ -1722,8 +1953,8 @@ onUnmounted(() => {
               <span class="event-dot" :class="event.kind"></span>
               <div>
                 <strong>{{ event.message || event.kind }}</strong>
-                <p v-if="actionSummary(event.data?.actions)">
-                  {{ actionSummary(event.data.actions) }}
+                <p v-if="actionSummary(event.data?.actions, event.data?.action_details)">
+                  {{ actionSummary(event.data.actions, event.data.action_details) }}
                 </p>
                 <p v-if="event.data?.thought">{{ event.data.thought }}</p>
                 <small>{{ new Date(event.created_at).toLocaleTimeString("zh-CN") }}</small>
@@ -2011,13 +2242,18 @@ onUnmounted(() => {
           </section>
         </section>
         <aside
-          class="profile-preview-panel"
-          :class="{ 'live-task-panel': Boolean(platformLiveJob) }"
+          class="profile-preview-panel platform-browser-panel"
+          :class="{
+            'live-task-panel': Boolean(platformLiveJob),
+            'active-browser-panel': Boolean(selectedAccountActiveJob)
+          }"
         >
           <div class="profile-preview-heading">
             <div>
               <span class="eyebrow">
-                {{ selectedAccountActiveJob ? "实时执行" : (platformLiveJob ? "最近任务" : "当前 Profile") }}
+                {{ selectedAccountActiveJob
+                  ? (isNeedsIntervention(selectedAccountActiveJob) ? "等待人工介入" : "实时执行")
+                  : (platformLiveJob ? "最近任务" : "当前 Profile") }}
               </span>
               <h2>
                 {{ platformLiveJob?.assignment_title
@@ -2031,11 +2267,19 @@ onUnmounted(() => {
             <div class="preview-actions">
               <button
                 v-if="selectedAccountActiveJob && selectedAccountActiveJob.interactive"
-                class="button dark"
+                class="button dark browser-entry-button"
                 type="button"
                 @click="focusAgentBrowser"
               >
-                切到浏览器
+                进入实时浏览器
+              </button>
+              <button
+                v-if="selectedAccountActiveJob && isNeedsIntervention(selectedAccountActiveJob)"
+                class="button dark"
+                type="button"
+                @click="finishSelectedIntervention(selectedAccountActiveJob.id)"
+              >
+                结束介入
               </button>
               <button
                 v-if="platformLiveJob"
@@ -2074,8 +2318,8 @@ onUnmounted(() => {
             </div>
             <div v-if="selectedAccountActiveJob" class="platform-agent-state">
               <strong>{{ currentAgentState?.message || "等待 Agent 日志" }}</strong>
-              <p v-if="actionSummary(currentAgentState?.data?.actions)">
-                {{ actionSummary(currentAgentState.data.actions) }}
+              <p v-if="actionSummary(currentAgentState?.data?.actions, currentAgentState?.data?.action_details)">
+                {{ actionSummary(currentAgentState.data.actions, currentAgentState.data.action_details) }}
               </p>
               <p v-if="currentAgentState?.data?.url" class="platform-agent-url">
                 {{ currentAgentState.data.url }}
@@ -2085,7 +2329,7 @@ onUnmounted(() => {
               class="platform-live-image"
               type="button"
               :disabled="!(selectedAccountActiveJob && selectedAccountActiveJob.interactive)"
-              :title="selectedAccountActiveJob?.interactive ? '点击切到 Agent 浏览器' : '任务没有可操控页面'"
+              :title="selectedAccountActiveJob?.interactive ? '进入与 Agent 同步的实时浏览器' : '任务没有可操控页面'"
               @click="focusAgentBrowser"
             >
               <img v-if="screenshot" :src="screenshot" alt="Agent 当前操作页面">
@@ -2093,24 +2337,9 @@ onUnmounted(() => {
                 {{ selectedAccountActiveJob ? "等待 Agent 首帧画面..." : "没有可显示的页面截图" }}
               </div>
             </button>
-            <div class="platform-live-timeline">
-              <article
-                v-for="event in visibleEvents.slice(0, 6)"
-                :key="`platform-${event.id}`"
-              >
-                <span class="event-dot" :class="event.kind"></span>
-                <div>
-                  <strong>{{ eventMessagePreview(event.message || event.kind) }}</strong>
-                  <p v-if="actionSummary(event.data?.actions)">
-                    {{ actionSummary(event.data.actions) }}
-                  </p>
-                  <small>{{ new Date(event.created_at).toLocaleTimeString("zh-CN") }}</small>
-                </div>
-              </article>
-              <div v-if="visibleEvents.length === 0" class="empty-inline">
-                暂无执行日志
-              </div>
-            </div>
+            <p v-if="selectedAccountActiveJob" class="platform-sync-note">
+              与 Agent 共用同一个 Chrome 会话。打开浏览器不会暂停任务，手动操作会同步到此预览。
+            </p>
           </template>
 
           <template v-else>
@@ -2127,6 +2356,75 @@ onUnmounted(() => {
               </div>
             </div>
           </template>
+        </aside>
+        <aside class="platform-log-panel">
+          <div class="platform-log-heading">
+            <div>
+              <span class="eyebrow">执行日志</span>
+              <h2>步骤状态</h2>
+            </div>
+            <span class="count" :title="`已完成 ${completedStepCount} 个动作步骤`">
+              {{ completedStepCount }}
+            </span>
+          </div>
+          <template v-if="platformLiveJob">
+            <div class="workflow-stages">
+              <div
+                v-for="stage in workflowStages"
+                :key="stage.id"
+                class="workflow-stage"
+                :class="stage.state"
+              >
+                <span class="workflow-stage-dot"></span>
+                <div>
+                  <strong>{{ stage.label }}</strong>
+                  <small>{{ stage.detail }}</small>
+                </div>
+              </div>
+            </div>
+            <div class="platform-log-stream">
+              <TransitionGroup name="log-pop" tag="div">
+                <article
+                  v-for="event in visibleEvents.slice(0, 20)"
+                  :key="`platform-${event.id}`"
+                >
+                  <span class="event-dot" :class="event.kind"></span>
+                  <div>
+                    <div class="platform-log-event-meta">
+                      <span v-if="event.step_number" class="platform-log-step">
+                        #{{ event.step_number }}
+                      </span>
+                      <span class="platform-log-state" :class="event.kind">
+                        {{ event.state_label }}
+                      </span>
+                    </div>
+                    <strong>{{ eventMessagePreview(event.message || event.kind) }}</strong>
+                    <p v-if="actionSummary(event.data?.actions, event.data?.action_details)">
+                      {{ actionSummary(event.data.actions, event.data.action_details) }}
+                    </p>
+                    <small>{{ new Date(event.created_at).toLocaleTimeString("zh-CN") }}</small>
+                  </div>
+                </article>
+              </TransitionGroup>
+              <div v-if="visibleEvents.length === 0" class="empty-inline">
+                暂无执行日志
+              </div>
+            </div>
+            <div v-if="artifacts.length" class="platform-log-artifacts">
+              <a
+                v-for="artifact in artifacts.slice(-5)"
+                :key="artifact.id"
+                :href="`http://127.0.0.1:8877/api/artifacts/${artifact.id}`"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {{ artifactLabel(artifact.kind) }}
+              </a>
+            </div>
+          </template>
+          <div v-else class="platform-log-empty">
+            执行作业后，这里会实时显示步骤状态和操作日志。
+          </div>
         </aside>
       </main>
 

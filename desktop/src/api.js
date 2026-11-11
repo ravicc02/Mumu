@@ -113,6 +113,11 @@ export const api = {
     `/api/jobs/${jobId}/focus-browser`,
     { method: "POST" }
   ),
+  jobSnapshot: (jobId) => request(`/api/jobs/${jobId}/snapshot`),
+  finishIntervention: (jobId) => request(
+    `/api/jobs/${jobId}/finish-intervention`,
+    { method: "POST" }
+  ),
   retryJob: (jobId) => request(`/api/jobs/${jobId}/retry`, { method: "POST" }),
   verifySubmission: (jobId, status, note = "") => request(
     `/api/jobs/${jobId}/submission-status`,

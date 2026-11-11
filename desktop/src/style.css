@@ -380,8 +380,32 @@ button {
   display: grid;
   grid-column: 2;
   grid-row: 2;
-  grid-template-columns: 280px minmax(420px, 1fr) minmax(360px, 0.8fr);
+  grid-template-columns:
+    230px
+    minmax(360px, 0.72fr)
+    minmax(500px, 1.35fr)
+    minmax(260px, 0.55fr);
   min-height: 0;
+}
+
+.account-rail {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.assignment-board {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.platform-browser-panel {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.platform-log-panel {
+  grid-column: 4;
+  grid-row: 1;
 }
 
 .settings-page {
@@ -722,7 +746,8 @@ button {
 }
 
 .account-dot.waiting,
-.job-status.running {
+.job-status.running,
+.job-status.needs_intervention {
   background: var(--orange);
 }
 
@@ -1004,7 +1029,8 @@ button {
 .assignment-job-state.running,
 .assignment-job-state.queued,
 .assignment-job-state.paused,
-.assignment-job-state.stopping {
+.assignment-job-state.stopping,
+.assignment-job-state.needs_intervention {
   background: #fff0dc;
   color: var(--orange);
 }
@@ -1067,6 +1093,11 @@ button {
 }
 
 .job-badge.running {
+  background: #fff0dc;
+  color: var(--orange);
+}
+
+.job-badge.needs_intervention {
   background: #fff0dc;
   color: var(--orange);
 }
@@ -1159,6 +1190,13 @@ button {
 
 .job-result-card p.result-error {
   color: var(--red);
+}
+
+.job-result-card p.result-intervention {
+  border-left: 3px solid var(--orange);
+  background: #fff7eb;
+  padding: 6px 8px;
+  color: #7a4a12;
 }
 
 .result-actions {
@@ -1285,6 +1323,10 @@ button {
 .event-dot.stalled,
 .event-dot.notification_error {
   background: var(--red);
+}
+
+.event-dot.needs_intervention {
+  background: var(--orange);
 }
 
 .event-dot.notification {
@@ -1759,9 +1801,15 @@ button {
 }
 
 .profile-preview-panel.live-task-panel {
-  grid-template-rows: auto auto auto clamp(160px, 24vh, 230px) minmax(200px, 1fr);
+  grid-template-rows: auto auto auto auto;
   align-content: start;
   overflow-y: auto;
+}
+
+.profile-preview-panel.active-browser-panel {
+  grid-template-rows: auto auto auto minmax(240px, 1fr) auto;
+  align-content: stretch;
+  overflow: hidden;
 }
 
 .live-task-panel .profile-preview-heading {
@@ -1812,12 +1860,13 @@ button {
 
 .platform-live-image {
   display: grid;
-  align-self: start;
+  align-self: stretch;
   width: 100%;
-  height: clamp(160px, 24vh, 230px);
+  height: 100%;
+  min-height: clamp(280px, 34vh, 460px);
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 4px;
   background: #17201a;
   padding: 0;
   cursor: pointer;
@@ -1834,6 +1883,17 @@ button {
   object-fit: contain;
 }
 
+.platform-sync-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.browser-entry-button {
+  min-width: 120px;
+}
+
 .platform-live-timeline {
   display: grid;
   align-content: start;
@@ -1841,12 +1901,6 @@ button {
   overflow: auto;
   border-top: 1px solid var(--line);
   padding-top: 6px;
-}
-
-@media (min-width: 1500px) {
-  .platform-layout {
-    grid-template-columns: 280px minmax(500px, 1fr) minmax(480px, 1.08fr);
-  }
 }
 
 .platform-live-timeline article {
@@ -1882,6 +1936,229 @@ button {
   margin-top: 3px;
   color: var(--muted);
   font-size: 9px;
+}
+
+.platform-log-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--line);
+  background: #f8faf7;
+  padding: 18px;
+}
+
+.platform-log-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.platform-log-heading h2 {
+  margin: 4px 0 0;
+  font-size: 18px;
+}
+
+.workflow-stages {
+  display: grid;
+  gap: 4px;
+  border-block: 1px solid var(--line);
+  padding: 8px 0;
+}
+
+.workflow-stage {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 5px 0;
+  color: var(--muted);
+}
+
+.workflow-stage-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border: 1px solid #9da8a0;
+  border-radius: 50%;
+  background: white;
+}
+
+.workflow-stage strong {
+  display: block;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.workflow-stage small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.workflow-stage.done .workflow-stage-dot {
+  border-color: var(--green);
+  background: var(--green);
+}
+
+.workflow-stage.active .workflow-stage-dot {
+  border-color: var(--orange);
+  background: var(--orange);
+  box-shadow: 0 0 0 3px #f7e5ce;
+}
+
+.workflow-stage.attention .workflow-stage-dot,
+.workflow-stage.error .workflow-stage-dot {
+  border-color: var(--red);
+  background: var(--red);
+}
+
+.workflow-stage.active strong,
+.workflow-stage.attention strong {
+  color: var(--orange);
+}
+
+.workflow-stage.error strong {
+  color: var(--red);
+}
+
+.platform-log-stream {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 3px;
+}
+
+.platform-log-stream > div {
+  display: grid;
+  align-content: start;
+}
+
+.platform-log-stream article {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr);
+  gap: 7px;
+  padding: 7px 0;
+  border-bottom: 1px solid #e1e6e1;
+}
+
+.platform-log-event-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 3px;
+}
+
+.platform-log-step,
+.platform-log-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 17px;
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.platform-log-step {
+  background: #e9efea;
+  color: #34483b;
+  font-variant-numeric: tabular-nums;
+}
+
+.platform-log-state {
+  background: #eef1ee;
+  color: var(--muted);
+}
+
+.platform-log-state.step,
+.platform-log-state.completed,
+.platform-log-state.session_ready,
+.platform-log-state.agent_ready,
+.platform-log-state.submission_verified,
+.platform-log-state.submission_reviewed {
+  background: #e9f4ea;
+  color: #225b2d;
+}
+
+.platform-log-state.running,
+.platform-log-state.thinking,
+.platform-log-state.browser_starting {
+  background: #fff0dc;
+  color: #915810;
+}
+
+.platform-log-state.needs_intervention,
+.platform-log-state.incomplete,
+.platform-log-state.stalled {
+  background: #fff0dc;
+  color: #a24713;
+}
+
+.platform-log-state.error,
+.platform-log-state.failed,
+.platform-log-state.interrupted {
+  background: #fbe9e6;
+  color: #9e3127;
+}
+
+.platform-log-stream strong {
+  display: block;
+  max-width: 34ch;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.platform-log-stream p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.platform-log-stream small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.platform-log-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.platform-log-artifacts a {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: white;
+  padding: 4px 6px;
+  color: var(--green);
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.platform-log-empty {
+  align-self: start;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.log-pop-enter-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.log-pop-enter-from {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 .profile-preview-image {
@@ -1932,6 +2209,59 @@ button {
   max-width: 900px;
 }
 
+@media (max-width: 1500px) {
+  .platform-layout {
+    grid-template-columns: 210px minmax(330px, 0.88fr) minmax(420px, 1.12fr);
+    grid-template-rows: minmax(0, 1fr) 280px;
+  }
+
+  .account-rail {
+    grid-row: 1 / 3;
+  }
+
+  .assignment-board {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .platform-browser-panel {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .platform-log-panel {
+    grid-column: 2 / 4;
+    grid-row: 2;
+    grid-template-columns: minmax(210px, 0.45fr) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .platform-log-heading {
+    grid-column: 1 / -1;
+  }
+
+  .workflow-stages {
+    grid-column: 1;
+    grid-row: 2;
+    overflow: auto;
+    border: 0;
+    border-right: 1px solid var(--line);
+    padding: 0 10px 0 0;
+  }
+
+  .platform-log-stream {
+    grid-column: 2;
+    grid-row: 2;
+    padding-left: 4px;
+  }
+
+  .platform-log-artifacts {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 1250px) {
   .agent-content-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -1942,10 +2272,6 @@ button {
   .agent-activity-column {
     overflow: visible;
     padding-right: 0;
-  }
-
-  .platform-layout {
-    grid-template-columns: 240px minmax(360px, 1fr) minmax(260px, 0.72fr);
   }
 
   .assignment-board {

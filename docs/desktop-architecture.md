@@ -67,13 +67,34 @@ Agent 启动后会先把 `storage-state.json` 中的 Cookie 和本地存储注�
 - Agent 启动前先关闭该账号的预览窗口，再由应用启动本机 Chrome。
 - browser-use 通过 CDP 连接该 Chrome，直接复用账号持久化 `user_data_dir` 中的登录态。
 - 每步通过 CDP 保存截图、动作记录和当前 URL。
-- 任务执行结果与作业提交结果分开记录；Agent 自报未完成时进入 `incomplete`，不会伪装成成功。
+- 任务执行结果与作业提交结果分开记录；Agent 自报未完成时进入 `needs_intervention`，不会伪装成成功。
+- `needs_intervention` 保留 Chrome、BrowserSession、截图流和账号锁，用户可从平台页直接切到浏览器继续操作。
+- 用户点击“结束介入”后，浏览器关闭、账号锁释放、任务转为 `stopped`，再由人工核对作业提交状态。
 - 任务心跳超过 2 分钟会写入 `stalled` 事件；停止超时后强制取消执行任务。
 - 重试会记录 `parent_job_id` 和递增的 `attempt`。
 - 人工可在任务结束后确认 `submitted_verified` 或 `not_submitted`。
-- DeepSeek 使用 JSON Object 输出、可配置的第二模型 Fallback，并绕过 Windows WMI 平台探测阻塞。
+- DeepSeek 使用原生 function calling 约束 `AgentOutput`，保留可配置的第二模型 Fallback，并绕过 Windows WMI 平台探测阻塞。
 - 默认不点击最终提交。
 - 完成后保存最终截图、Agent 历史和结果 JSON。
+
+## 平台页状态机
+
+平台页固定分为四栏：
+
+1. 平台和账号：账号授权、Cookie 刷新、重命名、删除。
+2. 作业：学期筛选、采集、多选、批量执行和单作业执行。
+3. 大尺寸实时浏览器：显示 Agent 当前截图；可操控任务可进入同一个真实 Chrome。
+4. 实时日志：展示宏观流程状态机和逐条 WebSocket 事件。
+
+“进入实时浏览器”通过 CDP 恢复 Chrome 窗口并将目标页切到前台，不重启浏览器、不暂停 Agent。前端在运行中和待介入状态下还会轮询 `/api/jobs/{id}/snapshot`，因此用户在 Chrome 中手动操作后，页面预览也会随同一页面状态更新。
+
+任务日志状态机：
+
+```text
+任务排队 -> 登录与浏览器 -> Agent 初始化 -> 页面分析 -> 执行步骤 -> 结果确认
+```
+
+每个步骤事件记录 Agent 的结构化动作，例如点击、输入、跳转、按键和上传。日志条目同时显示步骤号、事件状态、动作详情和时间。任务进入 `needs_intervention` 时，日志状态机把“执行步骤”和“结果确认”标记为待处理，并继续订阅同一个 WebSocket。
 
 ## 当前边界
 

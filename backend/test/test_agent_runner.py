@@ -16,14 +16,28 @@ class FakeProcess:
     pid = 4242
     returncode = None
 
+    def terminate(self) -> None:
+        self.returncode = -15
+
+    def kill(self) -> None:
+        self.returncode = -9
+
+    async def wait(self) -> int:
+        return int(self.returncode or 0)
+
 
 class FakeCurrentState:
     next_goal = "填写第一题"
 
 
+class FakeClickAction:
+    def model_dump(self, **_kwargs) -> dict:
+        return {"index": 5}
+
+
 class FakeOutput:
     current_state = FakeCurrentState()
-    action = []
+    action = [FakeClickAction()]
 
 
 class FakeHistory:
@@ -91,14 +105,26 @@ class FakeFocusPage:
 class FakeFocusSession:
     def __init__(self) -> None:
         self.called = False
+        self.window_restored = False
         session = self
 
         class PageApi:
             async def bringToFront(self, **kwargs):
                 session.called = kwargs.get("session_id") == "page-session"
 
+        class BrowserApi:
+            async def getWindowForTarget(self):
+                return {"windowId": 7}
+
+            async def setWindowBounds(self, params):
+                session.window_restored = (
+                    params["windowId"] == 7
+                    and params["bounds"]["windowState"] == "normal"
+                )
+
         class SendApi:
             Page = PageApi()
+            Browser = BrowserApi()
 
         class CdpClient:
             send = SendApi()
@@ -110,25 +136,36 @@ class FakeFocusSession:
 
 
 class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
-    async def test_json_object_client_wrapper_injects_response_format(self) -> None:
+    async def test_deepseek_uses_native_function_calling_model(self) -> None:
         captured = {}
 
-        class Delegate:
-            async def create(self, **kwargs):
+        class CapturingDeepSeek:
+            def __init__(self, **kwargs):
                 captured.update(kwargs)
-                return "ok"
 
-        completions = agent_runner._JsonObjectCompletions(Delegate())
-        result = await completions.create(model="test-model", messages=[])
-        self.assertEqual(result, "ok")
-        self.assertEqual(captured["response_format"], {"type": "json_object"})
+        settings = Settings(
+            openai_model="deepseek-v4.1-flash",
+            openai_api_key="test-key",
+            openai_base_url="https://example.test/v1",
+            reasoning_effort="high",
+        )
+        with patch.object(
+            agent_runner,
+            "ReasoningDeepSeekChat",
+            CapturingDeepSeek,
+        ):
+            agent_runner._build_agent_llm(
+                settings,
+                settings.openai_model,
+                temperature=0.1,
+                max_retries=1,
+            )
+        self.assertEqual(captured["model"], "deepseek-v4.1-flash")
+        self.assertEqual(captured["reasoning_effort"], "high")
+        self.assertEqual(captured["max_tokens"], 8192)
         self.assertIs(
             agent_runner.browser_use_utils.SignalHandler,
             agent_runner._NoopSignalHandler,
-        )
-        self.assertEqual(
-            agent_runner._clean_json_content('```json\n{"ok": true}\n```'),
-            '{"ok": true}',
         )
 
     async def test_pause_resume_and_stop_transitions(self) -> None:
@@ -241,8 +278,31 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
         try:
             self.assertTrue(await agent_runner.focus_job_browser("focus-job"))
             self.assertTrue(session.called)
+            self.assertTrue(session.window_restored)
         finally:
             agent_runner._job_sessions.pop("focus-job", None)
+
+    async def test_capture_job_snapshot_uses_active_browser_session(self) -> None:
+        async def fake_capture(*_args, **_kwargs):
+            return b"png-data", "https://example.test/current"
+
+        agent_runner._job_sessions["snapshot-job"] = object()
+        try:
+            with patch.object(
+                agent_runner,
+                "_capture_screenshot",
+                fake_capture,
+            ):
+                snapshot = await agent_runner.capture_job_snapshot(
+                    "snapshot-job"
+                )
+        finally:
+            agent_runner._job_sessions.pop("snapshot-job", None)
+        self.assertEqual(snapshot["url"], "https://example.test/current")
+        self.assertEqual(
+            snapshot["image"],
+            "data:image/png;base64,cG5nLWRhdGE=",
+        )
 
     async def test_restore_storage_state_injects_cookies_and_origin_script(self) -> None:
         class Session:
@@ -448,6 +508,15 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                     "completed",
                 }.issubset(event_kinds)
             )
+            step_event = next(
+                event
+                for event in database.list_events(job["id"])
+                if event["kind"] == "step"
+            )
+            self.assertEqual(
+                step_event["data"]["action_details"],
+                [{"type": "FakeClickAction", "data": {"index": 5}}],
+            )
             artifact_kinds = {
                 artifact["kind"]
                 for artifact in database.list_artifacts(job["id"])
@@ -519,7 +588,6 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                     fake_verify_session_page,
                 ),
                 patch.object(agent_runner, "ChatOpenAI", lambda **_kwargs: object()),
-                patch.object(agent_runner, "JsonObjectChatOpenAI", lambda **_kwargs: object()),
                 patch.object(agent_runner, "Agent", FakeIncompleteAgent),
                 patch.object(
                     agent_runner.preview_manager,
@@ -541,18 +609,25 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                 )
 
             result = database.get_job(job["id"])
-            self.assertEqual(result["status"], "incomplete")
+            self.assertEqual(result["status"], "needs_intervention")
             self.assertEqual(
                 result["submission_status"],
                 "partial_pending_review",
             )
             self.assertIn(
-                "incomplete",
+                "needs_intervention",
                 {
                     event["kind"]
                     for event in database.list_events(job["id"])
                 },
             )
+            finished = await agent_runner.finish_job_intervention(
+                database,
+                EventHub(),
+                job["id"],
+            )
+            self.assertEqual(finished["status"], "stopped")
+            self.assertEqual(finished["error"], "用户已结束手动介入")
 
     async def test_notification_failure_does_not_change_completed_status(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

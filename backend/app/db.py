@@ -11,7 +11,13 @@ from typing import Any, Iterator
 from .config import Settings
 
 
-ACTIVE_JOB_STATUSES = {"queued", "running", "paused", "stopping"}
+ACTIVE_JOB_STATUSES = {
+    "queued",
+    "running",
+    "paused",
+    "stopping",
+    "needs_intervention",
+}
 JOB_TRANSITIONS = {
     "queued": {"running", "paused", "stopping", "stopped", "failed", "interrupted"},
     "running": {
@@ -21,6 +27,7 @@ JOB_TRANSITIONS = {
         "stopped",
         "completed",
         "incomplete",
+        "needs_intervention",
         "failed",
         "interrupted",
     },
@@ -30,6 +37,7 @@ JOB_TRANSITIONS = {
     "completed": set(),
     "incomplete": set(),
     "failed": set(),
+    "needs_intervention": {"stopped", "failed", "interrupted"},
     "interrupted": set(),
 }
 
@@ -180,9 +188,16 @@ class Database:
                   ON job_events(job_id, id);
                 CREATE INDEX IF NOT EXISTS idx_collection_runs_account
                   ON collection_runs(account_id, started_at);
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_active_assignment
+                DROP INDEX IF EXISTS idx_jobs_active_assignment;
+                CREATE UNIQUE INDEX idx_jobs_active_assignment
                   ON jobs(assignment_id)
-                  WHERE status IN ('queued', 'running', 'paused', 'stopping');
+                  WHERE status IN (
+                    'queued',
+                    'running',
+                    'paused',
+                    'stopping',
+                    'needs_intervention'
+                  );
                 """
             )
             job_columns = {
@@ -238,7 +253,7 @@ class Database:
                     THEN 'submitted_unverified'
                   WHEN status = 'completed'
                     THEN 'filled_pending_review'
-                  WHEN status = 'incomplete'
+                  WHEN status IN ('incomplete', 'needs_intervention')
                     THEN 'partial_pending_review'
                   WHEN status IN ('failed', 'stopped', 'interrupted')
                     THEN 'not_submitted'
@@ -932,7 +947,13 @@ class Database:
                 """
                 SELECT 1 FROM jobs
                 WHERE account_id = ?
-                  AND status IN ('queued', 'running', 'paused', 'stopping')
+                  AND status IN (
+                    'queued',
+                    'running',
+                    'paused',
+                    'stopping',
+                    'needs_intervention'
+                  )
                 LIMIT 1
                 """,
                 (account_id,),
@@ -945,7 +966,13 @@ class Database:
                 """
                 SELECT 1 FROM jobs
                 WHERE assignment_id = ?
-                  AND status IN ('queued', 'running', 'paused', 'stopping')
+                  AND status IN (
+                    'queued',
+                    'running',
+                    'paused',
+                    'stopping',
+                    'needs_intervention'
+                  )
                 LIMIT 1
                 """,
                 (assignment_id,),
@@ -958,7 +985,13 @@ class Database:
             rows = connection.execute(
                 """
                 SELECT id, status FROM jobs
-                WHERE status IN ('queued', 'running', 'paused', 'stopping')
+                WHERE status IN (
+                  'queued',
+                  'running',
+                  'paused',
+                  'stopping',
+                  'needs_intervention'
+                )
                 """
             ).fetchall()
             for row in rows:

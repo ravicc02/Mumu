@@ -8,14 +8,16 @@ import logging
 import os
 import platform
 import socket
-from urllib.parse import urlparse
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from browser_use import Agent, BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.config import CONFIG
+from browser_use.llm.deepseek.chat import ChatDeepSeek
 from browser_use.llm.openai.chat import ChatOpenAI
 import browser_use.utils as browser_use_utils
 
@@ -34,6 +36,16 @@ _running_jobs: dict[str, asyncio.Task[None]] = {}
 _job_controls: dict[str, "JobControl"] = {}
 _account_locks: dict[str, asyncio.Lock] = {}
 _job_sessions: dict[str, BrowserSession] = {}
+
+
+@dataclass
+class PreservedSession:
+    session: BrowserSession
+    process: asyncio.subprocess.Process | None
+    account_lock: asyncio.Lock
+
+
+_intervention_sessions: dict[str, PreservedSession] = {}
 
 BROWSER_START_TIMEOUT_SECONDS = 45
 CHAOXING_EDITOR_SIMPLIFIER_SCRIPT = """
@@ -93,82 +105,77 @@ class _NoopSignalHandler:
 browser_use_utils.SignalHandler = _NoopSignalHandler
 
 
-class _JsonObjectCompletions:
-    def __init__(self, delegate: Any) -> None:
+class _ReasoningCompletions:
+    def __init__(self, delegate: Any, reasoning_effort: str | None) -> None:
         self._delegate = delegate
+        self._reasoning_effort = reasoning_effort
 
     async def create(self, *args: Any, **kwargs: Any) -> Any:
-        kwargs.setdefault("response_format", {"type": "json_object"})
-        response = None
-        for attempt in range(3):
-            response = await self._delegate.create(*args, **kwargs)
-            choices = getattr(response, "choices", None) or []
-            if not choices:
-                await asyncio.sleep(0.25 * (attempt + 1))
-                continue
-            message = getattr(choices[0], "message", None)
-            content = getattr(message, "content", None)
-            if not content:
-                logger.warning(
-                    "Model returned empty content on attempt %s",
-                    attempt + 1,
-                )
-                await asyncio.sleep(0.25 * (attempt + 1))
-                continue
-            cleaned = _clean_json_content(content)
-            if cleaned == content:
-                try:
-                    json.loads(cleaned)
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Model returned non-JSON content (length=%s): %s",
-                        len(cleaned),
-                        cleaned[:1200],
-                    )
-            if cleaned != content and message is not None:
-                message.content = cleaned
-            return response
-        return response
+        if self._reasoning_effort:
+            kwargs.setdefault("reasoning_effort", self._reasoning_effort)
+        return await self._delegate.create(*args, **kwargs)
 
 
-def _clean_json_content(content: str) -> str:
-    text = content.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    try:
-        json.loads(text)
-        return text
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            candidate = text[start:end + 1]
-            try:
-                json.loads(candidate)
-                return candidate
-            except json.JSONDecodeError:
-                pass
-    return text
+class _ReasoningChat:
+    def __init__(self, delegate: Any, reasoning_effort: str | None) -> None:
+        self.completions = _ReasoningCompletions(
+            delegate.completions,
+            reasoning_effort,
+        )
 
 
-class _JsonObjectChat:
-    def __init__(self, delegate: Any) -> None:
-        self.completions = _JsonObjectCompletions(delegate.completions)
+class _ReasoningClient:
+    def __init__(self, delegate: Any, reasoning_effort: str | None) -> None:
+        self.chat = _ReasoningChat(delegate.chat, reasoning_effort)
 
 
-class _JsonObjectClient:
-    def __init__(self, delegate: Any) -> None:
-        self.chat = _JsonObjectChat(delegate.chat)
+@dataclass
+class ReasoningDeepSeekChat(ChatDeepSeek):
+    reasoning_effort: str | None = None
+
+    def _client(self) -> Any:
+        return _ReasoningClient(
+            super()._client(),
+            self.reasoning_effort,
+        )
 
 
-class JsonObjectChatOpenAI(ChatOpenAI):
-    def get_client(self) -> Any:
-        return _JsonObjectClient(super().get_client())
+def _reasoning_effort(settings: Settings) -> str:
+    effort = settings.reasoning_effort.strip().lower()
+    if effort in {"none", "minimal", "low", "medium", "high", "xhigh"}:
+        return effort
+    return "medium"
+
+
+def _build_agent_llm(
+    settings: Settings,
+    model: str,
+    *,
+    temperature: float,
+    max_retries: int,
+) -> Any:
+    if "deepseek" in model.lower():
+        return ReasoningDeepSeekChat(
+            model=model,
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            temperature=temperature,
+            max_tokens=8192,
+            timeout=180,
+            client_params={"max_retries": max_retries},
+            reasoning_effort=_reasoning_effort(settings),
+        )
+    return ChatOpenAI(
+        model=model,
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        temperature=temperature,
+        frequency_penalty=0,
+        timeout=180,
+        max_retries=max_retries,
+        max_completion_tokens=8192,
+        reasoning_effort=_reasoning_effort(settings),
+    )
 
 
 def _free_port() -> int:
@@ -447,10 +454,73 @@ async def focus_job_browser(job_id: str) -> bool:
     if page is None:
         raise RuntimeError("任务当前没有可操作的页面")
     session_id = await _resolve_session_id(page)
+    try:
+        window = await session.cdp_client.send.Browser.getWindowForTarget()
+        window_id = window.get("windowId")
+        if window_id is not None:
+            await session.cdp_client.send.Browser.setWindowBounds({
+                "windowId": window_id,
+                "bounds": {"windowState": "normal"},
+            })
+    except Exception:
+        logger.debug("Could not restore browser window before focus", exc_info=True)
     await session.cdp_client.send.Page.bringToFront(
         session_id=session_id,
     )
     return True
+
+
+async def capture_job_snapshot(job_id: str) -> dict[str, str]:
+    session = _job_sessions.get(job_id)
+    if session is None:
+        raise RuntimeError("任务当前没有可预览的浏览器")
+    image, url = await _capture_screenshot(session)
+    return {
+        "image": "data:image/png;base64," + base64.b64encode(image).decode("ascii"),
+        "url": url,
+    }
+
+
+async def finish_job_intervention(
+    database: Database,
+    event_hub: EventHub,
+    job_id: str,
+) -> dict[str, Any]:
+    job = database.get_job(job_id)
+    if job["status"] != "needs_intervention":
+        raise RuntimeError("当前任务不在待介入状态")
+    preserved = _intervention_sessions.pop(job_id, None)
+    if preserved is not None:
+        try:
+            await asyncio.wait_for(preserved.session.kill(), timeout=8)
+        except Exception:
+            pass
+        await _terminate_process(preserved.process)
+        if preserved.account_lock.locked():
+            preserved.account_lock.release()
+    _job_sessions.pop(job_id, None)
+    database.transition_job(
+        job_id,
+        "stopped",
+        error="用户已结束手动介入",
+        finished_at=utc_now(),
+    )
+    event = database.add_event(job_id, "stopped", "已结束手动介入")
+    await event_hub.publish(job_id, event)
+    return database.get_job(job_id)
+
+
+async def close_preserved_sessions() -> None:
+    for job_id, preserved in list(_intervention_sessions.items()):
+        _intervention_sessions.pop(job_id, None)
+        try:
+            await asyncio.wait_for(preserved.session.kill(), timeout=8)
+        except Exception:
+            pass
+        await _terminate_process(preserved.process)
+        if preserved.account_lock.locked():
+            preserved.account_lock.release()
+        _job_sessions.pop(job_id, None)
 
 
 def pause_job(
@@ -577,6 +647,7 @@ async def run_job(
     step_counter = 0
     account_lock = _account_lock(job["account_id"])
     lock_acquired = False
+    preserve_session = False
     await emit("queued", "任务已创建，等待当前账号的 Agent 空闲")
     try:
         if not settings.openai_api_key:
@@ -679,54 +750,22 @@ async def run_job(
 
         await emit("agent_starting", "正在初始化模型和 Agent")
         is_deepseek = "deepseek" in settings.openai_model.lower()
-        llm_class = JsonObjectChatOpenAI if is_deepseek else ChatOpenAI
-        llm_params: dict[str, Any] = {
-            "model": settings.openai_model,
-            "api_key": settings.openai_api_key,
-            "base_url": settings.openai_base_url,
-            "temperature": 0.1,
-            "frequency_penalty": 0,
-            "timeout": 180,
-            "max_retries": 1,
-            "max_completion_tokens": 8192,
-            "reasoning_effort": (
-                settings.reasoning_effort
-                if settings.reasoning_effort
-                in {"none", "minimal", "low", "medium", "high", "xhigh"}
-                else "medium"
-            ),
-        }
-        if is_deepseek:
-            llm_params.update({
-                "add_schema_to_system_prompt": True,
-                "dont_force_structured_output": True,
-            })
-        llm = llm_class(**llm_params)
+        llm = _build_agent_llm(
+            settings,
+            settings.openai_model,
+            temperature=0.1,
+            max_retries=1,
+        )
         fallback_model = (
             settings.openai_fallback_model.strip()
             or settings.openai_model
         )
-        fallback_is_deepseek = "deepseek" in fallback_model.lower()
-        fallback_class = (
-            JsonObjectChatOpenAI
-            if fallback_is_deepseek
-            else ChatOpenAI
+        fallback_llm = _build_agent_llm(
+            settings,
+            fallback_model,
+            temperature=0,
+            max_retries=2,
         )
-        fallback_params = {
-            **llm_params,
-            "model": fallback_model,
-            "temperature": 0,
-            "max_retries": 2,
-        }
-        if fallback_is_deepseek:
-            fallback_params.update({
-                "add_schema_to_system_prompt": True,
-                "dont_force_structured_output": True,
-            })
-        else:
-            fallback_params.pop("add_schema_to_system_prompt", None)
-            fallback_params.pop("dont_force_structured_output", None)
-        fallback_llm = fallback_class(**fallback_params)
 
         async def on_step(
             _browser_state: Any,
@@ -743,6 +782,7 @@ async def run_job(
             )
             thought = ""
             action_names: list[str] = []
+            action_details: list[dict[str, Any]] = []
             if output is not None:
                 if hasattr(output, "current_state"):
                     state = output.current_state
@@ -754,14 +794,30 @@ async def run_job(
                         or ""
                     )
                 if hasattr(output, "action"):
-                    action_names = [
-                        item.__class__.__name__
-                        for item in (output.action or [])
-                    ]
+                    for item in (output.action or []):
+                        action_type = item.__class__.__name__
+                        action_names.append(action_type)
+                        payload: dict[str, Any] = {}
+                        if hasattr(item, "model_dump"):
+                            try:
+                                payload = item.model_dump(
+                                    mode="json",
+                                    exclude_none=True,
+                                )
+                            except Exception:
+                                payload = {}
+                        action_details.append({
+                            "type": action_type,
+                            "data": payload,
+                        })
             await emit(
                 "step",
                 f"步骤 {step_counter}",
-                {"thought": thought, "actions": action_names},
+                {
+                    "thought": thought,
+                    "actions": action_names,
+                    "action_details": action_details,
+                },
             )
             try:
                 screenshot, current_url = await _capture_screenshot(session)
@@ -935,21 +991,45 @@ async def run_job(
                 if job["auto_submit"]
                 else "partial_pending_review"
             )
-            database.transition_job(
-                job_id,
-                "incomplete",
-                submission_status=submission_status,
-                progress=95,
-                error="Agent 报告任务未完成",
-                finished_at=utc_now(),
-            )
-            await emit(
-                "incomplete",
-                final_result or "Agent 报告任务未完成",
-            )
+            if session is not None:
+                preserve_session = True
+                _intervention_sessions[job_id] = PreservedSession(
+                    session=session,
+                    process=browser_process,
+                    account_lock=account_lock,
+                )
+                database.transition_job(
+                    job_id,
+                    "needs_intervention",
+                    submission_status=submission_status,
+                    progress=95,
+                    error="Agent 未完成，浏览器已保留，等待人工介入",
+                )
+                await emit(
+                    "needs_intervention",
+                    "Agent 未完成，已保留浏览器等待人工介入",
+                    {"result": final_result or "Agent 报告任务未完成"},
+                )
+            else:
+                database.transition_job(
+                    job_id,
+                    "incomplete",
+                    submission_status=submission_status,
+                    progress=95,
+                    error="Agent 报告任务未完成",
+                    finished_at=utc_now(),
+                )
+                await emit(
+                    "incomplete",
+                    final_result or "Agent 报告任务未完成",
+                )
             await notify_safely(
                 {
-                    "event": "assignment_incomplete",
+                    "event": (
+                        "assignment_needs_intervention"
+                        if preserve_session
+                        else "assignment_incomplete"
+                    ),
                     "job_id": job_id,
                     "account": account["name"],
                     "course": job["course_name"],
@@ -1081,14 +1161,15 @@ async def run_job(
     finally:
         if heartbeat_task:
             heartbeat_task.cancel()
-        if session is not None:
-            try:
-                await asyncio.wait_for(session.kill(), timeout=8)
-            except Exception:
-                pass
-        await _terminate_process(browser_process)
-        if lock_acquired and account_lock.locked():
-            account_lock.release()
         _job_controls.pop(job_id, None)
-        _job_sessions.pop(job_id, None)
         _running_jobs.pop(job_id, None)
+        if not preserve_session:
+            if session is not None:
+                try:
+                    await asyncio.wait_for(session.kill(), timeout=8)
+                except Exception:
+                    pass
+            await _terminate_process(browser_process)
+            if lock_acquired and account_lock.locked():
+                account_lock.release()
+            _job_sessions.pop(job_id, None)

@@ -20,6 +20,9 @@ from .db import ActiveJobConflict, Database
 from .events import event_hub
 from .services.platforms import platform_registry
 from .services.agent_runner import (
+    capture_job_snapshot,
+    close_preserved_sessions,
+    finish_job_intervention,
     focus_job_browser,
     pause_job,
     resume_job,
@@ -160,6 +163,7 @@ async def lifespan(_: FastAPI):
             health_monitor_task,
             return_exceptions=True,
         )
+        await close_preserved_sessions()
         await preview_manager.close()
         logger.info("Local AI assignment studio stopped")
 
@@ -268,7 +272,7 @@ async def health() -> dict[str, Any]:
     model_config = get_model_config()
     return {
         "ok": True,
-        "version": "0.3.1",
+        "version": "0.3.2",
         "data_root": str(settings.data_root),
         "model": (model_config["models"] or [settings.openai_model])[0],
         "ai_configured": bool(model_config["api_key"]),
@@ -858,6 +862,24 @@ async def focus_agent_browser(job_id: str) -> dict[str, Any]:
     except RuntimeError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     return {"ok": True}
+
+
+@app.get("/api/jobs/{job_id}/snapshot")
+async def get_job_snapshot(job_id: str) -> dict[str, Any]:
+    try:
+        return await capture_job_snapshot(job_id)
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/api/jobs/{job_id}/finish-intervention")
+async def finish_intervention(job_id: str) -> dict[str, Any]:
+    try:
+        return await finish_job_intervention(database, event_hub, job_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @app.post("/api/jobs/{job_id}/retry")

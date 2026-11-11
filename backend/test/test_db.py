@@ -387,6 +387,42 @@ class DatabaseTests(unittest.TestCase):
         self.database.add_event(job["id"], "stalled", "test")
         self.assertEqual(self.database.stale_running_jobs(120), [])
 
+    def test_needs_intervention_keeps_assignment_locked(self) -> None:
+        account = self.database.create_account("测试用户", "chaoxing", self.settings)
+        assignment_id = self.database.upsert_assignment(
+            account["id"],
+            "chaoxing",
+            {
+                "academicYear": 2026,
+                "courseName": "软件工程",
+                "courseId": "course-1",
+                "classId": "class-1",
+                "title": "实验一",
+                "status": "unfinished",
+                "submittable": True,
+                "taskUrl": "https://example.test/1",
+                "workId": "work-1",
+            },
+            self.settings,
+        )
+        job = self.database.create_job(account["id"], assignment_id, False)
+        self.database.transition_job(job["id"], "running")
+        self.database.transition_job(
+            job["id"],
+            "needs_intervention",
+            submission_status="partial_pending_review",
+        )
+        self.assertTrue(self.database.has_active_job(account["id"]))
+        with self.assertRaises(ActiveJobConflict):
+            self.database.create_job(account["id"], assignment_id, False)
+        with self.assertRaises(RuntimeError):
+            self.database.update_submission_status(
+                job["id"],
+                "filled_verified",
+            )
+        self.database.transition_job(job["id"], "stopped")
+        self.assertFalse(self.database.has_active_job(account["id"]))
+
     def test_running_collection_is_failed_after_restart(self) -> None:
         account = self.database.create_account("测试用户", "chaoxing", self.settings)
         run = self.database.create_collection_run(account["id"], 2026)
