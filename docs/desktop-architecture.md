@@ -77,6 +77,22 @@ Agent 启动后会先把 `storage-state.json` 中的 Cookie 和本地存储注�
 - 默认不点击最终提交。
 - 完成后保存最终截图、Agent 历史和结果 JSON。
 
+### 学习通结构化题型适配
+
+学习通 `mooc2/work/task` 页面优先进入结构化答题流程，不进行几十步自由探索：
+
+1. 打开作业页并等待 UEditor 初始化。
+2. 一次性提取全部 `.questionLi`，识别 48 类作答单元，包括单选、多选、填空、判断、简答、共用选项、组合题和完形填空。
+3. 将题号、题型、题干、选项 key 和文本字段数量发送给模型，返回严格的 `QuizAnswerSheet`。
+4. 用确定性 DOM 适配脚本写入：
+   - `div[role=radio/checkbox]` 点击标准选项。
+   - `span[data]` 点击共用选项和组合题选项；共用选项题每次点击后重新查询 DOM，避免页面重渲染导致后续小组丢失。
+   - `textarea` 与对应 UEditor iframe 同步文本，并调用 `UE.setContent/sync`。
+   - 共用选项题写入隐藏 `answer<question-id>` JSON。
+5. 核验所有选择题隐藏值以及所有填空/简答字段，并将所有已作答题目的 `answerSheet<question-id>` 标记为 `active`，保证侧边答题卡与实际答案一致。
+6. 任一单元未写入则任务失败，不标记完成。
+7. 全部通过后进入 `needs_intervention`，保留浏览器供人工核对，不点击最终提交。
+
 ## 平台页状态机
 
 平台页固定分为四栏：
@@ -86,7 +102,7 @@ Agent 启动后会先把 `storage-state.json` 中的 Cookie 和本地存储注�
 3. 大尺寸实时浏览器：显示 Agent 当前截图；可操控任务可进入同一个真实 Chrome。
 4. 实时日志：展示宏观流程状态机和逐条 WebSocket 事件。
 
-“进入实时浏览器”通过 CDP 恢复 Chrome 窗口并将目标页切到前台，不重启浏览器、不暂停 Agent。前端在运行中和待介入状态下还会轮询 `/api/jobs/{id}/snapshot`，因此用户在 Chrome 中手动操作后，页面预览也会随同一页面状态更新。
+“进入实时浏览器”通过 CDP 恢复 Chrome 窗口并将目标页切到前台，不重启浏览器、不暂停 Agent。运行中由 Agent 的步骤截图更新页面预览；暂停和待介入状态下才轮询 `/api/jobs/{id}/snapshot`，避免实时快照与 browser-use 的 DOM/截图 watchdog 争抢 CDP。
 
 任务日志状态机：
 

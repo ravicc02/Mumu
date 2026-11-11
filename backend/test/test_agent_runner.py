@@ -136,6 +136,74 @@ class FakeFocusSession:
 
 
 class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
+    def test_normalizes_flattened_deepseek_action(self) -> None:
+        parameters = {
+            "$defs": {
+                "ActionModelUnion": {
+                    "anyOf": [
+                        {"$ref": "#/$defs/ExtractActionModel"},
+                        {"$ref": "#/$defs/SearchActionModel"},
+                        {"$ref": "#/$defs/WriteFileActionModel"},
+                    ],
+                },
+                "ExtractActionModel": {
+                    "properties": {
+                        "extract": {"$ref": "#/$defs/ExtractAction"},
+                    },
+                },
+                "ExtractAction": {
+                    "properties": {
+                        "query": {"type": "string"},
+                        "extract_links": {"type": "boolean"},
+                    },
+                    "required": ["query"],
+                },
+                "SearchActionModel": {
+                    "properties": {
+                        "search": {"$ref": "#/$defs/SearchAction"},
+                    },
+                },
+                "SearchAction": {
+                    "properties": {
+                        "query": {"type": "string"},
+                        "engine": {"type": "string"},
+                    },
+                    "required": ["query"],
+                },
+                "WriteFileActionModel": {
+                    "properties": {
+                        "write_file": {"$ref": "#/$defs/write_file_Params"},
+                    },
+                },
+                "write_file_Params": {
+                    "properties": {
+                        "file_name": {"type": "string"},
+                        "content": {"type": "string"},
+                    },
+                    "required": ["file_name", "content"],
+                },
+            },
+            "required": ["memory", "action"],
+        }
+        normalized = agent_runner._normalize_flattened_action(
+            {
+                "query": "列出页面上的全部题目",
+                "extract_links": False,
+            },
+            parameters,
+        )
+        self.assertEqual(normalized["action"][0]["extract"]["query"], "列出页面上的全部题目")
+        self.assertIn("memory", normalized)
+
+        file_action = agent_runner._normalize_flattened_action(
+            {"file_name": "todo.md", "content": "- Q1"},
+            parameters,
+        )
+        self.assertEqual(
+            file_action["action"][0]["write_file"]["file_name"],
+            "todo.md",
+        )
+
     async def test_deepseek_uses_native_function_calling_model(self) -> None:
         captured = {}
 

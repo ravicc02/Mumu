@@ -97,6 +97,15 @@ const busyJobStatuses = new Set([
   ...activeJobStatuses,
   ...attentionJobStatuses
 ]);
+const snapshotJobStatuses = new Set(["paused", ...attentionJobStatuses]);
+
+function canSnapshotActiveBrowser(job) {
+  return Boolean(
+    job
+    && job.interactive
+    && snapshotJobStatuses.has(job.status)
+  );
+}
 
 const selectedAccount = computed(() => (
   accounts.value.find((account) => account.id === selectedAccountId.value) || null
@@ -178,8 +187,24 @@ const currentAgentState = computed(() => (
   || null
 ));
 
+const structuredFillCount = computed(() => (
+  Number(
+    events.value.find((event) => event.kind === "quiz_filled")?.data?.filled_count
+    || 0
+  )
+));
+
 const completedStepCount = computed(() => (
-  events.value.filter((event) => event.kind === "step").length
+  Math.max(
+    events.value.filter((event) => event.kind === "step").length,
+    structuredFillCount.value
+  )
+));
+
+const progressUnitLabel = computed(() => (
+  events.value.some((event) => event.kind === "quiz_extracted")
+    ? "作答单元"
+    : "动作步骤"
 ));
 
 const workflowStages = computed(() => {
@@ -191,8 +216,11 @@ const workflowStages = computed(() => {
   const completed = status === "completed";
   const failedLike = ["failed", "stopped", "interrupted", "incomplete"].includes(status);
   const browserDone = ["session_ready", "browser"].some((kind) => kinds.has(kind));
-  const agentDone = kinds.has("agent_ready");
-  const hasStep = completedStepCount.value > 0;
+  const agentDone = kinds.has("agent_ready") || kinds.has("quiz_extracted");
+  const hasStep = (
+    completedStepCount.value > 0
+    || kinds.has("quiz_filled")
+  );
   const latestKind = currentAgentState.value?.kind || "";
   const stages = [
     {
@@ -224,7 +252,7 @@ const workflowStages = computed(() => {
     {
       id: "execute",
       label: "执行步骤",
-      detail: `已完成 ${completedStepCount.value} 个动作步骤`,
+      detail: `已完成 ${completedStepCount.value} 个${progressUnitLabel.value}`,
       state: needsIntervention
         ? "attention"
         : (completed
@@ -557,7 +585,11 @@ function logEventStateLabel(kind) {
     interrupted: "已中断",
     notification: "通知",
     submission_verified: "已核验",
-    submission_reviewed: "已人工核对"
+    submission_reviewed: "已人工核对",
+    quiz_navigating: "读取题型",
+    quiz_extracted: "已识别",
+    quiz_answers_ready: "答案就绪",
+    quiz_filled: "已填写"
   }[kind] || "状态";
 }
 
@@ -1219,7 +1251,7 @@ async function refreshAgentSnapshot() {
     agentSnapshotBusy
     || activePage.value !== "platforms"
     || !job
-    || !job.interactive
+    || !canSnapshotActiveBrowser(job)
   ) {
     return;
   }
@@ -1240,7 +1272,10 @@ function startAgentSnapshot() {
   clearInterval(agentSnapshotTimer);
   agentSnapshotTimer = null;
   const job = selectedAccountActiveJob.value;
-  if (activePage.value !== "platforms" || !job || !job.interactive) {
+  if (
+    activePage.value !== "platforms"
+    || !canSnapshotActiveBrowser(job)
+  ) {
     return;
   }
   refreshAgentSnapshot();
@@ -1684,7 +1719,7 @@ onUnmounted(() => {
           <span>{{ item.label }}</span>
         </button>
         <div class="side-nav-footer">
-          <small>v0.3.2</small>
+          <small>v0.4.0</small>
         </div>
       </nav>
 

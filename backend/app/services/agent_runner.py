@@ -19,6 +19,7 @@ from browser_use.browser.profile import BrowserProfile
 from browser_use.config import CONFIG
 from browser_use.llm.deepseek.chat import ChatDeepSeek
 from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.tools.service import Tools
 import browser_use.utils as browser_use_utils
 
 from ..config import Settings
@@ -27,6 +28,12 @@ from ..events import EventHub
 from .notifier import send_completion_notification
 from .preview import preview_manager
 from .browser import chrome_executable
+from .quiz_adapter import (
+    QuizAnswerSheet,
+    extract_questions,
+    fill_answers,
+    generate_answers,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -105,6 +112,148 @@ class _NoopSignalHandler:
 browser_use_utils.SignalHandler = _NoopSignalHandler
 
 
+def _resolve_schema_ref(schema: dict[str, Any], ref: str) -> dict[str, Any]:
+    if not ref.startswith("#/"):
+        return {}
+    value: Any = schema
+    for part in ref[2:].split("/"):
+        if not isinstance(value, dict):
+            return {}
+        value = value.get(part)
+    return value if isinstance(value, dict) else {}
+
+
+def _flattened_action_variants(
+    parameters: dict[str, Any],
+) -> list[dict[str, Any]]:
+    definitions = parameters.get("$defs") or {}
+    union = definitions.get("ActionModelUnion") or {}
+    union_items = union.get("anyOf") or []
+    if not union_items:
+        action_schema = (parameters.get("properties") or {}).get("action") or {}
+        union_items = (action_schema.get("items") or {}).get("anyOf") or []
+    variants = []
+    for item in union_items:
+        branch = _resolve_schema_ref(parameters, item.get("$ref", ""))
+        if not branch:
+            branch = item
+        properties = branch.get("properties") or {}
+        for action_name, action_schema in properties.items():
+            params_schema = (
+                _resolve_schema_ref(parameters, action_schema.get("$ref", ""))
+                if action_schema.get("$ref")
+                else action_schema
+            )
+            variants.append({
+                "action": action_name,
+                "properties": set((params_schema.get("properties") or {}).keys()),
+                "required": set(params_schema.get("required") or []),
+            })
+    return variants
+
+
+def _normalize_flattened_action(
+    payload: dict[str, Any],
+    parameters: dict[str, Any],
+) -> dict[str, Any]:
+    if not payload or "action" in payload:
+        return payload
+    metadata_keys = {
+        "thinking",
+        "evaluation_previous_goal",
+        "memory",
+        "next_goal",
+        "current_plan_item",
+        "plan_update",
+    }
+    action_payload = {
+        key: value for key, value in payload.items()
+        if key not in metadata_keys
+    }
+    if not action_payload:
+        return payload
+    keys = set(action_payload)
+    candidates = [
+        variant
+        for variant in _flattened_action_variants(parameters)
+        if keys.issubset(variant["properties"])
+        and variant["required"].issubset(keys)
+    ]
+    if not candidates:
+        return payload
+
+    preference = {
+        "extract": 30,
+        "find_elements": 28,
+        "search_page": 26,
+        "click": 24,
+        "input": 22,
+        "scroll": 20,
+        "evaluate": 18,
+        "wait": 16,
+    }
+    candidates.sort(
+        key=lambda item: (
+            len(item["required"]),
+            preference.get(item["action"], 0),
+            -len(item["properties"] - keys),
+        ),
+        reverse=True,
+    )
+    selected = candidates[0]
+    normalized: dict[str, Any] = {}
+    required = set(parameters.get("required") or [])
+    for key in metadata_keys:
+        if key in payload:
+            normalized[key] = payload[key]
+    normalized.setdefault("memory", "正在执行页面动作。")
+    if "evaluation_previous_goal" in required:
+        normalized.setdefault("evaluation_previous_goal", "继续执行当前作业任务。")
+    if "next_goal" in required:
+        normalized.setdefault("next_goal", "完成当前页面动作。")
+    normalized["action"] = [{selected["action"]: action_payload}]
+    return normalized
+
+
+def _normalize_tool_response(
+    response: Any,
+    parameters: dict[str, Any] | None,
+) -> Any:
+    if not parameters:
+        return response
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return response
+    message = getattr(choices[0], "message", None)
+    tool_calls = getattr(message, "tool_calls", None) or []
+    for tool_call in tool_calls:
+        function = getattr(tool_call, "function", None)
+        arguments = getattr(function, "arguments", None)
+        try:
+            payload = (
+                json.loads(arguments)
+                if isinstance(arguments, str)
+                else arguments
+            )
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        normalized = _normalize_flattened_action(payload, parameters)
+        if normalized == payload:
+            continue
+        encoded = json.dumps(normalized, ensure_ascii=False)
+        if isinstance(arguments, str):
+            function.arguments = encoded
+        else:
+            function.arguments = normalized
+        logger.info(
+            "Normalized flattened DeepSeek action into AgentOutput: %s",
+            normalized["action"][0].keys(),
+        )
+    return response
+
+
 class _ReasoningCompletions:
     def __init__(self, delegate: Any, reasoning_effort: str | None) -> None:
         self._delegate = delegate
@@ -113,7 +262,14 @@ class _ReasoningCompletions:
     async def create(self, *args: Any, **kwargs: Any) -> Any:
         if self._reasoning_effort:
             kwargs.setdefault("reasoning_effort", self._reasoning_effort)
-        return await self._delegate.create(*args, **kwargs)
+        response = await self._delegate.create(*args, **kwargs)
+        tools = kwargs.get("tools") or []
+        parameters = (
+            tools[0].get("function", {}).get("parameters")
+            if tools and isinstance(tools[0], dict)
+            else None
+        )
+        return _normalize_tool_response(response, parameters)
 
 
 class _ReasoningChat:
@@ -481,6 +637,137 @@ async def capture_job_snapshot(job_id: str) -> dict[str, str]:
     }
 
 
+async def _run_structured_chaoxing_quiz(
+    database: Database,
+    job: dict[str, Any],
+    session: BrowserSession,
+    llm: Any,
+    emit: Any,
+) -> dict[str, Any] | None:
+    if "/mooc2/work/task" not in str(job.get("task_url") or ""):
+        return None
+
+    await emit("quiz_navigating", "正在打开作业页并读取全部题型")
+    await session.navigate_to(job["task_url"])
+    await asyncio.sleep(4)
+    page = await session.get_current_page()
+    if page is None:
+        raise RuntimeError("作业页没有可读取的浏览器页面")
+    await emit("agent_ready", "结构化答题器已就绪，正在读取全部题型")
+
+    extracted: dict[str, Any] = {}
+    for _ in range(4):
+        extracted = await extract_questions(page)
+        if int(extracted.get("question_count") or 0) > 0:
+            break
+        await asyncio.sleep(2)
+    question_count = int(extracted.get("question_count") or 0)
+    unit_count = int(extracted.get("unit_count") or 0)
+    if question_count == 0 or unit_count == 0:
+        return None
+
+    database.update_job(
+        job["id"],
+        progress=25,
+        last_heartbeat_at=utc_now(),
+    )
+    await emit(
+        "quiz_extracted",
+        f"已识别 {question_count} 个大题、{unit_count} 个作答单元",
+        {
+            "question_count": question_count,
+            "unit_count": unit_count,
+            "question_types": sorted({
+                str(unit.get("type") or "未知")
+                for unit in extracted.get("units") or []
+            }),
+        },
+    )
+
+    answer_sheet = await asyncio.wait_for(
+        generate_answers(llm, extracted),
+        timeout=300,
+    )
+    expected_ids = {
+        str(unit["unit_id"])
+        for unit in extracted.get("units") or []
+    }
+    answer_by_id = {
+        answer.unit_id: answer
+        for answer in answer_sheet.answers
+    }
+    missing_ids = expected_ids - set(answer_by_id)
+    if missing_ids:
+        raise RuntimeError(
+            "模型没有返回全部作答单元："
+            + "、".join(sorted(missing_ids)[:8])
+        )
+    if len(answer_by_id) != len(expected_ids):
+        raise RuntimeError("模型返回了重复或未知的作答单元")
+
+    database.update_job(
+        job["id"],
+        progress=65,
+        last_heartbeat_at=utc_now(),
+    )
+    await emit(
+        "quiz_answers_ready",
+        f"已生成 {len(answer_sheet.answers)} 组结构化答案",
+        {"answer_count": len(answer_sheet.answers)},
+    )
+
+    filled = await fill_answers(page, answer_sheet)
+    await asyncio.sleep(1)
+    filled_by_id = {
+        str(item.get("unit_id")): item
+        for item in filled
+    }
+    invalid_ids = []
+    for unit in extracted.get("units") or []:
+        unit_id = str(unit["unit_id"])
+        result = filled_by_id.get(unit_id)
+        if result is None:
+            invalid_ids.append(unit_id)
+            continue
+        if unit["kind"] in {"single", "multiple", "shared"}:
+            if not result.get("hidden_value"):
+                invalid_ids.append(unit_id)
+        else:
+            field_values = result.get("field_values") or []
+            if (
+                len(field_values) != len(unit.get("fields") or [])
+                or any(not str(value).strip() for value in field_values)
+            ):
+                invalid_ids.append(unit_id)
+    if invalid_ids:
+        raise RuntimeError(
+            "以下作答单元写入后未通过核验："
+            + "、".join(sorted(invalid_ids)[:8])
+        )
+
+    database.update_job(
+        job["id"],
+        progress=95,
+        last_heartbeat_at=utc_now(),
+    )
+    await emit(
+        "quiz_filled",
+        f"全部 {unit_count} 个作答单元已写入并通过页面值核验",
+        {
+            "filled_count": len(filled),
+            "invalid_count": 0,
+        },
+    )
+    return {
+        "question_count": question_count,
+        "unit_count": unit_count,
+        "filled_count": len(filled),
+        "extracted": extracted,
+        "answers": answer_sheet.model_dump(mode="json"),
+        "filled": filled,
+    }
+
+
 async def finish_job_intervention(
     database: Database,
     event_hub: EventHub,
@@ -756,6 +1043,100 @@ async def run_job(
             temperature=0.1,
             max_retries=1,
         )
+        structured_result = await _run_structured_chaoxing_quiz(
+            database,
+            job,
+            session,
+            llm,
+            emit,
+        )
+        if structured_result is not None:
+            if control.stop_requested:
+                raise JobStopped("用户停止结构化答题任务")
+            screenshot, current_url = await _capture_screenshot(
+                session,
+                full_page=True,
+            )
+            screenshot_path = artifact_dir / "final.png"
+            screenshot_path.write_bytes(screenshot)
+            screenshot_artifact = database.add_artifact(
+                job_id,
+                "final_screenshot",
+                screenshot_path,
+            )
+            screenshot_event = database.add_event(
+                job_id,
+                "final_screenshot",
+                "全部题型填写完成，最终页面已保存",
+                {
+                    "artifact_id": screenshot_artifact["id"],
+                    "url": current_url,
+                },
+            )
+            await event_hub.publish(
+                job_id,
+                {
+                    **screenshot_event,
+                    "data": {
+                        **screenshot_event["data"],
+                        "image": (
+                            "data:image/png;base64,"
+                            + base64.b64encode(screenshot).decode("ascii")
+                        ),
+                    },
+                },
+            )
+            result_path = artifact_dir / "result.json"
+            result_path.write_text(
+                json.dumps(
+                    {
+                        "job": job,
+                        "structured_result": structured_result,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            database.add_artifact(job_id, "result_json", result_path)
+            preserve_session = True
+            _intervention_sessions[job_id] = PreservedSession(
+                session=session,
+                process=browser_process,
+                account_lock=account_lock,
+            )
+            database.transition_job(
+                job_id,
+                "needs_intervention",
+                submission_status="filled_pending_review",
+                progress=95,
+                error="全部题型已填写，浏览器已保留等待人工核对",
+            )
+            await emit(
+                "needs_intervention",
+                "全部题型已填写并通过页面值核验，等待人工核对",
+                {
+                    "question_count": structured_result["question_count"],
+                    "unit_count": structured_result["unit_count"],
+                    "filled_count": structured_result["filled_count"],
+                },
+            )
+            await notify_safely(
+                {
+                    "event": "assignment_needs_intervention",
+                    "job_id": job_id,
+                    "account": account["name"],
+                    "course": job["course_name"],
+                    "assignment": job["assignment_title"],
+                    "auto_submit": bool(job["auto_submit"]),
+                    "submission_status": "filled_pending_review",
+                    "result": (
+                        f"已填写 {structured_result['unit_count']} 个作答单元，"
+                        "等待人工核对"
+                    ),
+                }
+            )
+            return
         fallback_model = (
             settings.openai_fallback_model.strip()
             or settings.openai_model
@@ -906,10 +1287,20 @@ async def run_job(
         async def should_stop() -> bool:
             return control.stop_requested
 
+        agent_tools = Tools(exclude_actions=[
+            "write_file",
+            "replace_file",
+            "read_file",
+            "save_as_pdf",
+            "search",
+            "switch",
+            "close",
+        ])
         agent = Agent(
             task=task,
             llm=llm,
             fallback_llm=fallback_llm,
+            tools=agent_tools,
             browser_session=session,
             use_vision=not is_deepseek,
             use_judge=False,

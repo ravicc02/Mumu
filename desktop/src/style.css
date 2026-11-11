@@ -2076,6 +2076,9 @@ button {
 
 .platform-log-state.step,
 .platform-log-state.completed,
+.platform-log-state.quiz_extracted,
+.platform-log-state.quiz_answers_ready,
+.platform-log-state.quiz_filled,
 .platform-log-state.session_ready,
 .platform-log-state.agent_ready,
 .platform-log-state.submission_verified,
@@ -2086,6 +2089,7 @@ button {
 
 .platform-log-state.running,
 .platform-log-state.thinking,
+.platform-log-state.quiz_navigating,
 .platform-log-state.browser_starting {
   background: #fff0dc;
   color: #915810;
