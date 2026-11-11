@@ -123,6 +123,12 @@ const selectedAccountActiveJob = computed(() => (
     && activeJobStatuses.has(job.status)
   )) || null
 ));
+const selectedAccountLatestJob = computed(() => (
+  jobs.value.find((job) => job.account_id === selectedAccountId.value) || null
+));
+const platformLiveJob = computed(() => (
+  selectedAccountActiveJob.value || selectedAccountLatestJob.value
+));
 
 const groupedAssignments = computed(() => {
   const groups = new Map();
@@ -356,9 +362,9 @@ function queuePosition(job) {
 
 function assignmentJobLabel(assignmentId) {
   const job = latestJobForAssignment(assignmentId);
-  if (!job) return "启动 Agent";
+  if (!job) return "执行";
   if (activeJobStatuses.has(job.status)) return "查看任务";
-  return "再次运行";
+  return "再次执行";
 }
 
 function isActiveJob(job) {
@@ -394,6 +400,11 @@ function actionSummary(actions) {
     SelectDropdownActionModel: "选择下拉项"
   };
   return actions.map((action) => labels[action] || action).join("、");
+}
+
+function eventMessagePreview(message, limit = 140) {
+  const text = String(message || "");
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
 function deadlineState(deadlineText) {
@@ -513,11 +524,24 @@ async function refreshProfilePreview(reload = false) {
 
 function startProfilePreview() {
   clearInterval(profilePreviewTimer);
-  if (activePage.value !== "platforms" || !selectedAccountId.value) {
+  if (
+    activePage.value !== "platforms"
+    || !selectedAccountId.value
+    || platformLiveJob.value
+  ) {
     return;
   }
   refreshProfilePreview(true);
   profilePreviewTimer = setInterval(() => refreshProfilePreview(false), 2500);
+}
+
+async function syncPlatformLiveJob() {
+  if (activePage.value !== "platforms" || !platformLiveJob.value) {
+    return;
+  }
+  if (selectedJobId.value !== platformLiveJob.value.id) {
+    await selectJob(platformLiveJob.value.id);
+  }
 }
 
 function openConnector(connector) {
@@ -832,7 +856,6 @@ async function createJob(assignment) {
     );
     jobs.value = [job, ...jobs.value];
     await selectJob(job.id);
-    activePage.value = "dashboard";
     notice.value = `Agent 任务已创建：${assignment.title}`;
   } catch (jobError) {
     setError(jobError);
@@ -845,8 +868,7 @@ async function startAssignmentJob(assignment) {
   const existingJob = latestJobForAssignment(assignment.id);
   if (existingJob && activeJobStatuses.has(existingJob.status)) {
     await selectJob(existingJob.id);
-    activePage.value = "dashboard";
-    notice.value = "已打开该作业当前运行中的任务。";
+    notice.value = "已在右侧显示该作业的实时执行页面。";
     return;
   }
   if (autoSubmit.value) {
@@ -946,7 +968,6 @@ async function executeBatchJobs(selected, skipped = 0) {
     selectedAssignmentIds.value = []
     if (createdJobs.length > 0) {
       await selectJob(createdJobs[0].id)
-      activePage.value = "dashboard"
     }
     const skippedText = skipped ? `，跳过 ${skipped} 个已有任务` : "";
     notice.value = failures.length
@@ -1330,6 +1351,7 @@ watch(selectedAccountId, async () => {
     loadAssignments(),
     loadCollectionRuns()
   ]);
+  await syncPlatformLiveJob();
   startProfilePreview();
 });
 
@@ -1338,7 +1360,18 @@ watch(selectedSemester, () => {
   loadAssignments();
 });
 
-watch(activePage, () => {
+watch(activePage, async () => {
+  await syncPlatformLiveJob();
+  startProfilePreview();
+});
+
+watch(selectedAccountActiveJob, async (job) => {
+  if (activePage.value !== "platforms") return;
+  if (job) {
+    clearInterval(profilePreviewTimer);
+    await syncPlatformLiveJob();
+    return;
+  }
   startProfilePreview();
 });
 
@@ -1740,7 +1773,7 @@ onUnmounted(() => {
               <strong>完成账号登录授权</strong>
               <p>
                 {{ unauthorizedAccount.last_login_error
-                  || "授权后才能采集作业和启动 Agent。" }}
+                  || "授权后才能采集作业和执行 Agent。" }}
               </p>
             </div>
             <button
@@ -1897,7 +1930,7 @@ onUnmounted(() => {
               :disabled="batchCreating || selectedAssignmentIds.length === 0"
               @click="createBatchJobs"
             >
-              {{ batchCreating ? "批量创建中..." : "批量启动 Agent" }}
+              {{ batchCreating ? "批量创建中..." : "批量执行" }}
             </button>
           </div>
           <div v-if="groupedAssignments.length === 0" class="empty-state">
@@ -1971,38 +2004,123 @@ onUnmounted(() => {
             </article>
           </section>
         </section>
-        <aside class="profile-preview-panel">
+        <aside
+          class="profile-preview-panel"
+          :class="{ 'live-task-panel': Boolean(platformLiveJob) }"
+        >
           <div class="profile-preview-heading">
             <div>
-              <span class="eyebrow">当前 Profile</span>
-              <h2>{{ selectedAccount?.name || "浏览器预览" }}</h2>
+              <span class="eyebrow">
+                {{ selectedAccountActiveJob ? "实时执行" : (platformLiveJob ? "最近任务" : "当前 Profile") }}
+              </span>
+              <h2>
+                {{ platformLiveJob?.assignment_title
+                  || selectedAccount?.name
+                  || "浏览器预览" }}
+              </h2>
+              <small v-if="platformLiveJob" class="platform-task-meta">
+                {{ selectedAccount?.name }} · 第 {{ platformLiveJob.attempt || 1 }} 次
+              </small>
             </div>
             <div class="preview-actions">
               <button
+                v-if="selectedAccountActiveJob && selectedAccountActiveJob.interactive"
+                class="button dark"
+                type="button"
+                @click="focusAgentBrowser"
+              >
+                切到浏览器
+              </button>
+              <button
+                v-if="platformLiveJob"
                 class="button light"
                 type="button"
-                :disabled="Boolean(selectedAccountActiveJob)"
+                @click="selectJob(platformLiveJob.id); activePage = 'dashboard'"
+              >
+                任务详情
+              </button>
+              <button
+                v-else
+                class="button light"
+                type="button"
                 @click="openInteractiveBrowser"
               >
-                {{ selectedAccountActiveJob ? "Agent 正在使用" : "打开可操控浏览器" }}
+                打开可操控浏览器
               </button>
-              <button class="button ghost" type="button" @click="refreshProfilePreview(true)">
+              <button
+                v-if="!platformLiveJob"
+                class="button ghost"
+                type="button"
+                @click="refreshProfilePreview(true)"
+              >
                 刷新
               </button>
             </div>
           </div>
-          <div class="profile-preview-url">{{ profilePreviewUrl || "等待浏览器画面" }}</div>
-          <div
-            class="profile-preview-image"
-            :class="{ loading: previewLoading }"
-          >
-            <img v-if="profilePreview" :src="profilePreview" alt="当前账号浏览器页面">
-            <div v-else class="profile-preview-empty">
-              {{ previewLoading
-                ? "正在加载当前账号页面..."
-                : (profilePreviewTitle || "当前账号页面暂不可用") }}
+
+          <template v-if="platformLiveJob">
+            <div class="platform-job-summary">
+              <span class="job-badge" :class="platformLiveJob.status">
+                {{ jobStatusLabel(platformLiveJob.status) }}
+              </span>
+              <span>{{ platformLiveJob.progress || 0 }}%</span>
+              <span>{{ submissionStatusLabel(platformLiveJob.submission_status) }}</span>
             </div>
-          </div>
+            <div v-if="selectedAccountActiveJob" class="platform-agent-state">
+              <strong>{{ currentAgentState?.message || "等待 Agent 日志" }}</strong>
+              <p v-if="actionSummary(currentAgentState?.data?.actions)">
+                {{ actionSummary(currentAgentState.data.actions) }}
+              </p>
+              <p v-if="currentAgentState?.data?.url" class="platform-agent-url">
+                {{ currentAgentState.data.url }}
+              </p>
+            </div>
+            <button
+              class="platform-live-image"
+              type="button"
+              :disabled="!(selectedAccountActiveJob && selectedAccountActiveJob.interactive)"
+              :title="selectedAccountActiveJob?.interactive ? '点击切到 Agent 浏览器' : '任务没有可操控页面'"
+              @click="focusAgentBrowser"
+            >
+              <img v-if="screenshot" :src="screenshot" alt="Agent 当前操作页面">
+              <div v-else class="profile-preview-empty">
+                {{ selectedAccountActiveJob ? "等待 Agent 首帧画面..." : "没有可显示的页面截图" }}
+              </div>
+            </button>
+            <div class="platform-live-timeline">
+              <article
+                v-for="event in visibleEvents.slice(0, 6)"
+                :key="`platform-${event.id}`"
+              >
+                <span class="event-dot" :class="event.kind"></span>
+                <div>
+                  <strong>{{ eventMessagePreview(event.message || event.kind) }}</strong>
+                  <p v-if="actionSummary(event.data?.actions)">
+                    {{ actionSummary(event.data.actions) }}
+                  </p>
+                  <small>{{ new Date(event.created_at).toLocaleTimeString("zh-CN") }}</small>
+                </div>
+              </article>
+              <div v-if="visibleEvents.length === 0" class="empty-inline">
+                暂无执行日志
+              </div>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="profile-preview-url">{{ profilePreviewUrl || "等待浏览器画面" }}</div>
+            <div
+              class="profile-preview-image"
+              :class="{ loading: previewLoading }"
+            >
+              <img v-if="profilePreview" :src="profilePreview" alt="当前账号浏览器页面">
+              <div v-else class="profile-preview-empty">
+                {{ previewLoading
+                  ? "正在加载当前账号页面..."
+                  : (profilePreviewTitle || "当前账号页面暂不可用") }}
+              </div>
+            </div>
+          </template>
         </aside>
       </main>
 
@@ -2171,7 +2289,7 @@ onUnmounted(() => {
           </button>
         </div>
         <p class="modal-message">
-          即将启动 {{ pendingLaunch.assignments.length }} 个 Agent 任务，并允许 Agent 点击最终提交。
+          即将执行 {{ pendingLaunch.assignments.length }} 个 Agent 任务，并允许 Agent 点击最终提交。
           任务结束后系统只会标记为“允许提交，结果未验证”，仍需回到作业页面人工确认。
         </p>
         <div class="confirm-job-list">
@@ -2190,7 +2308,7 @@ onUnmounted(() => {
             取消
           </button>
           <button class="button danger-button" type="button" @click="confirmAutoSubmitLaunch">
-            确认启动并允许提交
+            确认执行并允许提交
           </button>
         </div>
       </div>
