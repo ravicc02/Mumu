@@ -1292,14 +1292,15 @@ button {
 }
 
 .timeline-item strong {
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .timeline-item p {
   margin: 3px 0 0;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .timeline-item small {
@@ -1659,7 +1660,29 @@ button {
 }
 
 .dashboard-agent-panel {
-  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.agent-content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(300px, 0.95fr);
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-visual-column,
+.agent-activity-column {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 3px;
+}
+
+.agent-activity-column .timeline {
+  overflow: visible;
 }
 
 .agent-current-state {
@@ -1892,6 +1915,17 @@ button {
 }
 
 @media (max-width: 1250px) {
+  .agent-content-grid {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+
+  .agent-visual-column,
+  .agent-activity-column {
+    overflow: visible;
+    padding-right: 0;
+  }
+
   .platform-layout {
     grid-template-columns: 240px minmax(360px, 1fr) minmax(260px, 0.72fr);
   }

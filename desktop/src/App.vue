@@ -1469,7 +1469,7 @@ onUnmounted(() => {
           <span>{{ item.label }}</span>
         </button>
         <div class="side-nav-footer">
-          <small>v0.3.0</small>
+          <small>v0.3.1</small>
         </div>
       </nav>
 
@@ -1622,6 +1622,8 @@ onUnmounted(() => {
               重试
             </button>
           </div>
+          <div v-if="selectedJob" class="agent-content-grid">
+            <div class="agent-visual-column">
           <div
             v-if="selectedJob && !isActiveJob(selectedJob)"
             class="job-result-card"
@@ -1713,6 +1715,8 @@ onUnmounted(() => {
             </div>
             <img :src="screenshot" alt="Agent 最近页面截图">
           </div>
+            </div>
+            <div class="agent-activity-column">
           <div class="timeline">
             <div v-for="event in visibleEvents" :key="event.id" class="timeline-item">
               <span class="event-dot" :class="event.kind"></span>
@@ -1740,6 +1744,8 @@ onUnmounted(() => {
             >
               {{ artifactLabel(artifact.kind) }}
             </a>
+          </div>
+            </div>
           </div>
         </aside>
       </main>

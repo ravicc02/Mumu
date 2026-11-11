@@ -76,6 +76,14 @@ class FakeBrowserSession:
         return "https://example.test/assignment"
 
 
+async def fake_restore_storage_state(*_args, **_kwargs) -> int:
+    return 1
+
+
+async def fake_verify_session_page(_session, url: str, **_kwargs) -> str:
+    return url
+
+
 class FakeFocusPage:
     session_id = "page-session"
 
@@ -236,6 +244,93 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
         finally:
             agent_runner._job_sessions.pop("focus-job", None)
 
+    async def test_restore_storage_state_injects_cookies_and_origin_script(self) -> None:
+        class Session:
+            def __init__(self) -> None:
+                self.cookies = []
+                self.scripts = []
+
+            async def get_current_page(self):
+                return object()
+
+            async def _cdp_set_cookies(self, cookies):
+                self.cookies = cookies
+
+            async def _cdp_add_init_script(self, script):
+                self.scripts.append(script)
+                return "script-id"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "storage-state.json"
+            state_path.write_text(
+                """
+                {
+                  "cookies": [
+                    {
+                      "name": "sid",
+                      "value": "secret",
+                      "domain": ".chaoxing.com",
+                      "path": "/",
+                      "expires": -1,
+                      "httpOnly": true,
+                      "secure": true,
+                      "sameSite": "Lax"
+                    }
+                  ],
+                  "origins": [
+                    {
+                      "origin": "https://i.chaoxing.com",
+                      "localStorage": [{"name": "k", "value": "v"}],
+                      "sessionStorage": []
+                    }
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            session = Session()
+            count = await agent_runner._restore_storage_state_to_session(
+                session,
+                str(state_path),
+            )
+            self.assertEqual(count, 1)
+            self.assertEqual(session.cookies[0]["name"], "sid")
+            self.assertNotIn("expires", session.cookies[0])
+            self.assertIn("localStorage.setItem", session.scripts[0])
+
+    async def test_verify_session_page_rejects_passport_redirect(self) -> None:
+        class Page:
+            session_id = "page-session"
+
+        class Navigate:
+            async def __call__(self, **kwargs):
+                return {"frameId": "frame"}
+
+        class PageApi:
+            navigate = Navigate()
+
+        class SendApi:
+            Page = PageApi()
+
+        class CdpClient:
+            send = SendApi()
+
+        class Session:
+            cdp_client = CdpClient()
+
+            async def get_current_page(self):
+                return Page()
+
+            async def get_current_page_url(self):
+                return "https://passport2.chaoxing.com/login"
+
+        with self.assertRaisesRegex(RuntimeError, "未继承账号登录态"):
+            await agent_runner._verify_session_page(
+                Session(),
+                "https://i.chaoxing.com/base?ws=1",
+                timeout=1,
+            )
+
     async def test_job_reaches_completed_with_logs_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = Settings(
@@ -297,6 +392,16 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                     fake_capture,
                 ),
                 patch.object(agent_runner, "BrowserSession", FakeBrowserSession),
+                patch.object(
+                    agent_runner,
+                    "_restore_storage_state_to_session",
+                    fake_restore_storage_state,
+                ),
+                patch.object(
+                    agent_runner,
+                    "_verify_session_page",
+                    fake_verify_session_page,
+                ),
                 patch.object(agent_runner, "ChatOpenAI", lambda **_kwargs: object()),
                 patch.object(agent_runner, "Agent", FakeAgent),
                 patch.object(
@@ -403,6 +508,16 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(agent_runner, "_launch_chrome", fake_launch),
                 patch.object(agent_runner, "_capture_screenshot", fake_capture),
                 patch.object(agent_runner, "BrowserSession", FakeBrowserSession),
+                patch.object(
+                    agent_runner,
+                    "_restore_storage_state_to_session",
+                    fake_restore_storage_state,
+                ),
+                patch.object(
+                    agent_runner,
+                    "_verify_session_page",
+                    fake_verify_session_page,
+                ),
                 patch.object(agent_runner, "ChatOpenAI", lambda **_kwargs: object()),
                 patch.object(agent_runner, "JsonObjectChatOpenAI", lambda **_kwargs: object()),
                 patch.object(agent_runner, "Agent", FakeIncompleteAgent),
@@ -493,6 +608,16 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(agent_runner, "_launch_chrome", fake_launch),
                 patch.object(agent_runner, "_capture_screenshot", fake_capture),
                 patch.object(agent_runner, "BrowserSession", FakeBrowserSession),
+                patch.object(
+                    agent_runner,
+                    "_restore_storage_state_to_session",
+                    fake_restore_storage_state,
+                ),
+                patch.object(
+                    agent_runner,
+                    "_verify_session_page",
+                    fake_verify_session_page,
+                ),
                 patch.object(agent_runner, "ChatOpenAI", lambda **_kwargs: object()),
                 patch.object(agent_runner, "Agent", FakeAgent),
                 patch.object(

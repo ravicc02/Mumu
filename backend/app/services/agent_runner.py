@@ -8,6 +8,7 @@ import logging
 import os
 import platform
 import socket
+from urllib.parse import urlparse
 from pathlib import Path
 from typing import Any
 
@@ -251,6 +252,115 @@ async def _resolve_session_id(page: Any) -> str:
     if inspect.isawaitable(value):
         value = await value
     return str(value)
+
+
+async def _restore_storage_state_to_session(
+    session: BrowserSession,
+    storage_state_path: str,
+) -> int:
+    path = Path(storage_state_path)
+    if not path.is_file():
+        raise RuntimeError("账号登录状态文件不存在，请刷新 Cookie")
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError("账号登录状态文件无法读取，请刷新 Cookie") from error
+
+    cookies = []
+    for raw_cookie in state.get("cookies") or []:
+        if not isinstance(raw_cookie, dict):
+            continue
+        cookie = {
+            key: raw_cookie[key]
+            for key in (
+                "name",
+                "value",
+                "domain",
+                "path",
+                "httpOnly",
+                "secure",
+                "sameSite",
+            )
+            if key in raw_cookie
+        }
+        expires = raw_cookie.get("expires")
+        if expires not in (None, 0, 0.0, -1, -1.0):
+            cookie["expires"] = expires
+        if cookie.get("name") and cookie.get("domain"):
+            cookies.append(cookie)
+
+    if not cookies:
+        raise RuntimeError("账号登录状态中没有 Cookie，请重新登录授权")
+
+    await session.get_current_page()
+    setter = getattr(session, "_cdp_set_cookies", None)
+    if setter is None:
+        raise RuntimeError("当前浏览器通道不支持恢复登录 Cookie")
+    await setter(cookies)
+
+    init_script_adder = getattr(session, "_cdp_add_init_script", None)
+    if init_script_adder is not None:
+        for origin in state.get("origins") or []:
+            origin_value = origin.get("origin")
+            if not origin_value:
+                continue
+            statements = [
+                f"window.localStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])});"
+                for item in origin.get("localStorage") or []
+                if item.get("name") is not None
+            ]
+            session_statements = [
+                f"window.sessionStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])});"
+                for item in origin.get("sessionStorage") or []
+                if item.get("name") is not None
+            ]
+            script = (
+                "(function(){"
+                f"if(window.location.origin!=={json.dumps(origin_value)})return;"
+                "try{"
+                + "".join(statements)
+                + "".join(session_statements)
+                + "}catch(e){}"
+                "})();"
+            )
+            await init_script_adder(script)
+    return len(cookies)
+
+
+async def _verify_session_page(
+    session: BrowserSession,
+    verification_url: str,
+    timeout: float = 12,
+) -> str:
+    page = await session.get_current_page()
+    if page is None:
+        raise RuntimeError("Agent 浏览器没有可用页面")
+    session_id = await _resolve_session_id(page)
+    await session.cdp_client.send.Page.navigate(
+        params={"url": verification_url},
+        session_id=session_id,
+    )
+    expected_host = (urlparse(verification_url).hostname or "").lower()
+    deadline = asyncio.get_running_loop().time() + timeout
+    last_url = ""
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            last_url = await session.get_current_page_url()
+        except Exception:
+            last_url = ""
+        lowered = last_url.lower()
+        if "passport2.chaoxing.com" in lowered or "/login" in lowered:
+            raise RuntimeError("Agent 浏览器未继承账号登录态，请刷新 Cookie")
+        current_host = (urlparse(last_url).hostname or "").lower()
+        if current_host and (
+            current_host == expected_host
+            or current_host.endswith(".chaoxing.com")
+        ):
+            return last_url
+        await asyncio.sleep(0.5)
+    raise RuntimeError(
+        f"Agent 登录态验证超时（当前页面：{last_url or 'about:blank'}）"
+    )
 
 
 def _account_lock(account_id: str) -> asyncio.Lock:
@@ -503,6 +613,27 @@ async def run_job(
             raise RuntimeError(
                 "Agent 控制通道连接超时，请重试。"
             ) from error
+        restored_cookies = await _restore_storage_state_to_session(
+            session,
+            account["storage_state_path"],
+        )
+        verification_url = (
+            "https://i.chaoxing.com/base?ws=1"
+            if account["platform"] == "chaoxing"
+            else job["task_url"]
+        )
+        verified_url = await _verify_session_page(
+            session,
+            verification_url,
+        )
+        await emit(
+            "session_ready",
+            "账号登录态已注入并验证",
+            {
+                "cookies": restored_cookies,
+                "url": verified_url,
+            },
+        )
         await emit(
             "browser",
             "可操控浏览器已连接",
@@ -879,6 +1010,12 @@ async def run_job(
             )
             await emit("stopped", "任务已按用户请求停止")
         else:
+            if "登录态" in str(error) or "Cookie" in str(error):
+                database.update_account(
+                    job["account_id"],
+                    status="login_error",
+                    last_login_error=str(error),
+                )
             submission_status = (
                 "submission_unknown"
                 if job["auto_submit"]

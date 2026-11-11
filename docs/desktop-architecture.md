@@ -44,6 +44,7 @@ AI Assignment Studio.exe
 - 登录状态与最近登录时间
 
 不同账号不共享 Cookie，同一账号的采集任务和 Agent 任务复用其浏览器资料。
+Agent 启动后会先把 `storage-state.json` 中的 Cookie 和本地存储注入 CDP 浏览器，再打开学习通个人空间验证登录态；验证失败会直接终止任务并标记账号授权失效。
 
 ## 作业采集
 
