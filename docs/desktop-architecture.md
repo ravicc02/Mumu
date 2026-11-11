@@ -45,6 +45,7 @@ AI Assignment Studio.exe
 
 不同账号不共享 Cookie，同一账号的采集任务和 Agent 任务复用其浏览器资料。
 Agent 启动后会先把 `storage-state.json` 中的 Cookie 和本地存储注入 CDP 浏览器，再打开学习通个人空间验证登录态；验证失败会直接终止任务并标记账号授权失效。
+进入 UEditor 作业页时会通过页面初始化脚本隐藏编辑工具栏和底部装饰控件，保留编辑器正文 iframe，降低模型结构化输出失败概率。
 
 ## 作业采集
 

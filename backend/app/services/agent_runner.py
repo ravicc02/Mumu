@@ -36,6 +36,34 @@ _account_locks: dict[str, asyncio.Lock] = {}
 _job_sessions: dict[str, BrowserSession] = {}
 
 BROWSER_START_TIMEOUT_SECONDS = 45
+CHAOXING_EDITOR_SIMPLIFIER_SCRIPT = """
+(() => {
+  const install = () => {
+    if (document.getElementById("answer-studio-ui-simplifier")) return;
+    const style = document.createElement("style");
+    style.id = "answer-studio-ui-simplifier";
+    style.textContent = `
+      .edui-editor-toolbarbox,
+      .edui-toolbar,
+      .edui-editor-bottomContainer,
+      .edui-editor-messageholder,
+      .edui-editor-scale,
+      .edui-editor-resize {
+        display: none !important;
+      }
+      .edui-editor-iframeholder {
+        min-height: 260px !important;
+      }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", install, { once: true });
+  } else {
+    install();
+  }
+})();
+"""
 CONFIG.BROWSER_USE_VERSION_CHECK = False
 CONFIG.ANONYMIZED_TELEMETRY = False
 CONFIG.BROWSER_USE_CLOUD_SYNC = False
@@ -325,6 +353,12 @@ async def _restore_storage_state_to_session(
             )
             await init_script_adder(script)
     return len(cookies)
+
+
+async def _install_page_simplifier(session: BrowserSession) -> None:
+    adder = getattr(session, "_cdp_add_init_script", None)
+    if adder is not None:
+        await adder(CHAOXING_EDITOR_SIMPLIFIER_SCRIPT)
 
 
 async def _verify_session_page(
@@ -617,6 +651,8 @@ async def run_job(
             session,
             account["storage_state_path"],
         )
+        if account["platform"] == "chaoxing":
+            await _install_page_simplifier(session)
         verification_url = (
             "https://i.chaoxing.com/base?ws=1"
             if account["platform"] == "chaoxing"
@@ -805,10 +841,11 @@ async def run_job(
 2. 按页面实际存在的控件处理单选、多选、判断、填空、简答和富文本题；页面没有的题型不要等待或反复查找。
 3. 逐题填写，并在填写后确认输入值或选中状态；一个控件确认完成后再处理下一题。
 4. 主观题答案要具体、完整、可直接提交。
-5. {submit_rule}
-6. 结束前再次检查所有题目；只要仍有实际题目未填写、未选择或无法确认，就继续处理，不要调用 done。
-7. 不要访问与作业无关的页面，不要修改账号设置。
-8. 每个关键操作后确认页面状态，遇到弹窗先处理再继续。
+5. 富文本题不要操作 UEditor 工具栏，直接进入 ueditor iframe 的正文区域填写；绘图题用清晰的 Mermaid/PlantUML 文本和步骤说明表达。
+6. {submit_rule}
+7. 结束前再次检查所有题目；只要仍有实际题目未填写、未选择或无法确认，就继续处理，不要调用 done。
+8. 不要访问与作业无关的页面，不要修改账号设置。
+9. 每个关键操作后确认页面状态，遇到弹窗先处理再继续。
 """
         async def should_stop() -> bool:
             return control.stop_requested
