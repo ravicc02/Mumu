@@ -1719,7 +1719,7 @@ onUnmounted(() => {
           <span>{{ item.label }}</span>
         </button>
         <div class="side-nav-footer">
-          <small>v0.4.0</small>
+          <small>v0.4.1</small>
         </div>
       </nav>
 

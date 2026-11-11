@@ -372,6 +372,57 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
             "data:image/png;base64,cG5nLWRhdGE=",
         )
 
+    async def test_page_init_scripts_include_webdriver_stealth(self) -> None:
+        class Session:
+            def __init__(self) -> None:
+                self.scripts = []
+
+            async def _cdp_add_init_script(self, script):
+                self.scripts.append(script)
+
+        session = Session()
+        await agent_runner._install_page_simplifier(session)
+        self.assertEqual(len(session.scripts), 2)
+        self.assertIn("webdriver", session.scripts[0])
+        self.assertIn("edui-editor-toolbarbox", session.scripts[1])
+
+    async def test_chrome_launch_avoids_unsupported_automation_flag(self) -> None:
+        captured = {}
+
+        async def fake_subprocess(*args, **kwargs):
+            captured["args"] = args
+            return FakeProcess()
+
+        async def fake_wait_for_cdp(*_args, **_kwargs):
+            return "ws://127.0.0.1:9999/devtools/browser/test"
+
+        with (
+            patch.object(
+                agent_runner,
+                "chrome_executable",
+                lambda: Path("chrome.exe"),
+            ),
+            patch.object(
+                agent_runner.asyncio,
+                "create_subprocess_exec",
+                fake_subprocess,
+            ),
+            patch.object(
+                agent_runner,
+                "_wait_for_cdp",
+                fake_wait_for_cdp,
+            ),
+        ):
+            await agent_runner._launch_chrome(
+                "C:/temp/profile",
+                headless=True,
+                timeout=1,
+            )
+        self.assertNotIn(
+            "--disable-blink-features=AutomationControlled",
+            captured["args"],
+        )
+
     async def test_restore_storage_state_injects_cookies_and_origin_script(self) -> None:
         class Session:
             def __init__(self) -> None:

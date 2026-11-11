@@ -55,6 +55,16 @@ class PreservedSession:
 _intervention_sessions: dict[str, PreservedSession] = {}
 
 BROWSER_START_TIMEOUT_SECONDS = 45
+BROWSER_STEALTH_SCRIPT = """
+(() => {
+  try {
+    Object.defineProperty(Navigator.prototype, "webdriver", {
+      configurable: true,
+      get: () => undefined
+    });
+  } catch (_) {}
+})();
+"""
 CHAOXING_EDITOR_SIMPLIFIER_SCRIPT = """
 (() => {
   const install = () => {
@@ -382,7 +392,6 @@ async def _launch_chrome(
         "--disable-search-engine-choice-screen",
         "--disable-background-networking",
         "--disable-component-update",
-        "--disable-blink-features=AutomationControlled",
         "--remote-allow-origins=*",
     ]
     if headless:
@@ -521,6 +530,7 @@ async def _restore_storage_state_to_session(
 async def _install_page_simplifier(session: BrowserSession) -> None:
     adder = getattr(session, "_cdp_add_init_script", None)
     if adder is not None:
+        await adder(BROWSER_STEALTH_SCRIPT)
         await adder(CHAOXING_EDITOR_SIMPLIFIER_SCRIPT)
 
 

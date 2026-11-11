@@ -9,6 +9,7 @@
 - 多账号独立 Playwright Profile 和 `storage-state.json`
 - Agent 启动时显式注入 Cookie 与本地存储，并在交给模型前验证登录态
 - 学习通 UEditor 页面自动隐藏无关工具栏，减少 Agent 页面状态噪音
+- Chrome 启动不再使用不受支持的 `AutomationControlled` 命令行标记，并通过初始化脚本处理 WebDriver 标记
 - 学习通作业页使用结构化题型适配器：单选、多选、填空、判断、简答、共用选项、组合题和完形填空
 - 学习通新版/旧版课程表兼容采集
 - 按开课学年和学期筛选未完成、当前仍可提交的作业

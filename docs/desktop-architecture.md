@@ -66,6 +66,7 @@ Agent 启动后会先把 `storage-state.json` 中的 Cookie 和本地存储注�
 - 同一账号的任务通过异步锁串行执行，后续任务保持排队状态。
 - Agent 启动前先关闭该账号的预览窗口，再由应用启动本机 Chrome。
 - browser-use 通过 CDP 连接该 Chrome，直接复用账号持久化 `user_data_dir` 中的登录态。
+- Chrome 启动参数不包含不受支持的 `--disable-blink-features=AutomationControlled`；通过 `Page.addScriptToEvaluateOnNewDocument` 覆盖 `navigator.webdriver`。
 - 每步通过 CDP 保存截图、动作记录和当前 URL。
 - 任务执行结果与作业提交结果分开记录；Agent 自报未完成时进入 `needs_intervention`，不会伪装成成功。
 - `needs_intervention` 保留 Chrome、BrowserSession、截图流和账号锁，用户可从平台页直接切到浏览器继续操作。
