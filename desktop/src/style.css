@@ -1759,9 +1759,20 @@ button {
 }
 
 .profile-preview-panel.live-task-panel {
-  grid-template-rows: auto auto auto minmax(160px, auto) minmax(180px, 1fr);
+  grid-template-rows: auto auto auto clamp(160px, 24vh, 230px) minmax(200px, 1fr);
   align-content: start;
   overflow-y: auto;
+}
+
+.live-task-panel .profile-preview-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.live-task-panel .preview-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
 }
 
 .platform-job-summary {
@@ -1803,7 +1814,7 @@ button {
   display: grid;
   align-self: start;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  height: clamp(160px, 24vh, 230px);
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1832,6 +1843,12 @@ button {
   padding-top: 6px;
 }
 
+@media (min-width: 1500px) {
+  .platform-layout {
+    grid-template-columns: 280px minmax(500px, 1fr) minmax(480px, 1.08fr);
+  }
+}
+
 .platform-live-timeline article {
   display: grid;
   grid-template-columns: 9px minmax(0, 1fr);
@@ -1843,6 +1860,7 @@ button {
 .platform-live-timeline strong {
   display: -webkit-box;
   overflow: hidden;
+  max-width: 36ch;
   font-size: 13px;
   line-height: 1.5;
   -webkit-box-orient: vertical;
