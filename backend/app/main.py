@@ -5,6 +5,7 @@ import dataclasses
 import shutil
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,10 +16,11 @@ from pydantic import BaseModel, Field
 import httpx
 
 from .config import settings
-from .db import Database
+from .db import ActiveJobConflict, Database
 from .events import event_hub
 from .services.platforms import platform_registry
 from .services.agent_runner import (
+    focus_job_browser,
     pause_job,
     resume_job,
     start_job,
@@ -40,16 +42,126 @@ logging.basicConfig(
 )
 logger = logging.getLogger("answer-studio")
 database = Database(settings)
+_collection_locks: dict[str, asyncio.Lock] = {}
+
+
+def collection_lock(account_id: str) -> asyncio.Lock:
+    lock = _collection_locks.get(account_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _collection_locks[account_id] = lock
+    return lock
+
+
+def collection_due(account: dict[str, Any]) -> bool:
+    if not account.get("auto_collect_enabled"):
+        return False
+    last_collection = account.get("last_collection_at")
+    if not last_collection:
+        return True
+    try:
+        last = datetime.fromisoformat(last_collection)
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return True
+    interval = max(30, int(account.get("auto_collect_interval_minutes") or 360))
+    return datetime.now(timezone.utc) - last >= timedelta(minutes=interval)
+
+
+def current_academic_year() -> int:
+    today = datetime.now()
+    return today.year if today.month >= 8 else today.year - 1
+
+
+async def run_collection_scheduler() -> None:
+    await asyncio.sleep(15)
+    while True:
+        for account in database.list_accounts():
+            if (
+                account["status"] != "ready"
+                or not collection_due(account)
+                or database.has_active_job(account["id"])
+                or await preview_manager.is_interactive(account["id"])
+            ):
+                continue
+            lock = collection_lock(account["id"])
+            if lock.locked():
+                continue
+            try:
+                await perform_collection(
+                    account["id"],
+                    current_academic_year(),
+                )
+                logger.info(
+                    "Scheduled collection completed for account %s",
+                    account["id"],
+                )
+            except Exception:
+                logger.exception(
+                    "Scheduled collection failed for account %s",
+                    account["id"],
+                )
+        await asyncio.sleep(60)
+
+
+async def run_job_health_monitor() -> None:
+    await asyncio.sleep(15)
+    while True:
+        for job in database.stale_running_jobs(120):
+            event = database.add_event(
+                job["id"],
+                "stalled",
+                "任务超过 2 分钟未收到心跳，可能已卡住",
+                {
+                    "last_heartbeat_at": job.get("last_heartbeat_at"),
+                    "account_name": job.get("account_name"),
+                },
+            )
+            await event_hub.publish(job["id"], event)
+        await asyncio.sleep(15)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     database.initialize()
     database.mark_interrupted_jobs()
+    if (
+        not database.get_setting("model_config", None)
+        and settings.openai_api_key
+    ):
+        database.set_setting(
+            "model_config",
+            {
+                "provider_name": "ssh" if "sshzyu" in settings.openai_base_url else "custom",
+                "base_url": settings.openai_base_url,
+                "api_key": settings.openai_api_key,
+                "models": [
+                    settings.openai_model,
+                    *(
+                        [settings.openai_fallback_model]
+                        if settings.openai_fallback_model
+                        else []
+                    ),
+                ],
+                "reasoning_effort": settings.reasoning_effort,
+            },
+        )
+    scheduler_task = asyncio.create_task(run_collection_scheduler())
+    health_monitor_task = asyncio.create_task(run_job_health_monitor())
     logger.info("Local AI assignment studio started")
-    yield
-    await preview_manager.close()
-    logger.info("Local AI assignment studio stopped")
+    try:
+        yield
+    finally:
+        scheduler_task.cancel()
+        health_monitor_task.cancel()
+        await asyncio.gather(
+            scheduler_task,
+            health_monitor_task,
+            return_exceptions=True,
+        )
+        await preview_manager.close()
+        logger.info("Local AI assignment studio stopped")
 
 
 app = FastAPI(title="Local AI Assignment Studio", lifespan=lifespan)
@@ -87,14 +199,25 @@ class TestWebhookRequest(BaseModel):
 
 class ModelConfigRequest(BaseModel):
     provider_name: str = "ssh"
-    base_url: str
+    base_url: str = Field(min_length=1)
     api_key: str = ""
     models: list[str] = Field(default_factory=list)
+    reasoning_effort: str = "high"
 
 
 class WeixinStatusRequest(BaseModel):
     code: str
     verify_code: str = ""
+
+
+class CollectionScheduleRequest(BaseModel):
+    enabled: bool | None = None
+    interval_minutes: int | None = Field(default=None, ge=30, le=10080)
+
+
+class SubmissionVerificationRequest(BaseModel):
+    status: str
+    note: str = Field(default="", max_length=1000)
 
 
 def get_model_config() -> dict[str, Any]:
@@ -104,6 +227,10 @@ def get_model_config() -> dict[str, Any]:
         "base_url": stored.get("base_url", settings.openai_base_url),
         "api_key": stored.get("api_key", settings.openai_api_key),
         "models": stored.get("models", [settings.openai_model]),
+        "reasoning_effort": stored.get(
+            "reasoning_effort",
+            settings.reasoning_effort,
+        ),
     }
 
 
@@ -115,6 +242,12 @@ def effective_settings() -> Any:
         openai_base_url=config["base_url"],
         openai_api_key=config["api_key"],
         openai_model=(config.get("models") or [settings.openai_model])[0],
+        openai_fallback_model=(
+            (config.get("models") or [settings.openai_model])[1]
+            if len(config.get("models") or []) > 1
+            else settings.openai_fallback_model
+        ),
+        reasoning_effort=config.get("reasoning_effort", "high"),
         weixin_bot_token=weixin.get("token", ""),
         weixin_user_id=weixin.get("user_id", ""),
         weixin_context_token=weixin.get("context_token", ""),
@@ -135,7 +268,7 @@ async def health() -> dict[str, Any]:
     model_config = get_model_config()
     return {
         "ok": True,
-        "version": "0.1.0",
+        "version": "0.3.0",
         "data_root": str(settings.data_root),
         "model": (model_config["models"] or [settings.openai_model])[0],
         "ai_configured": bool(model_config["api_key"]),
@@ -158,6 +291,7 @@ async def get_settings() -> dict[str, Any]:
         "openai_base_url": config["base_url"],
         "openai_model": effective.openai_model,
         "models": config["models"],
+        "reasoning_effort": config["reasoning_effort"],
         "ai_configured": bool(config["api_key"]),
         "webhook_configured": bool(settings.webhook_url),
         "weixin_configured": bool(
@@ -175,6 +309,7 @@ async def get_model_settings() -> dict[str, Any]:
         "base_url": config["base_url"],
         "api_key_configured": bool(config["api_key"]),
         "models": config["models"],
+        "reasoning_effort": config["reasoning_effort"],
     }
 
 
@@ -185,6 +320,16 @@ async def save_model_settings(payload: ModelConfigRequest) -> dict[str, Any]:
     models = [item.strip() for item in payload.models if item.strip()]
     if not models:
         raise HTTPException(status_code=400, detail="至少添加一个模型")
+    reasoning_effort = payload.reasoning_effort.strip().lower()
+    if reasoning_effort not in {
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    }:
+        raise HTTPException(status_code=400, detail="不支持的思考强度")
     database.set_setting(
         "model_config",
         {
@@ -192,6 +337,7 @@ async def save_model_settings(payload: ModelConfigRequest) -> dict[str, Any]:
             "base_url": payload.base_url.rstrip("/"),
             "api_key": api_key,
             "models": models,
+            "reasoning_effort": reasoning_effort,
         },
     )
     return {"ok": True, "models": models}
@@ -201,13 +347,25 @@ async def save_model_settings(payload: ModelConfigRequest) -> dict[str, Any]:
 async def fetch_provider_models(payload: ModelConfigRequest) -> dict[str, Any]:
     config = get_model_config()
     api_key = payload.api_key.strip() or config["api_key"]
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(
-            f"{payload.base_url.rstrip('/')}/models",
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
-        response.raise_for_status()
-        data = response.json()
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                f"{payload.base_url.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPStatusError as error:
+        detail = error.response.text.strip()[:500]
+        raise HTTPException(
+            status_code=400,
+            detail=f"服务商拒绝模型列表请求：{detail or error.response.status_code}",
+        ) from error
+    except (httpx.HTTPError, ValueError) as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无法读取模型列表：{error}",
+        ) from error
     return {
         "models": [
             item.get("id")
@@ -222,17 +380,29 @@ async def test_provider_model(payload: ModelConfigRequest) -> dict[str, Any]:
     config = get_model_config()
     api_key = payload.api_key.strip() or config["api_key"]
     model = (payload.models or config["models"])[0]
-    async with httpx.AsyncClient(timeout=45) as client:
-        response = await client.post(
-            f"{payload.base_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": "只回复 OK"}],
-                "max_tokens": 8,
-            },
-        )
-        response.raise_for_status()
+    try:
+        async with httpx.AsyncClient(timeout=45) as client:
+            response = await client.post(
+                f"{payload.base_url.rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "只回复 OK"}],
+                    "max_tokens": 8,
+                },
+            )
+            response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        detail = error.response.text.strip()[:500]
+        raise HTTPException(
+            status_code=400,
+            detail=f"模型连接失败：{detail or error.response.status_code}",
+        ) from error
+    except httpx.HTTPError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无法连接模型服务：{error}",
+        ) from error
     return {"ok": True}
 
 
@@ -274,6 +444,29 @@ async def update_account(
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     database.update_account(account_id, name=payload.name.strip())
+    return database.get_account(account_id)
+
+
+@app.patch("/api/accounts/{account_id}/collection-schedule")
+async def update_collection_schedule(
+    account_id: str,
+    payload: CollectionScheduleRequest,
+) -> dict[str, Any]:
+    try:
+        account = database.get_account(account_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    fields = {}
+    if payload.enabled is not None:
+        fields["auto_collect_enabled"] = int(payload.enabled)
+        if payload.enabled and not account.get("last_collection_at"):
+            fields["last_collection_at"] = datetime.now(timezone.utc).isoformat()
+            fields["last_collection_status"] = "pending"
+    if payload.interval_minutes is not None:
+        fields["auto_collect_interval_minutes"] = payload.interval_minutes
+    if not fields:
+        raise HTTPException(status_code=400, detail="没有可更新的自动采集配置")
+    database.update_account(account_id, **fields)
     return database.get_account(account_id)
 
 
@@ -364,28 +557,173 @@ async def open_assignment(assignment_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/accounts/{account_id}/collect")
-async def collect_account(account_id: str, academic_year: int = 2026) -> dict[str, Any]:
+async def collect_account(
+    account_id: str,
+    academic_year: int | None = None,
+) -> dict[str, Any]:
     try:
         account = database.get_account(account_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     ensure_account_idle(account_id)
+    if await preview_manager.is_interactive(account_id):
+        raise HTTPException(
+            status_code=409,
+            detail="该账号正在使用可操控浏览器，请关闭后再采集",
+        )
     try:
-        assignments = await platform_registry.get(
-            account["platform"]
-        ).collect_assignments(database, account_id, academic_year)
+        return await perform_collection(
+            account_id,
+            academic_year or current_academic_year(),
+        )
     except Exception as error:
         logger.exception("Assignment collection failed")
         raise HTTPException(status_code=400, detail=str(error)) from error
-    return {
+
+
+@app.get("/api/accounts/{account_id}/collection-runs")
+async def list_account_collection_runs(
+    account_id: str,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    try:
+        database.get_account(account_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return database.list_collection_runs(account_id, limit)
+
+
+@app.get("/api/collection-runs/{run_id}")
+async def get_collection_run(run_id: str) -> dict[str, Any]:
+    try:
+        return database.get_collection_run(run_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+async def perform_collection(
+    account_id: str,
+    academic_year: int,
+) -> dict[str, Any]:
+    account = database.get_account(account_id)
+    lock = collection_lock(account_id)
+    if lock.locked():
+        raise RuntimeError("该账号正在采集作业")
+    run = database.create_collection_run(account_id, academic_year)
+    database.update_account(
+        account_id,
+        last_collection_at=datetime.now(timezone.utc).isoformat(),
+        last_collection_status="running",
+        last_collection_error=None,
+        last_collection_run_id=run["id"],
+    )
+
+    async def update_progress(payload: dict[str, Any]) -> None:
+        fields = {
+            key: payload[key]
+            for key in (
+                "progress",
+                "current_course",
+                "total_courses",
+                "processed_courses",
+                "failed_courses",
+            )
+            if key in payload
+        }
+        database.update_collection_run(run["id"], **fields)
+
+    try:
+        async with lock:
+            report = await platform_registry.get(
+                account["platform"]
+            ).collect_assignments(
+                database,
+                account_id,
+                academic_year,
+                run_id=run["id"],
+                progress=update_progress,
+            )
+    except Exception as error:
+        database.finish_collection_run(
+            run["id"],
+            "failed",
+            total_courses=0,
+            processed_courses=0,
+            failed_courses=0,
+            assignment_count=0,
+            submittable_count=0,
+            error=str(error),
+        )
+        raise
+    assignments = report["assignments"]
+    if report["processed_courses"] == 0 and report["failed_courses"] > 0:
+        error_message = "所有课程采集失败，请检查登录状态和网络"
+        database.finish_collection_run(
+            run["id"],
+            "failed",
+            total_courses=report["total_courses"],
+            processed_courses=0,
+            failed_courses=report["failed_courses"],
+            assignment_count=0,
+            submittable_count=0,
+            error=error_message,
+            errors=report["errors"],
+        )
+        raise RuntimeError(error_message)
+    status = "partial" if report["failed_courses"] else "success"
+    submittable_count = sum(
+        1
+        for item in assignments
+        if item.get("status") == "unfinished" and item.get("submittable")
+    )
+    try:
+        database.finalize_assignment_snapshot(
+            account_id,
+            academic_year,
+            run["id"],
+            set(report.get("failed_course_ids") or []),
+        )
+        finished = database.finish_collection_run(
+            run["id"],
+            status,
+            total_courses=report["total_courses"],
+            processed_courses=report["processed_courses"],
+            failed_courses=report["failed_courses"],
+            assignment_count=len(assignments),
+            submittable_count=submittable_count,
+            error=(
+                f"{report['failed_courses']} 个课程采集失败"
+                if report["failed_courses"]
+                else None
+            ),
+            errors=report["errors"],
+        )
+    except Exception as error:
+        database.finish_collection_run(
+            run["id"],
+            "failed",
+            total_courses=report["total_courses"],
+            processed_courses=report["processed_courses"],
+            failed_courses=report["failed_courses"],
+            assignment_count=len(assignments),
+            submittable_count=submittable_count,
+            error=f"保存采集结果失败：{error}",
+            errors=report["errors"],
+        )
+        raise
+    result = {
         "ok": True,
         "count": len(assignments),
-        "submittable": sum(
-            1
-            for item in assignments
-            if item.get("status") == "unfinished" and item.get("submittable")
-        ),
+        "submittable": submittable_count,
+        "run_id": run["id"],
+        "status": status,
+        "total_courses": report["total_courses"],
+        "processed_courses": report["processed_courses"],
+        "failed_courses": report["failed_courses"],
+        "errors": report["errors"],
+        "finished": finished,
     }
+    return result
 
 
 @app.get("/api/platforms")
@@ -428,12 +766,31 @@ async def create_job(payload: CreateJobRequest) -> dict[str, Any]:
         assignment = database.get_assignment(payload.assignment_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
-    job = database.create_job(
-        assignment["account_id"],
-        assignment["id"],
-        payload.auto_submit,
-        payload.interactive,
-    )
+    account = database.get_account(assignment["account_id"])
+    if account["status"] != "ready":
+        raise HTTPException(
+            status_code=409,
+            detail="账号尚未授权，请先刷新 Cookie",
+        )
+    if database.has_active_job_for_assignment(assignment["id"]):
+        raise HTTPException(
+            status_code=409,
+            detail="该作业已有排队或运行中的任务",
+        )
+    try:
+        parent_job_id, attempt = database.next_attempt_for_assignment(
+            assignment["id"]
+        )
+        job = database.create_job(
+            assignment["account_id"],
+            assignment["id"],
+            payload.auto_submit,
+            payload.interactive,
+            parent_job_id=parent_job_id,
+            attempt=attempt,
+        )
+    except ActiveJobConflict as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     start_job(database, event_hub, effective_settings(), job["id"])
     return job
 
@@ -466,8 +823,10 @@ async def pause_agent_job(job_id: str) -> dict[str, Any]:
     try:
         pause_job(database, event_hub, job_id)
         return database.get_job(job_id)
-    except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @app.post("/api/jobs/{job_id}/resume")
@@ -475,8 +834,10 @@ async def resume_agent_job(job_id: str) -> dict[str, Any]:
     try:
         resume_job(database, event_hub, job_id)
         return database.get_job(job_id)
-    except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @app.post("/api/jobs/{job_id}/stop")
@@ -484,8 +845,19 @@ async def stop_agent_job(job_id: str) -> dict[str, Any]:
     try:
         stop_job(database, event_hub, job_id)
         return database.get_job(job_id)
-    except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/api/jobs/{job_id}/focus-browser")
+async def focus_agent_browser(job_id: str) -> dict[str, Any]:
+    try:
+        await focus_job_browser(job_id)
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"ok": True}
 
 
 @app.post("/api/jobs/{job_id}/retry")
@@ -496,13 +868,67 @@ async def retry_agent_job(job_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(error)) from error
     if original["status"] in {"queued", "running", "paused", "stopping"}:
         raise HTTPException(status_code=409, detail="任务仍在运行，不能重试")
-    job = database.create_job(
-        original["account_id"],
-        original["assignment_id"],
-        bool(original["auto_submit"]),
-        bool(original["interactive"]),
-    )
+    account = database.get_account(original["account_id"])
+    if account["status"] != "ready":
+        raise HTTPException(
+            status_code=409,
+            detail="账号尚未授权，请先刷新 Cookie",
+        )
+    if database.has_active_job_for_assignment(original["assignment_id"]):
+        raise HTTPException(
+            status_code=409,
+            detail="该作业已有排队或运行中的任务",
+        )
+    try:
+        parent_job_id, attempt = database.next_attempt_for_assignment(
+            original["assignment_id"]
+        )
+        job = database.create_job(
+            original["account_id"],
+            original["assignment_id"],
+            bool(original["auto_submit"]),
+            bool(original["interactive"]),
+            parent_job_id=parent_job_id,
+            attempt=attempt,
+        )
+    except ActiveJobConflict as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     start_job(database, event_hub, effective_settings(), job["id"])
+    return job
+
+
+@app.post("/api/jobs/{job_id}/submission-status")
+async def verify_job_submission(
+    job_id: str,
+    payload: SubmissionVerificationRequest,
+) -> dict[str, Any]:
+    try:
+        job = database.update_submission_status(
+            job_id,
+            payload.status,
+            payload.note.strip(),
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    event = database.add_event(
+        job_id,
+        "submission_verified"
+        if payload.status in {"submitted_verified", "filled_verified"}
+        else "submission_reviewed",
+        (
+            "已人工确认提交成功"
+            if payload.status == "submitted_verified"
+            else (
+                "已人工确认填写结果"
+                if payload.status == "filled_verified"
+                else "已更新人工核对结果"
+            )
+        ),
+        {"submission_status": payload.status, "note": payload.note.strip()},
+    )
+    await event_hub.publish(job_id, event)
     return job
 
 

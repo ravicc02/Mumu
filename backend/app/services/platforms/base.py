@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from ...db import Database
 
@@ -29,7 +29,9 @@ class PlatformAdapter(ABC):
         database: Database,
         account_id: str,
         academic_year: int,
-    ) -> list[dict[str, Any]]:
+        run_id: str | None = None,
+        progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
         raise NotImplementedError
 
     @abstractmethod

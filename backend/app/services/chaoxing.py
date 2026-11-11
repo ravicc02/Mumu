@@ -5,13 +5,14 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 from urllib.parse import urljoin, urlparse, parse_qs
 
 from bs4 import BeautifulSoup
 from playwright.async_api import BrowserContext, Page, async_playwright
 
 from ..db import Database, utc_now
+from .browser import chrome_executable
 
 
 LOGIN_URL = (
@@ -36,6 +37,11 @@ def start_login(
     existing = _login_jobs.get(account_id)
     if existing and not existing.done():
         return {"status": "running"}
+    database.update_account(
+        account_id,
+        status="authorizing",
+        last_login_error=None,
+    )
     _login_status[account_id] = {"status": "starting"}
     task = asyncio.create_task(_login_account(database, account_id, settings))
     _login_jobs[account_id] = task
@@ -54,6 +60,7 @@ async def _login_account(database: Database, account_id: str, settings: Any) -> 
             login_context = await playwright.chromium.launch_persistent_context(
                 account["profile_dir"],
                 headless=False,
+                executable_path=str(chrome_executable()),
                 viewport={"width": 1360, "height": 900},
                 args=["--start-maximized"],
             )
@@ -82,6 +89,7 @@ async def _login_account(database: Database, account_id: str, settings: Any) -> 
             verify_context = await playwright.chromium.launch_persistent_context(
                 account["profile_dir"],
                 headless=True,
+                executable_path=str(chrome_executable()),
             )
             try:
                 await _restore_storage_state(verify_context, storage_state)
@@ -94,13 +102,18 @@ async def _login_account(database: Database, account_id: str, settings: Any) -> 
                 account_id,
                 status="ready",
                 last_login_at=utc_now(),
+                last_login_error=None,
             )
             _login_status[account_id] = {
                 "status": "success",
                 "message": "登录完成",
             }
     except Exception as error:
-        database.update_account(account_id, status="login_error")
+        database.update_account(
+            account_id,
+            status="login_error",
+            last_login_error=str(error),
+        )
         _login_status[account_id] = {
             "status": "error",
             "message": str(error),
@@ -358,7 +371,9 @@ async def collect_assignments(
     database: Database,
     account_id: str,
     academic_year: int,
-) -> list[dict[str, Any]]:
+    run_id: str | None = None,
+    progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+) -> dict[str, Any]:
     account = database.get_account(account_id)
     if account["status"] != "ready":
         raise RuntimeError("账号尚未授权，请先通过“刷新 Cookie”完成学习通登录")
@@ -366,6 +381,7 @@ async def collect_assignments(
         context = await playwright.chromium.launch_persistent_context(
             account["profile_dir"],
             headless=True,
+            executable_path=str(chrome_executable()),
             viewport={"width": 1440, "height": 1000},
         )
         page = await context.new_page()
@@ -384,7 +400,11 @@ async def collect_assignments(
                 "iframe[src*='/visit/interaction']"
             )
             if not frame or not frame.get("src"):
-                database.update_account(account_id, status="login_error")
+                database.update_account(
+                    account_id,
+                    status="login_error",
+                    last_login_error="学习通登录态已失效，请重新登录",
+                )
                 raise RuntimeError(
                     "学习通登录态已失效，请重新登录"
                     f"（最终地址：{base_url}，恢复 Cookie：{restored_cookies}，"
@@ -408,7 +428,25 @@ async def collect_assignments(
                 raise RuntimeError(f"没有找到 {academic_year} 年开课的课程")
 
             collected: list[dict[str, Any]] = []
-            for course in courses:
+            errors: list[dict[str, Any]] = []
+            processed_courses = 0
+            if progress is not None:
+                await progress({
+                    "progress": 10,
+                    "current_course": "",
+                    "total_courses": len(courses),
+                    "processed_courses": 0,
+                    "failed_courses": 0,
+                })
+            for index, course in enumerate(courses):
+                if progress is not None:
+                    await progress({
+                        "progress": min(95, 10 + int(index / len(courses) * 85)),
+                        "current_course": course["courseName"],
+                        "total_courses": len(courses),
+                        "processed_courses": processed_courses,
+                        "failed_courses": len(errors),
+                    })
                 try:
                     course_response_url, course_page_html = await _fetch_rendered_page(
                         page,
@@ -453,18 +491,57 @@ async def collect_assignments(
                                 }
                             )
                         assignment_id = database.upsert_assignment(
-                            account_id, "chaoxing", assignment, None
+                            account_id,
+                            "chaoxing",
+                            assignment,
+                            None,
+                            run_id=run_id,
                         )
                         assignment["id"] = assignment_id
                         collected.append(assignment)
-                except Exception:
+                    processed_courses += 1
+                except Exception as error:
+                    errors.append({
+                        "course_id": course.get("courseId", ""),
+                        "course_name": course.get("courseName", ""),
+                        "error": str(error),
+                    })
                     continue
             database.update_account(
                 account_id,
                 status="ready",
                 last_login_at=utc_now(),
+                last_login_error=None,
             )
-            return collected
+            if progress is not None:
+                await progress({
+                    "progress": 95,
+                    "current_course": "",
+                    "total_courses": len(courses),
+                    "processed_courses": processed_courses,
+                    "failed_courses": len(errors),
+                })
+            return {
+                "assignments": collected,
+                "total_courses": len(courses),
+                "processed_courses": processed_courses,
+                "failed_courses": len(errors),
+                "failed_course_ids": [
+                    item["course_id"]
+                    for item in errors
+                    if item.get("course_id")
+                ],
+                "errors": errors,
+            }
+        except Exception as error:
+            message = str(error)
+            if "登录态已失效" in message or "Cookie" in message:
+                database.update_account(
+                    account_id,
+                    status="login_error",
+                    last_login_error="学习通登录态已失效，请重新登录",
+                )
+            raise
         finally:
             await context.close()
 
@@ -478,19 +555,29 @@ async def refresh_session(
         context = await playwright.chromium.launch_persistent_context(
             account["profile_dir"],
             headless=True,
+            executable_path=str(chrome_executable()),
             viewport={"width": 1440, "height": 1000},
         )
         try:
             await _restore_storage_state(context, account["storage_state_path"])
             if not await _verify_authenticated(context):
-                database.update_account(account_id, status="login_error")
+                database.update_account(
+                    account_id,
+                    status="login_error",
+                    last_login_error="Cookie 已失效，请重新授权登录",
+                )
                 return {
                     "ok": False,
                     "status": "login_error",
                     "message": "Cookie 已失效，请重新授权登录",
                 }
             await context.storage_state(path=account["storage_state_path"])
-            database.update_account(account_id, status="ready", last_login_at=utc_now())
+            database.update_account(
+                account_id,
+                status="ready",
+                last_login_at=utc_now(),
+                last_login_error=None,
+            )
             return {
                 "ok": True,
                 "status": "ready",

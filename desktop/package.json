@@ -1,6 +1,8 @@
 {
   "name": "ai-assignment-studio-desktop",
-  "version": "0.1.0",
+  "version": "0.3.0",
+  "description": "Local Windows assignment automation studio",
+  "author": "AI Assignment Studio Contributors",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -21,6 +23,7 @@
     "concurrently": "^9.1.2",
     "electron": "^34.2.0",
     "electron-builder": "^25.1.8",
+    "rcedit": "^5.0.2",
     "vite": "^6.1.0",
     "wait-on": "^8.0.2"
   },
@@ -30,6 +33,7 @@
     "directories": {
       "output": "release"
     },
+    "afterPack": "scripts/after-pack.cjs",
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -45,6 +49,8 @@
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
       "target": [
         "nsis"
       ]

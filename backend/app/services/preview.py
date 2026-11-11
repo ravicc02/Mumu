@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from pathlib import Path
 from typing import Any
 
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
 from ..db import Database
+from .browser import chrome_executable
 
 
 class ProfilePreviewManager:
@@ -19,11 +21,55 @@ class ProfilePreviewManager:
         self._interactive_accounts: set[str] = set()
         self._lock = asyncio.Lock()
 
+    def _forget_locked(
+        self,
+        account_id: str,
+        *,
+        context: BrowserContext | None = None,
+        page: Page | None = None,
+    ) -> None:
+        if context is not None and self._contexts.get(account_id) is not context:
+            return
+        if page is not None and self._pages.get(account_id) is not page:
+            return
+        self._interactive_accounts.discard(account_id)
+        self._pages.pop(account_id, None)
+        self._contexts.pop(account_id, None)
+
+    async def _handle_page_close(
+        self,
+        account_id: str,
+        context: BrowserContext,
+        page: Page,
+    ) -> None:
+        async with self._lock:
+            if (
+                self._contexts.get(account_id) is not context
+                or self._pages.get(account_id) is not page
+            ):
+                return
+            self._forget_locked(account_id, context=context, page=page)
+            try:
+                await context.close()
+            except Exception:
+                pass
+
+    async def _handle_context_close(
+        self,
+        account_id: str,
+        context: BrowserContext,
+    ) -> None:
+        async with self._lock:
+            self._forget_locked(account_id, context=context)
+
     async def _ensure_browser(self) -> Browser:
         if self._browser and self._browser.is_connected():
             return self._browser
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=True)
+        self._browser = await self._playwright.chromium.launch(
+            headless=True,
+            executable_path=str(chrome_executable()),
+        )
         return self._browser
 
     async def screenshot(
@@ -38,11 +84,13 @@ class ProfilePreviewManager:
             context = self._contexts.get(account_id)
             if context is None or not context.browser.is_connected():
                 storage_state = account["storage_state_path"]
-                context = await browser.new_context(
-                    storage_state=storage_state,
-                    viewport={"width": 1280, "height": 820},
-                    device_scale_factor=1,
-                )
+                context_options: dict[str, Any] = {
+                    "viewport": {"width": 1280, "height": 820},
+                    "device_scale_factor": 1,
+                }
+                if Path(storage_state).is_file():
+                    context_options["storage_state"] = storage_state
+                context = await browser.new_context(**context_options)
                 self._contexts[account_id] = context
             page = self._pages.get(account_id)
             if page is None or page.is_closed():
@@ -111,11 +159,24 @@ class ProfilePreviewManager:
             context = await self._playwright.chromium.launch_persistent_context(
                 account["profile_dir"],
                 headless=False,
+                executable_path=str(chrome_executable()),
                 viewport={"width": 1360, "height": 900},
                 args=["--start-maximized"],
             )
             await self._restore_cookies(context, account["storage_state_path"])
             page = context.pages[0] if context.pages else await context.new_page()
+            context.on(
+                "close",
+                lambda _context: asyncio.create_task(
+                    self._handle_context_close(account_id, context)
+                ),
+            )
+            page.on(
+                "close",
+                lambda _page: asyncio.create_task(
+                    self._handle_page_close(account_id, context, page)
+                ),
+            )
             await page.goto(
                 destination,
                 wait_until="domcontentloaded",
@@ -153,6 +214,30 @@ class ProfilePreviewManager:
             if context:
                 await context.close()
             self._interactive_accounts.discard(account_id)
+
+    async def is_interactive(self, account_id: str) -> bool:
+        async with self._lock:
+            if account_id not in self._interactive_accounts:
+                return False
+            page = self._pages.get(account_id)
+            context = self._contexts.get(account_id)
+            if (
+                page is None
+                or page.is_closed()
+                or context is None
+            ):
+                self._forget_locked(
+                    account_id,
+                    context=context,
+                    page=page,
+                )
+                if context is not None:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
+                return False
+            return True
 
     async def close(self) -> None:
         for context in list(self._contexts.values()):

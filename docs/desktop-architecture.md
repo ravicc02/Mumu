@@ -10,7 +10,7 @@
 | 浏览器自动化 | Playwright | 多账号持久化目录、Cookie 复用、无头采集、截图和下载都成熟 |
 | Agent | browser-use | 直接使用自然语言操作页面，适合不同题型和页面变化 |
 | 数据 | SQLite | 单机无需额外服务，便于备份和审计 |
-| 实时画面 | WebSocket | Agent 每步截图和日志可即时显示在右侧 |
+| 实时画面 | WebSocket | Agent 每步截图和日志即时显示在任务面板 |
 | 打包 | PyInstaller + electron-builder | Python 后端与 Electron 壳分别构建，最终生成 NSIS 安装包 |
 | 推送 | 微信 iLink Bot | 完成后推送结果；微信协议参考 `pws-cc` |
 
@@ -25,6 +25,7 @@ AI Assignment Studio.exe
 │   ├── SQLite
 │   ├── Playwright profiles
 │   ├── 学习通无头采集
+│   ├── 到期自动检测
 │   ├── 本机 Chrome + CDP
 │   ├── browser-use Agent
 │   └── WebSocket events
@@ -53,6 +54,8 @@ AI Assignment Studio.exe
 5. 从课程页读取 `#enc`、`#t`、`#workEnc`。
 6. 请求 `/mooc2/work/list` 并解析作业状态。
 7. 对未交作业请求 task 页面，判断是否仍存在有效提交入口。
+8. 每次采集创建 `collection_runs` 快照，记录课程总数、处理数、失败课程和作业数。
+9. 成功快照停用本轮未出现的旧作业；部分失败时保留失败课程的上一版数据。
 
 该流程不需要打开课程标签页。
 
@@ -60,8 +63,13 @@ AI Assignment Studio.exe
 
 - 同一账号的任务通过异步锁串行执行，后续任务保持排队状态。
 - Agent 启动前先关闭该账号的预览窗口，再由应用启动本机 Chrome。
-- browser-use 通过 CDP 连接该 Chrome，复用账号 `user_data_dir` 和 `storage_state`。
+- browser-use 通过 CDP 连接该 Chrome，直接复用账号持久化 `user_data_dir` 中的登录态。
 - 每步通过 CDP 保存截图、动作记录和当前 URL。
+- 任务执行结果与作业提交结果分开记录；Agent 自报未完成时进入 `incomplete`，不会伪装成成功。
+- 任务心跳超过 2 分钟会写入 `stalled` 事件；停止超时后强制取消执行任务。
+- 重试会记录 `parent_job_id` 和递增的 `attempt`。
+- 人工可在任务结束后确认 `submitted_verified` 或 `not_submitted`。
+- DeepSeek 使用 JSON Object 输出、可配置的第二模型 Fallback，并绕过 Windows WMI 平台探测阻塞。
 - 默认不点击最终提交。
 - 完成后保存最终截图、Agent 历史和结果 JSON。
 
@@ -69,4 +77,5 @@ AI Assignment Studio.exe
 
 - 已完成学习通适配器接口和多平台注册层，但仅实现学习通。
 - 微信连接器支持二维码获取、扫码状态轮询和会话刷新；真实账号扫码仍需发布前复验。
+- 自动检测仅在桌面应用和后端运行时执行，不会在应用关闭后后台驻留。
 - Python sidecar 打包脚本已提供，正式发布前仍需在干净 Windows 环境验证安装包。

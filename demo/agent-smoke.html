@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>Agent Smoke Test</title>
+  </head>
+  <body>
+    <main>
+      <h1>Agent Smoke Test</h1>
+      <form id="quiz">
+        <section>
+          <label for="answer">1. 2 + 2 = ?</label>
+          <input id="answer" name="answer" autocomplete="off">
+        </section>
+        <fieldset>
+          <legend>2. 中国的首都是？</legend>
+          <label><input type="radio" name="capital" value="beijing"> 北京</label>
+          <label><input type="radio" name="capital" value="shanghai"> 上海</label>
+        </fieldset>
+        <fieldset>
+          <legend>3. 选择所有偶数。</legend>
+          <label><input type="checkbox" name="even" value="2"> 2</label>
+          <label><input type="checkbox" name="even" value="3"> 3</label>
+          <label><input type="checkbox" name="even" value="4"> 4</label>
+        </fieldset>
+        <section>
+          <label for="explain">4. 用一句话说明 HTTP 的用途。</label>
+          <textarea id="explain" name="explain" rows="4"></textarea>
+        </section>
+        <button type="submit">提交</button>
+      </form>
+      <p id="status"></p>
+    </main>
+    <script>
+      document.querySelector("#quiz").addEventListener("submit", (event) => {
+        event.preventDefault();
+        document.querySelector("#status").textContent = "已提交";
+      });
+    </script>
+  </body>
+</html>

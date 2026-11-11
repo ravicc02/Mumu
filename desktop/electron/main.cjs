@@ -133,3 +133,13 @@ ipcMain.handle("app:open-data-directory", async () => {
   await shell.openPath(dataRoot);
   return dataRoot;
 });
+
+ipcMain.handle("app:open-log-directory", async () => {
+  const logsRoot = path.join(
+    process.env.LOCALAPPDATA || app.getPath("userData"),
+    "AIAssistantStudio",
+    "logs"
+  );
+  await shell.openPath(logsRoot);
+  return logsRoot;
+});

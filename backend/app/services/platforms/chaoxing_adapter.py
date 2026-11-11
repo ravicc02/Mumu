@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from ...db import Database
 from .. import chaoxing
@@ -27,11 +27,15 @@ class ChaoxingAdapter(PlatformAdapter):
         database: Database,
         account_id: str,
         academic_year: int,
-    ) -> list[dict[str, Any]]:
+        run_id: str | None = None,
+        progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
         return await chaoxing.collect_assignments(
             database,
             account_id,
             academic_year,
+            run_id=run_id,
+            progress=progress,
         )
 
     async def refresh_session(

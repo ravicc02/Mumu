@@ -49,6 +49,13 @@ export const api = {
     method: "PATCH",
     body: JSON.stringify({ name })
   }),
+  updateCollectionSchedule: (accountId, config) => request(
+    `/api/accounts/${accountId}/collection-schedule`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(config)
+    }
+  ),
   deleteAccount: (accountId) => request(`/api/accounts/${accountId}`, {
     method: "DELETE"
   }),
@@ -75,6 +82,10 @@ export const api = {
     `/api/accounts/${accountId}/collect?academic_year=${academicYear}`,
     { method: "POST" }
   ),
+  collectionRuns: (accountId, limit = 20) => request(
+    `/api/accounts/${accountId}/collection-runs?limit=${limit}`
+  ),
+  collectionRun: (runId) => request(`/api/collection-runs/${runId}`),
   assignments: ({ accountId, academicYear, submittable = true }) => {
     const params = new URLSearchParams();
     if (accountId) params.set("account_id", accountId);
@@ -98,7 +109,18 @@ export const api = {
   pauseJob: (jobId) => request(`/api/jobs/${jobId}/pause`, { method: "POST" }),
   resumeJob: (jobId) => request(`/api/jobs/${jobId}/resume`, { method: "POST" }),
   stopJob: (jobId) => request(`/api/jobs/${jobId}/stop`, { method: "POST" }),
+  focusJobBrowser: (jobId) => request(
+    `/api/jobs/${jobId}/focus-browser`,
+    { method: "POST" }
+  ),
   retryJob: (jobId) => request(`/api/jobs/${jobId}/retry`, { method: "POST" }),
+  verifySubmission: (jobId, status, note = "") => request(
+    `/api/jobs/${jobId}/submission-status`,
+    {
+      method: "POST",
+      body: JSON.stringify({ status, note })
+    }
+  ),
   events: (jobId) => request(`/api/jobs/${jobId}/events`),
   artifacts: (jobId) => request(`/api/jobs/${jobId}/artifacts`),
   testNotification: () => request("/api/notifications/test", {

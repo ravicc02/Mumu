@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import json
+import logging
 import os
-import shutil
+import platform
 import socket
 from pathlib import Path
 from typing import Any
@@ -12,38 +14,132 @@ from typing import Any
 import httpx
 from browser_use import Agent, BrowserSession
 from browser_use.browser.profile import BrowserProfile
+from browser_use.config import CONFIG
 from browser_use.llm.openai.chat import ChatOpenAI
+import browser_use.utils as browser_use_utils
 
 from ..config import Settings
 from ..db import Database, utc_now
 from ..events import EventHub
 from .notifier import send_completion_notification
 from .preview import preview_manager
+from .browser import chrome_executable
+
+
+logger = logging.getLogger(__name__)
 
 
 _running_jobs: dict[str, asyncio.Task[None]] = {}
 _job_controls: dict[str, "JobControl"] = {}
 _account_locks: dict[str, asyncio.Lock] = {}
+_job_sessions: dict[str, BrowserSession] = {}
 
 BROWSER_START_TIMEOUT_SECONDS = 45
+CONFIG.BROWSER_USE_VERSION_CHECK = False
+CONFIG.ANONYMIZED_TELEMETRY = False
+CONFIG.BROWSER_USE_CLOUD_SYNC = False
+
+if os.name == "nt":
+    platform.system = lambda: "Windows"
+    platform.platform = lambda: "Windows"
+    platform.machine = lambda: "AMD64"
 
 
-def _chrome_executable() -> Path:
-    candidates = [
-        os.getenv("ANSWER_STUDIO_CHROME_PATH", ""),
-        shutil.which("chrome") or "",
-        shutil.which("chrome.exe") or "",
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        os.path.expandvars(
-            r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"
-        ),
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-    ]
-    for candidate in candidates:
-        if candidate and Path(candidate).is_file():
-            return Path(candidate)
-    raise RuntimeError("未找到 Chrome 或 Edge，请先安装 Chromium 浏览器")
+class _NoopSignalHandler:
+    """Avoid browser-use's blocking Windows WMI lookup in embedded runs."""
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        pass
+
+    def register(self) -> None:
+        pass
+
+    def unregister(self) -> None:
+        pass
+
+    def reset(self) -> None:
+        pass
+
+
+browser_use_utils.SignalHandler = _NoopSignalHandler
+
+
+class _JsonObjectCompletions:
+    def __init__(self, delegate: Any) -> None:
+        self._delegate = delegate
+
+    async def create(self, *args: Any, **kwargs: Any) -> Any:
+        kwargs.setdefault("response_format", {"type": "json_object"})
+        response = None
+        for attempt in range(3):
+            response = await self._delegate.create(*args, **kwargs)
+            choices = getattr(response, "choices", None) or []
+            if not choices:
+                await asyncio.sleep(0.25 * (attempt + 1))
+                continue
+            message = getattr(choices[0], "message", None)
+            content = getattr(message, "content", None)
+            if not content:
+                logger.warning(
+                    "Model returned empty content on attempt %s",
+                    attempt + 1,
+                )
+                await asyncio.sleep(0.25 * (attempt + 1))
+                continue
+            cleaned = _clean_json_content(content)
+            if cleaned == content:
+                try:
+                    json.loads(cleaned)
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "Model returned non-JSON content (length=%s): %s",
+                        len(cleaned),
+                        cleaned[:1200],
+                    )
+            if cleaned != content and message is not None:
+                message.content = cleaned
+            return response
+        return response
+
+
+def _clean_json_content(content: str) -> str:
+    text = content.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    try:
+        json.loads(text)
+        return text
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            candidate = text[start:end + 1]
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError:
+                pass
+    return text
+
+
+class _JsonObjectChat:
+    def __init__(self, delegate: Any) -> None:
+        self.completions = _JsonObjectCompletions(delegate.completions)
+
+
+class _JsonObjectClient:
+    def __init__(self, delegate: Any) -> None:
+        self.chat = _JsonObjectChat(delegate.chat)
+
+
+class JsonObjectChatOpenAI(ChatOpenAI):
+    def get_client(self) -> Any:
+        return _JsonObjectClient(super().get_client())
 
 
 def _free_port() -> int:
@@ -84,7 +180,7 @@ async def _launch_chrome(
 ) -> tuple[asyncio.subprocess.Process, str]:
     port = _free_port()
     args = [
-        str(_chrome_executable()),
+        str(chrome_executable()),
         f"--remote-debugging-port={port}",
         f"--user-data-dir={profile_dir}",
         "--profile-directory=Default",
@@ -142,12 +238,19 @@ async def _capture_screenshot(
     params: dict[str, Any] = {"format": "png", "fromSurface": True}
     if full_page:
         params["captureBeyondViewport"] = True
-    session_id = await page.session_id
+    session_id = await _resolve_session_id(page)
     result = await session.cdp_client.send.Page.captureScreenshot(
         params,
         session_id=session_id,
     )
     return base64.b64decode(result["data"]), await session.get_current_page_url()
+
+
+async def _resolve_session_id(page: Any) -> str:
+    value = page.session_id
+    if inspect.isawaitable(value):
+        value = await value
+    return str(value)
 
 
 def _account_lock(account_id: str) -> asyncio.Lock:
@@ -192,16 +295,37 @@ def start_job(
     _running_jobs[job_id] = task
 
 
+async def focus_job_browser(job_id: str) -> bool:
+    session = _job_sessions.get(job_id)
+    if session is None:
+        raise RuntimeError("任务当前没有可操作的浏览器")
+    page = await session.get_current_page()
+    if page is None:
+        raise RuntimeError("任务当前没有可操作的页面")
+    session_id = await _resolve_session_id(page)
+    await session.cdp_client.send.Page.bringToFront(
+        session_id=session_id,
+    )
+    return True
+
+
 def pause_job(
     database: Database,
     event_hub: EventHub,
     job_id: str,
 ) -> None:
+    job = database.get_job(job_id)
+    if job["status"] not in {"queued", "running"}:
+        raise RuntimeError("只有排队中或运行中的任务可以暂停")
     control = _job_controls.get(job_id)
     if not control:
         raise RuntimeError("任务当前未运行")
     control.resume_event.clear()
-    database.update_job(job_id, status="paused")
+    database.transition_job(
+        job_id,
+        "paused",
+        paused_from_status=job["status"],
+    )
     event = database.add_event(job_id, "paused", "任务已暂停")
     asyncio.create_task(event_hub.publish(job_id, event))
 
@@ -211,12 +335,26 @@ def resume_job(
     event_hub: EventHub,
     job_id: str,
 ) -> None:
+    job = database.get_job(job_id)
+    if job["status"] != "paused":
+        raise RuntimeError("只有已暂停的任务可以继续")
     control = _job_controls.get(job_id)
     if not control:
         raise RuntimeError("任务当前未运行")
+    resume_status = job.get("paused_from_status") or "running"
+    if resume_status not in {"queued", "running"}:
+        resume_status = "running"
     control.resume_event.set()
-    database.update_job(job_id, status="running")
-    event = database.add_event(job_id, "resumed", "任务已继续")
+    database.transition_job(
+        job_id,
+        resume_status,
+        paused_from_status=None,
+    )
+    event = database.add_event(
+        job_id,
+        "resumed",
+        "任务已继续排队" if resume_status == "queued" else "任务已继续",
+    )
     asyncio.create_task(event_hub.publish(job_id, event))
 
 
@@ -225,15 +363,30 @@ def stop_job(
     event_hub: EventHub,
     job_id: str,
 ) -> None:
+    job = database.get_job(job_id)
+    if job["status"] not in {"queued", "running", "paused"}:
+        raise RuntimeError("当前任务不能停止")
     control = _job_controls.get(job_id)
     if not control:
         raise RuntimeError("任务当前未运行")
     control.stop_requested = True
     control.stop_event.set()
     control.resume_event.set()
-    database.update_job(job_id, status="stopping")
+    database.transition_job(job_id, "stopping")
     event = database.add_event(job_id, "stopping", "正在停止任务")
     asyncio.create_task(event_hub.publish(job_id, event))
+    asyncio.create_task(_force_stop_after(job_id))
+
+
+async def _force_stop_after(job_id: str, timeout: float = 12) -> None:
+    task = _running_jobs.get(job_id)
+    if task is None:
+        return
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+        return
+    except TimeoutError:
+        task.cancel("任务停止超时，执行强制终止")
 
 
 async def run_job(
@@ -255,6 +408,22 @@ async def run_job(
         event = database.add_event(job_id, kind, message, data)
         await event_hub.publish(job_id, event)
         return event
+
+    async def notify_safely(payload: dict[str, Any]) -> None:
+        try:
+            sent = await send_completion_notification(settings, payload)
+            if not any(sent.values()):
+                return
+            await emit(
+                "notification",
+                "通知已发送",
+                {"channels": sent},
+            )
+        except Exception as notification_error:
+            await emit(
+                "notification_error",
+                f"通知发送失败：{notification_error}",
+            )
 
     control = JobControl()
     _job_controls[job_id] = control
@@ -284,11 +453,12 @@ async def run_job(
         await asyncio.gather(stop_task, return_exceptions=True)
         lock_acquired = True
         await control.wait_if_paused()
-        database.update_job(
+        database.transition_job(
             job_id,
-            status="running",
+            "running",
             started_at=utc_now(),
             progress=1,
+            paused_from_status=None,
         )
         await emit("status", "账号浏览器已分配，Agent 任务开始运行")
 
@@ -311,7 +481,7 @@ async def run_job(
         )
         profile = BrowserProfile(
             user_data_dir=account["profile_dir"],
-            storage_state=account["storage_state_path"],
+            storage_state=None,
             headless=not interactive,
             viewport=None if interactive else {"width": 1440, "height": 1000},
             no_viewport=interactive,
@@ -338,19 +508,58 @@ async def run_job(
             "可操控浏览器已连接",
             {"interactive": interactive, "pid": browser_process.pid},
         )
+        _job_sessions[job_id] = session
 
-        llm = ChatOpenAI(
-            model=settings.openai_model,
-            api_key=settings.openai_api_key,
-            base_url=settings.openai_base_url,
-            temperature=0.2,
-            reasoning_effort=(
+        await emit("agent_starting", "正在初始化模型和 Agent")
+        is_deepseek = "deepseek" in settings.openai_model.lower()
+        llm_class = JsonObjectChatOpenAI if is_deepseek else ChatOpenAI
+        llm_params: dict[str, Any] = {
+            "model": settings.openai_model,
+            "api_key": settings.openai_api_key,
+            "base_url": settings.openai_base_url,
+            "temperature": 0.1,
+            "frequency_penalty": 0,
+            "timeout": 180,
+            "max_retries": 1,
+            "max_completion_tokens": 8192,
+            "reasoning_effort": (
                 settings.reasoning_effort
                 if settings.reasoning_effort
                 in {"none", "minimal", "low", "medium", "high", "xhigh"}
                 else "medium"
             ),
+        }
+        if is_deepseek:
+            llm_params.update({
+                "add_schema_to_system_prompt": True,
+                "dont_force_structured_output": True,
+            })
+        llm = llm_class(**llm_params)
+        fallback_model = (
+            settings.openai_fallback_model.strip()
+            or settings.openai_model
         )
+        fallback_is_deepseek = "deepseek" in fallback_model.lower()
+        fallback_class = (
+            JsonObjectChatOpenAI
+            if fallback_is_deepseek
+            else ChatOpenAI
+        )
+        fallback_params = {
+            **llm_params,
+            "model": fallback_model,
+            "temperature": 0,
+            "max_retries": 2,
+        }
+        if fallback_is_deepseek:
+            fallback_params.update({
+                "add_schema_to_system_prompt": True,
+                "dont_force_structured_output": True,
+            })
+        else:
+            fallback_params.pop("add_schema_to_system_prompt", None)
+            fallback_params.pop("dont_force_structured_output", None)
+        fallback_llm = fallback_class(**fallback_params)
 
         async def on_step(
             _browser_state: Any,
@@ -360,12 +569,23 @@ async def run_job(
             nonlocal step_counter
             step_counter = step + 1
             progress = min(95, 5 + step_counter * 3)
-            database.update_job(job_id, progress=progress)
+            database.update_job(
+                job_id,
+                progress=progress,
+                last_heartbeat_at=utc_now(),
+            )
             thought = ""
             action_names: list[str] = []
             if output is not None:
                 if hasattr(output, "current_state"):
-                    thought = str(getattr(output.current_state, "next_goal", "") or "")
+                    state = output.current_state
+                    thought = str(
+                        getattr(state, "next_goal", "")
+                        or getattr(state, "memory", "")
+                        or getattr(state, "thinking", "")
+                        or getattr(state, "evaluation_previous_goal", "")
+                        or ""
+                    )
                 if hasattr(output, "action"):
                     action_names = [
                         item.__class__.__name__
@@ -417,20 +637,25 @@ async def run_job(
 
         async def heartbeat() -> None:
             while True:
-                await asyncio.sleep(5)
                 if control.stop_requested:
                     return
                 if not control.resume_event.is_set():
+                    await asyncio.sleep(2)
                     continue
                 try:
-                    current_url = await session.get_current_page_url()
+                    current_url = await asyncio.wait_for(
+                        session.get_current_page_url(),
+                        timeout=3,
+                    )
                 except Exception:
                     current_url = ""
+                database.update_job(job_id, last_heartbeat_at=utc_now())
                 await emit(
                     "heartbeat",
                     "Agent 正在运行",
                     {"url": current_url, "step": step_counter},
                 )
+                await asyncio.sleep(5)
 
         submit_rule = (
             "完成核对后可以点击最终提交按钮。"
@@ -445,12 +670,14 @@ async def run_job(
 作业地址：{job["task_url"]}
 
 要求：
-1. 读取页面中的全部题目和作答控件，逐题完成。
-2. 单选、多选、判断、填空、简答和富文本编辑器都要处理。
-3. 主观题答案要具体、完整、可直接提交。
-4. {submit_rule}
-5. 不要访问与作业无关的页面，不要修改账号设置。
-6. 每个关键操作后确认页面状态，遇到弹窗先处理再继续。
+1. 先滚动页面并读取当前实际存在的全部题目和作答控件，建立题目清单。
+2. 按页面实际存在的控件处理单选、多选、判断、填空、简答和富文本题；页面没有的题型不要等待或反复查找。
+3. 逐题填写，并在填写后确认输入值或选中状态；一个控件确认完成后再处理下一题。
+4. 主观题答案要具体、完整、可直接提交。
+5. {submit_rule}
+6. 结束前再次检查所有题目；只要仍有实际题目未填写、未选择或无法确认，就继续处理，不要调用 done。
+7. 不要访问与作业无关的页面，不要修改账号设置。
+8. 每个关键操作后确认页面状态，遇到弹窗先处理再继续。
 """
         async def should_stop() -> bool:
             return control.stop_requested
@@ -458,21 +685,29 @@ async def run_job(
         agent = Agent(
             task=task,
             llm=llm,
+            fallback_llm=fallback_llm,
             browser_session=session,
-            use_vision=True,
+            use_vision=not is_deepseek,
             use_judge=False,
+            flash_mode=is_deepseek,
             register_new_step_callback=on_step,
             save_conversation_path=str(artifact_dir / "agent-history.json"),
-            max_actions_per_step=5,
+            max_actions_per_step=3 if is_deepseek else 5,
             step_timeout=180,
             max_failures=4,
             directly_open_url=True,
+            enable_signal_handler=False,
+            llm_timeout=180,
             register_should_stop_callback=should_stop,
         )
         heartbeat_task = asyncio.create_task(heartbeat())
-        history = await agent.run(
-            max_steps=100,
-            on_step_start=on_step_start,
+        await emit("agent_ready", "Agent 已初始化，正在读取页面")
+        history = await asyncio.wait_for(
+            agent.run(
+                max_steps=100,
+                on_step_start=on_step_start,
+            ),
+            timeout=3600,
         )
         final_result = ""
         if hasattr(history, "final_result"):
@@ -523,15 +758,54 @@ async def run_job(
             encoding="utf-8",
         )
         database.add_artifact(job_id, "result_json", result_path)
-        database.update_job(
+        agent_success = True
+        if hasattr(history, "is_successful"):
+            agent_success = bool(history.is_successful())
+        if not agent_success:
+            submission_status = (
+                "submission_unknown"
+                if job["auto_submit"]
+                else "partial_pending_review"
+            )
+            database.transition_job(
+                job_id,
+                "incomplete",
+                submission_status=submission_status,
+                progress=95,
+                error="Agent 报告任务未完成",
+                finished_at=utc_now(),
+            )
+            await emit(
+                "incomplete",
+                final_result or "Agent 报告任务未完成",
+            )
+            await notify_safely(
+                {
+                    "event": "assignment_incomplete",
+                    "job_id": job_id,
+                    "account": account["name"],
+                    "course": job["course_name"],
+                    "assignment": job["assignment_title"],
+                    "auto_submit": bool(job["auto_submit"]),
+                    "submission_status": submission_status,
+                    "result": final_result or "Agent 报告任务未完成",
+                }
+            )
+            return
+        submission_status = (
+            "submitted_unverified"
+            if job["auto_submit"]
+            else "filled_pending_review"
+        )
+        database.transition_job(
             job_id,
-            status="completed",
+            "completed",
+            submission_status=submission_status,
             progress=100,
             finished_at=utc_now(),
         )
         await emit("completed", final_result or "Agent 已完成")
-        await send_completion_notification(
-            settings,
+        await notify_safely(
             {
                 "event": "assignment_completed",
                 "job_id": job_id,
@@ -539,32 +813,97 @@ async def run_job(
                 "course": job["course_name"],
                 "assignment": job["assignment_title"],
                 "auto_submit": bool(job["auto_submit"]),
+                "submission_status": submission_status,
                 "result": final_result,
-            },
+            }
         )
     except JobStopped:
-        database.update_job(
+        submission_status = (
+            "submission_unknown"
+            if job["auto_submit"]
+            else "not_submitted"
+        )
+        database.transition_job(
             job_id,
-            status="stopped",
+            "stopped",
+            submission_status=submission_status,
             finished_at=utc_now(),
         )
         await emit("stopped", "任务已停止")
+        await notify_safely(
+            {
+                "event": "assignment_stopped",
+                "job_id": job_id,
+                "account": account["name"],
+                "course": job["course_name"],
+                "assignment": job["assignment_title"],
+                "auto_submit": bool(job["auto_submit"]),
+                "submission_status": submission_status,
+                "result": "任务已停止",
+            }
+        )
+    except asyncio.CancelledError:
+        current = database.get_job(job_id)
+        if current["status"] in {"queued", "running", "paused", "stopping"}:
+            database.transition_job(
+                job_id,
+                "stopped",
+                submission_status=(
+                    "submission_unknown"
+                    if job["auto_submit"]
+                    else "not_submitted"
+                ),
+                error="任务停止超时，已强制终止",
+                finished_at=utc_now(),
+            )
+            event = database.add_event(
+                job_id,
+                "stopped",
+                "任务已强制终止",
+                {"forced": True},
+            )
+            await event_hub.publish(job_id, event)
+        raise
     except Exception as error:
         if control.stop_requested:
-            database.update_job(
+            submission_status = (
+                "submission_unknown"
+                if job["auto_submit"]
+                else "not_submitted"
+            )
+            database.transition_job(
                 job_id,
-                status="stopped",
+                "stopped",
+                submission_status=submission_status,
                 finished_at=utc_now(),
             )
             await emit("stopped", "任务已按用户请求停止")
         else:
-            database.update_job(
+            submission_status = (
+                "submission_unknown"
+                if job["auto_submit"]
+                else "not_submitted"
+            )
+            database.transition_job(
                 job_id,
-                status="failed",
+                "failed",
+                submission_status=submission_status,
                 error=str(error),
                 finished_at=utc_now(),
             )
             await emit("error", f"Agent 执行失败：{error}")
+            await notify_safely(
+                {
+                    "event": "assignment_failed",
+                    "job_id": job_id,
+                    "account": account["name"],
+                    "course": job["course_name"],
+                    "assignment": job["assignment_title"],
+                    "auto_submit": bool(job["auto_submit"]),
+                    "submission_status": submission_status,
+                    "result": f"Agent 执行失败：{error}",
+                }
+            )
     finally:
         if heartbeat_task:
             heartbeat_task.cancel()
@@ -577,4 +916,5 @@ async def run_job(
         if lock_acquired and account_lock.locked():
             account_lock.release()
         _job_controls.pop(job_id, None)
+        _job_sessions.pop(job_id, None)
         _running_jobs.pop(job_id, None)
