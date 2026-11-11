@@ -1003,7 +1003,7 @@ class Database:
                           WHEN submission_status = 'not_started' THEN 'not_submitted'
                           ELSE submission_status
                         END,
-                        error = '应用重启，任务已中断',
+                        error = '任务已中断：应用或本地后端重新启动，原浏览器会话无法继续。建议重新执行任务；若原任务已有填写内容，可先进入作业页人工核对。',
                         finished_at = ?,
                         updated_at = ?
                     WHERE id = ?
@@ -1017,7 +1017,7 @@ class Database:
                     """,
                     (
                         row["id"],
-                        "应用重启，任务已中断",
+                        "任务已中断：应用重启导致浏览器会话结束",
                         json.dumps(
                             {"previous_status": row["status"]},
                             ensure_ascii=False,

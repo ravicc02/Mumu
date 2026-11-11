@@ -279,10 +279,12 @@ const activeJobs = computed(() => (
 const activeJob = computed(() => activeJobs.value[0] || null);
 
 const selectedJobResult = computed(() => {
-  const completedEvent = [...events.value]
+  const resultEvent = [...events.value]
     .reverse()
-    .find((event) => event.kind === "completed");
-  return completedEvent?.message || "";
+    .find((event) => (
+      ["result_summary", "completed", "incomplete", "stopped"].includes(event.kind)
+    ));
+  return resultEvent?.message || "";
 });
 
 const jobStatusLabels = {
@@ -586,6 +588,8 @@ function logEventStateLabel(kind) {
     notification: "通知",
     submission_verified: "已核验",
     submission_reviewed: "已人工核对",
+    result_summary: "执行结论",
+    diagnostic: "问题诊断",
     quiz_navigating: "读取题型",
     quiz_extracted: "已识别",
     quiz_answers_ready: "答案就绪",
@@ -1719,7 +1723,7 @@ onUnmounted(() => {
           <span>{{ item.label }}</span>
         </button>
         <div class="side-nav-footer">
-          <small>v0.4.1</small>
+          <small>v0.4.2</small>
         </div>
       </nav>
 
@@ -1907,7 +1911,8 @@ onUnmounted(() => {
               </small>
             </div>
             <p v-if="isNeedsIntervention(selectedJob)" class="result-intervention">
-              浏览器保持开启。请点击“进入实时浏览器”手动补充，处理完成后点击“结束介入”。
+              <strong>需要人工介入：</strong>
+              {{ selectedJob.error || selectedJobResult || "Agent 未能确认任务已完整完成。" }}
             </p>
             <p v-else-if="selectedJob.error" class="result-error">{{ selectedJob.error }}</p>
             <p v-else-if="selectedJobResult">{{ selectedJobResult }}</p>

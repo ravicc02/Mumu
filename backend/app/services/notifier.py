@@ -48,7 +48,7 @@ async def send_completion_notification(
                 },
                 "base_info": {
                     "channel_version": "2.4.10",
-                    "bot_agent": "AIAssignmentStudio/0.4.1",
+                    "bot_agent": "AIAssignmentStudio/0.4.2",
                 },
             }
             response = await client.post(

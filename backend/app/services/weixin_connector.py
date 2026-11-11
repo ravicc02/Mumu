@@ -109,7 +109,7 @@ async def refresh_context(database: Database) -> dict[str, Any]:
                 "get_updates_buf": "",
                 "base_info": {
                     "channel_version": "2.4.10",
-                    "bot_agent": "AIAssignmentStudio/0.4.1",
+                    "bot_agent": "AIAssignmentStudio/0.4.2",
                 },
             },
         )

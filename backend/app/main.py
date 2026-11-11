@@ -272,7 +272,7 @@ async def health() -> dict[str, Any]:
     model_config = get_model_config()
     return {
         "ok": True,
-        "version": "0.4.1",
+        "version": "0.4.2",
         "data_root": str(settings.data_root),
         "model": (model_config["models"] or [settings.openai_model])[0],
         "ai_configured": bool(model_config["api_key"]),

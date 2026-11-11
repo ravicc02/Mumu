@@ -582,6 +582,186 @@ class JobStopped(Exception):
     pass
 
 
+class AgentOperationError(RuntimeError):
+    def __init__(
+        self,
+        stage: str,
+        reason: str,
+        suggestion: str,
+        detail: str = "",
+    ) -> None:
+        super().__init__(reason)
+        self.stage = stage
+        self.reason = reason
+        self.suggestion = suggestion
+        self.detail = detail
+
+
+def _compact_text(value: Any, limit: int = 600) -> str:
+    text = " ".join(str(value or "").split())
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _diagnose_error(
+    error: Exception,
+    *,
+    stage: str,
+    current_url: str,
+    last_action: str,
+) -> dict[str, str]:
+    raw = _compact_text(error, 1800)
+    if isinstance(error, AgentOperationError):
+        reason = error.reason
+        suggestion = error.suggestion
+        stage = error.stage
+        raw = _compact_text(error.detail or error.reason, 1800)
+    elif any(
+        marker in raw.lower()
+        for marker in (
+            "agoutput",
+            "json",
+            "validation error",
+            "function call",
+            "tool_call",
+            "模型输出",
+        )
+    ):
+        stage = "模型输出"
+        reason = "模型返回内容不符合 Agent 工具协议，无法转换成可执行动作。"
+        suggestion = "提高思考强度或切换到更强的模型后重试。"
+    elif any(
+        marker in raw.lower()
+        for marker in (
+            "登录态",
+            "cookie",
+            "passport",
+            "login",
+            "未登录",
+        )
+    ):
+        stage = "登录态"
+        reason = "账号 Cookie 或登录态失效，浏览器无法进入已授权页面。"
+        suggestion = "在账号右侧菜单刷新 Cookie，确认登录成功后重试。"
+    elif any(
+        marker in raw.lower()
+        for marker in (
+            "javascript evaluation",
+            "evaluate",
+            "执行脚本",
+            "页面脚本",
+        )
+    ):
+        stage = "页面脚本"
+        reason = "页面脚本执行失败，可能是作业页 DOM 已更新或脚本上下文失效。"
+        suggestion = "重新执行任务；若持续失败，进入实时浏览器检查作业页是否正常加载。"
+    elif any(
+        marker in raw.lower()
+        for marker in (
+            "cdp",
+            "ax_tree",
+            "screenshot",
+            "截图",
+            "页面读取超时",
+            "dom build",
+        )
+    ):
+        stage = "浏览器页面"
+        reason = "浏览器页面读取或截图超时，Agent 无法继续确认页面状态。"
+        suggestion = "关闭其它占用浏览器的任务后重试，或进入实时浏览器检查页面是否卡住。"
+    elif any(
+        marker in raw.lower()
+        for marker in (
+            "未通过核验",
+            "没有返回全部",
+            "作答单元",
+            "填空",
+            "隐藏值",
+        )
+    ):
+        stage = "答题写入"
+        reason = "题目识别后，部分答案没有成功写入或没有通过页面值核验。"
+        suggestion = "进入实时浏览器检查失败题号，处理后结束介入，或重新执行任务。"
+    elif any(
+        marker in raw.lower()
+        for marker in ("timeout", "timed out", "超时")
+    ):
+        stage = "执行超时"
+        reason = "任务在限定时间内没有完成。"
+        suggestion = "检查网络和模型响应速度，减少同时执行的任务后重试。"
+    else:
+        reason = _compact_text(raw or "未返回具体错误信息", 500)
+        suggestion = "查看执行凭证和 Agent 日志；若问题重复，重新执行任务。"
+
+    summary_parts = [f"{stage}失败：{reason}"]
+    if current_url:
+        summary_parts.append(f"最后页面：{_compact_text(current_url, 240)}")
+    if last_action:
+        summary_parts.append(f"最近动作：{_compact_text(last_action, 320)}")
+    summary_parts.append(f"建议：{suggestion}")
+    return {
+        "stage": stage,
+        "reason": reason,
+        "suggestion": suggestion,
+        "current_url": current_url,
+        "last_action": last_action,
+        "raw_error": raw,
+        "summary": " ".join(summary_parts),
+    }
+
+
+def _stage_for_event(kind: str, message: str) -> str:
+    if kind in {"browser_starting", "browser_ready", "session_ready", "browser"}:
+        return "浏览器启动与登录"
+    if kind in {"quiz_navigating", "quiz_extracted"}:
+        return "题型识别"
+    if kind in {"quiz_answers_ready"}:
+        return "模型生成答案"
+    if kind in {"quiz_filled"}:
+        return "页面填写与核验"
+    if kind in {"thinking", "step"}:
+        return "Agent 页面执行"
+    if kind in {
+        "result_summary",
+        "diagnostic",
+        "needs_intervention",
+        "incomplete",
+        "completed",
+        "stopped",
+        "error",
+        "final_screenshot",
+        "notification",
+        "notification_error",
+    }:
+        return "结果整理"
+    return _compact_text(message, 80) or "任务执行"
+
+
+def _summarize_action_details(details: list[dict[str, Any]]) -> str:
+    parts = []
+    for item in details:
+        action_type = str(item.get("type") or "动作")
+        payload = item.get("data") or {}
+        nested = next(
+            (
+                value
+                for value in payload.values()
+                if isinstance(value, dict)
+            ),
+            payload,
+        ) if isinstance(payload, dict) else {}
+        if isinstance(nested, dict) and nested.get("url"):
+            parts.append(f"打开 {nested['url']}")
+        elif isinstance(nested, dict) and nested.get("text"):
+            parts.append(f"输入「{_compact_text(nested['text'], 80)}」")
+        elif isinstance(nested, dict) and nested.get("code"):
+            parts.append("执行页面脚本")
+        elif isinstance(nested, dict) and nested.get("index") is not None:
+            parts.append(f"操作元素 #{nested['index']}")
+        else:
+            parts.append(action_type)
+    return "；".join(parts)
+
+
 class JobControl:
     def __init__(self) -> None:
         self.resume_event = asyncio.Event()
@@ -694,10 +874,18 @@ async def _run_structured_chaoxing_quiz(
         },
     )
 
-    answer_sheet = await asyncio.wait_for(
-        generate_answers(llm, extracted),
-        timeout=300,
-    )
+    try:
+        answer_sheet = await asyncio.wait_for(
+            generate_answers(llm, extracted),
+            timeout=300,
+        )
+    except TimeoutError as error:
+        raise AgentOperationError(
+            "模型生成答案",
+            "模型在 5 分钟内没有返回全部题目的结构化答案。",
+            "提高模型响应速度或减少单次题量后重试。",
+            str(error),
+        ) from error
     expected_ids = {
         str(unit["unit_id"])
         for unit in extracted.get("units") or []
@@ -708,12 +896,18 @@ async def _run_structured_chaoxing_quiz(
     }
     missing_ids = expected_ids - set(answer_by_id)
     if missing_ids:
-        raise RuntimeError(
+        raise AgentOperationError(
+            "模型生成答案",
             "模型没有返回全部作答单元："
-            + "、".join(sorted(missing_ids)[:8])
+            + "、".join(sorted(missing_ids)[:8]),
+            "切换到更强的模型或重新执行任务，确保每个题号都有答案。",
         )
     if len(answer_by_id) != len(expected_ids):
-        raise RuntimeError("模型返回了重复或未知的作答单元")
+        raise AgentOperationError(
+            "模型生成答案",
+            "模型返回了重复或未知的作答单元，答案与页面题号无法一一对应。",
+            "重新执行任务；若持续出现，降低并发并提高模型思考强度。",
+        )
 
     database.update_job(
         job["id"],
@@ -750,9 +944,11 @@ async def _run_structured_chaoxing_quiz(
             ):
                 invalid_ids.append(unit_id)
     if invalid_ids:
-        raise RuntimeError(
+        raise AgentOperationError(
+            "页面填写与核验",
             "以下作答单元写入后未通过核验："
-            + "、".join(sorted(invalid_ids)[:8])
+            + "、".join(sorted(invalid_ids)[:8]),
+            "进入实时浏览器检查这些题号，修正后结束介入或重新执行。",
         )
 
     database.update_job(
@@ -910,12 +1106,18 @@ async def run_job(
     account = database.get_account(job["account_id"])
     artifact_dir = settings.artifacts_root / job_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    current_stage = "任务初始化"
+    last_known_url = ""
+    last_action_summary = ""
 
     async def emit(
         kind: str,
         message: str,
         data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        nonlocal current_stage
+        if kind not in {"heartbeat", "screenshot", "warning"}:
+            current_stage = _stage_for_event(kind, message)
         event = database.add_event(job_id, kind, message, data)
         await event_hub.publish(job_id, event)
         return event
@@ -1115,12 +1317,32 @@ async def run_job(
                 process=browser_process,
                 account_lock=account_lock,
             )
+            intervention_summary = (
+                "等待人工介入："
+                f"已识别 {structured_result['question_count']} 个大题、"
+                f"{structured_result['unit_count']} 个作答单元，"
+                f"并成功写入 {structured_result['filled_count']} 个。"
+                "原因：当前任务设置为仅填写，需要人工核对页面后决定是否提交。"
+                f"最后页面：{_compact_text(current_url, 240)}。"
+                "建议：点击“进入实时浏览器”检查重点题目、编辑器内容和答题卡状态。"
+            )
+            await emit(
+                "result_summary",
+                intervention_summary,
+                {
+                    "status": "needs_intervention",
+                    "question_count": structured_result["question_count"],
+                    "unit_count": structured_result["unit_count"],
+                    "filled_count": structured_result["filled_count"],
+                    "current_url": current_url,
+                },
+            )
             database.transition_job(
                 job_id,
                 "needs_intervention",
                 submission_status="filled_pending_review",
                 progress=95,
-                error="全部题型已填写，浏览器已保留等待人工核对",
+                error=intervention_summary,
             )
             await emit(
                 "needs_intervention",
@@ -1163,7 +1385,7 @@ async def run_job(
             output: Any,
             step: int,
         ) -> None:
-            nonlocal step_counter
+            nonlocal step_counter, last_action_summary, last_known_url
             step_counter = step + 1
             progress = min(95, 5 + step_counter * 3)
             database.update_job(
@@ -1201,6 +1423,7 @@ async def run_job(
                             "type": action_type,
                             "data": payload,
                         })
+            last_action_summary = _summarize_action_details(action_details)
             await emit(
                 "step",
                 f"步骤 {step_counter}",
@@ -1212,6 +1435,7 @@ async def run_job(
             )
             try:
                 screenshot, current_url = await _capture_screenshot(session)
+                last_known_url = current_url
                 path = artifact_dir / f"step-{step_counter:03d}.png"
                 path.write_bytes(screenshot)
                 artifact = database.add_artifact(job_id, "screenshot", path)
@@ -1238,11 +1462,13 @@ async def run_job(
                 await emit("warning", f"截图失败：{screenshot_error}")
 
         async def on_step_start(_agent: Any) -> None:
+            nonlocal last_known_url
             await control.wait_if_paused()
             try:
                 current_url = await session.get_current_page_url()
             except Exception:
                 current_url = ""
+            last_known_url = current_url or last_known_url
             await emit(
                 "thinking",
                 "Agent 正在分析页面并决定下一步",
@@ -1250,6 +1476,7 @@ async def run_job(
             )
 
         async def heartbeat() -> None:
+            nonlocal last_known_url
             while True:
                 if control.stop_requested:
                     return
@@ -1263,6 +1490,7 @@ async def run_job(
                     )
                 except Exception:
                     current_url = ""
+                last_known_url = current_url or last_known_url
                 database.update_job(job_id, last_heartbeat_at=utc_now())
                 await emit(
                     "heartbeat",
@@ -1339,11 +1567,13 @@ async def run_job(
             value = history.final_result()
             final_result = str(value or "")
 
+        captured_url = ""
         try:
             screenshot, current_url = await _capture_screenshot(
                 session,
                 full_page=True,
             )
+            captured_url = current_url
             path = artifact_dir / "final.png"
             path.write_bytes(screenshot)
             artifact = database.add_artifact(job_id, "final_screenshot", path)
@@ -1392,6 +1622,29 @@ async def run_job(
                 if job["auto_submit"]
                 else "partial_pending_review"
             )
+            final_message = (
+                _compact_text(final_result, 1200)
+                or "Agent 没有返回可读的完成说明。"
+            )
+            intervention_summary = (
+                "等待人工介入：Agent 未能确认全部题目已经完成。"
+                f"已完成 {step_counter} 个动作步骤。"
+                f"最后页面：{_compact_text(captured_url or last_known_url or '未知', 240)}。"
+                f"最近动作：{_compact_text(last_action_summary or '没有记录到有效动作', 320)}。"
+                f"Agent说明：{final_message} "
+                "建议：点击“进入实时浏览器”检查未完成题目，处理完毕后点击“结束介入”。"
+            )
+            await emit(
+                "result_summary",
+                intervention_summary,
+                {
+                    "status": "needs_intervention",
+                    "steps": step_counter,
+                    "current_url": captured_url or last_known_url,
+                    "last_action": last_action_summary,
+                    "agent_result": final_message,
+                },
+            )
             if session is not None:
                 preserve_session = True
                 _intervention_sessions[job_id] = PreservedSession(
@@ -1404,12 +1657,16 @@ async def run_job(
                     "needs_intervention",
                     submission_status=submission_status,
                     progress=95,
-                    error="Agent 未完成，浏览器已保留，等待人工介入",
+                    error=intervention_summary,
                 )
                 await emit(
                     "needs_intervention",
-                    "Agent 未完成，已保留浏览器等待人工介入",
-                    {"result": final_result or "Agent 报告任务未完成"},
+                    "Agent 未能确认全部题目完成，已保留浏览器等待人工介入",
+                    {
+                        "result": final_message,
+                        "steps": step_counter,
+                        "summary": intervention_summary,
+                    },
                 )
             else:
                 database.transition_job(
@@ -1417,12 +1674,12 @@ async def run_job(
                     "incomplete",
                     submission_status=submission_status,
                     progress=95,
-                    error="Agent 报告任务未完成",
+                    error=intervention_summary,
                     finished_at=utc_now(),
                 )
                 await emit(
                     "incomplete",
-                    final_result or "Agent 报告任务未完成",
+                    intervention_summary,
                 )
             await notify_safely(
                 {
@@ -1437,7 +1694,7 @@ async def run_job(
                     "assignment": job["assignment_title"],
                     "auto_submit": bool(job["auto_submit"]),
                     "submission_status": submission_status,
-                    "result": final_result or "Agent 报告任务未完成",
+                    "result": intervention_summary,
                 }
             )
             return
@@ -1453,7 +1710,23 @@ async def run_job(
             progress=100,
             finished_at=utc_now(),
         )
-        await emit("completed", final_result or "Agent 已完成")
+        completion_summary = (
+            f"任务完成：Agent 报告已执行完成，共完成 {step_counter} 个动作步骤。"
+            f"最后页面：{_compact_text(captured_url or last_known_url or '未知', 240)}。"
+            f"最近动作：{_compact_text(last_action_summary or '没有记录到动作', 320)}。"
+            f"Agent说明：{_compact_text(final_result, 1200) or '未提供额外说明。'}"
+        )
+        await emit(
+            "result_summary",
+            completion_summary,
+            {
+                "status": "completed",
+                "steps": step_counter,
+                "current_url": captured_url or last_known_url,
+                "last_action": last_action_summary,
+            },
+        )
+        await emit("completed", completion_summary)
         await notify_safely(
             {
                 "event": "assignment_completed",
@@ -1463,22 +1736,49 @@ async def run_job(
                 "assignment": job["assignment_title"],
                 "auto_submit": bool(job["auto_submit"]),
                 "submission_status": submission_status,
-                "result": final_result,
+                "result": completion_summary,
             }
         )
-    except JobStopped:
+    except JobStopped as stop_error:
         submission_status = (
             "submission_unknown"
             if job["auto_submit"]
             else "not_submitted"
         )
+        stopped_url = last_known_url
+        if session is not None and not stopped_url:
+            try:
+                stopped_url = await asyncio.wait_for(
+                    session.get_current_page_url(),
+                    timeout=2,
+                )
+            except Exception:
+                stopped_url = ""
+        stop_summary = (
+            f"任务已停止：{_compact_text(stop_error or '用户请求停止', 300)}。"
+            f"停止阶段：{current_stage}。"
+            f"已完成 {step_counter} 个动作步骤。"
+            f"最后页面：{_compact_text(stopped_url or '未知', 240)}。"
+            f"最近动作：{_compact_text(last_action_summary or '没有记录到动作', 320)}。"
+        )
         database.transition_job(
             job_id,
             "stopped",
             submission_status=submission_status,
+            error=stop_summary,
             finished_at=utc_now(),
         )
-        await emit("stopped", "任务已停止")
+        await emit(
+            "result_summary",
+            stop_summary,
+            {
+                "status": "stopped",
+                "stage": current_stage,
+                "current_url": stopped_url,
+                "last_action": last_action_summary,
+            },
+        )
+        await emit("stopped", stop_summary)
         await notify_safely(
             {
                 "event": "assignment_stopped",
@@ -1488,12 +1788,19 @@ async def run_job(
                 "assignment": job["assignment_title"],
                 "auto_submit": bool(job["auto_submit"]),
                 "submission_status": submission_status,
-                "result": "任务已停止",
+                "result": stop_summary,
             }
         )
     except asyncio.CancelledError:
         current = database.get_job(job_id)
         if current["status"] in {"queued", "running", "paused", "stopping"}:
+            forced_summary = (
+                "任务已强制终止：停止指令发出后超过时限仍未退出。"
+                f"停止阶段：{current_stage}。"
+                f"已完成 {step_counter} 个动作步骤。"
+                f"最后页面：{_compact_text(last_known_url or '未知', 240)}。"
+                f"最近动作：{_compact_text(last_action_summary or '没有记录到动作', 320)}。"
+            )
             database.transition_job(
                 job_id,
                 "stopped",
@@ -1502,14 +1809,19 @@ async def run_job(
                     if job["auto_submit"]
                     else "not_submitted"
                 ),
-                error="任务停止超时，已强制终止",
+                error=forced_summary,
                 finished_at=utc_now(),
             )
             event = database.add_event(
                 job_id,
                 "stopped",
-                "任务已强制终止",
-                {"forced": True},
+                forced_summary,
+                {
+                    "forced": True,
+                    "stage": current_stage,
+                    "current_url": last_known_url,
+                    "last_action": last_action_summary,
+                },
             )
             await event_hub.publish(job_id, event)
         raise
@@ -1524,10 +1836,39 @@ async def run_job(
                 job_id,
                 "stopped",
                 submission_status=submission_status,
+                error="用户请求停止任务，执行器在退出过程中返回了异常。",
                 finished_at=utc_now(),
+            )
+            await emit(
+                "result_summary",
+                "任务已停止：用户请求停止任务，执行器随后退出。",
+                {"status": "stopped", "stage": current_stage},
             )
             await emit("stopped", "任务已按用户请求停止")
         else:
+            error_url = last_known_url
+            if session is not None and not error_url:
+                try:
+                    error_url = await asyncio.wait_for(
+                        session.get_current_page_url(),
+                        timeout=2,
+                    )
+                except Exception:
+                    error_url = ""
+            diagnostic = _diagnose_error(
+                error,
+                stage=current_stage,
+                current_url=error_url,
+                last_action=last_action_summary,
+            )
+            await emit(
+                "result_summary",
+                diagnostic["summary"],
+                {
+                    "status": "failed",
+                    **diagnostic,
+                },
+            )
             if "登录态" in str(error) or "Cookie" in str(error):
                 database.update_account(
                     job["account_id"],
@@ -1543,10 +1884,10 @@ async def run_job(
                 job_id,
                 "failed",
                 submission_status=submission_status,
-                error=str(error),
+                error=diagnostic["summary"],
                 finished_at=utc_now(),
             )
-            await emit("error", f"Agent 执行失败：{error}")
+            await emit("error", diagnostic["summary"], diagnostic)
             await notify_safely(
                 {
                     "event": "assignment_failed",
@@ -1556,7 +1897,7 @@ async def run_job(
                     "assignment": job["assignment_title"],
                     "auto_submit": bool(job["auto_submit"]),
                     "submission_status": submission_status,
-                    "result": f"Agent 执行失败：{error}",
+                    "result": diagnostic["summary"],
                 }
             )
     finally:

@@ -136,6 +136,41 @@ class FakeFocusSession:
 
 
 class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
+    def test_error_diagnostic_explains_model_and_browser_failures(self) -> None:
+        model_error = agent_runner._diagnose_error(
+            RuntimeError("Invalid JSON: validation error for AgentOutput"),
+            stage="Agent 页面执行",
+            current_url="https://example.test/work",
+            last_action="点击元素 #12",
+        )
+        self.assertEqual(model_error["stage"], "模型输出")
+        self.assertIn("最后页面", model_error["summary"])
+        self.assertIn("建议", model_error["summary"])
+
+        browser_error = agent_runner._diagnose_error(
+            RuntimeError("CDP requests failed or timed out: ax_tree"),
+            stage="Agent 页面执行",
+            current_url="https://example.test/work",
+            last_action="执行页面脚本",
+        )
+        self.assertEqual(browser_error["stage"], "浏览器页面")
+        self.assertIn("页面读取或截图超时", browser_error["summary"])
+
+    def test_agent_operation_error_preserves_explicit_diagnostic(self) -> None:
+        diagnostic = agent_runner._diagnose_error(
+            agent_runner.AgentOperationError(
+                "页面填写与核验",
+                "第 22 题没有写入",
+                "进入浏览器补齐第 22 题",
+            ),
+            stage="未知",
+            current_url="https://example.test/work",
+            last_action="批量填写",
+        )
+        self.assertEqual(diagnostic["stage"], "页面填写与核验")
+        self.assertEqual(diagnostic["reason"], "第 22 题没有写入")
+        self.assertEqual(diagnostic["suggestion"], "进入浏览器补齐第 22 题")
+
     def test_normalizes_flattened_deepseek_action(self) -> None:
         parameters = {
             "$defs": {

@@ -1195,8 +1195,16 @@ button {
 .job-result-card p.result-intervention {
   border-left: 3px solid var(--orange);
   background: #fff7eb;
-  padding: 6px 8px;
+  padding: 8px 10px;
   color: #7a4a12;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.job-result-card p.result-intervention strong {
+  display: block;
+  margin-bottom: 3px;
 }
 
 .result-actions {
@@ -1310,11 +1318,13 @@ button {
   background: var(--orange);
 }
 
-.event-dot.completed {
+.event-dot.completed,
+.event-dot.result_summary {
   background: var(--green);
 }
 
-.event-dot.error {
+.event-dot.error,
+.event-dot.diagnostic {
   background: var(--red);
 }
 
@@ -2076,6 +2086,7 @@ button {
 
 .platform-log-state.step,
 .platform-log-state.completed,
+.platform-log-state.result_summary,
 .platform-log-state.quiz_extracted,
 .platform-log-state.quiz_answers_ready,
 .platform-log-state.quiz_filled,
@@ -2097,7 +2108,8 @@ button {
 
 .platform-log-state.needs_intervention,
 .platform-log-state.incomplete,
-.platform-log-state.stalled {
+.platform-log-state.stalled,
+.platform-log-state.diagnostic {
   background: #fff0dc;
   color: #a24713;
 }
