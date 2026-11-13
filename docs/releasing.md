@@ -133,7 +133,7 @@ git push origin v0.5.0
 Release 工作流也提供手动入口，填写已经存在的版本标签。默认只生成草稿；勾选 publish 时，重新测试、构建和冒烟后，下载草稿附件并校验来源、版本及全部 SHA-256，再发布。依赖安装步骤不需要个人账号凭据。
 
 ~~~powershell
-gh workflow run release.yml -f tag=v0.5.0-rc.1 -f publish=false
+gh workflow run release.yml -f tag=v0.5.0-rc.2 -f publish=false
 ~~~
 
 同一标签允许重跑并更新草稿附件。目标版本已经公开发布时，工作流立即拒绝覆盖。网络和打包失败可在修复后重跑；需要变更已经发布的源代码时创建新版本。
@@ -141,7 +141,7 @@ gh workflow run release.yml -f tag=v0.5.0-rc.1 -f publish=false
 已有通过流水线的草稿时，也可以从对应标签的干净检出发布：
 
 ~~~powershell
-npm run release:publish -- v0.5.0-rc.1
+npm run release:publish -- v0.5.0-rc.2
 ~~~
 
 该命令使用 gh 的本机登录，重新下载六项附件，核对校验和、清单和 Git 提交后发布。包含连字符的版本标为预发布，不设为最新稳定版。用户更新检查继续只跟踪正式版本。

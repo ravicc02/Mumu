@@ -19,7 +19,7 @@ from app.services.learning.service import LearningService
 class TaskDeletionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.root = tempfile.TemporaryDirectory()
-        self.settings = Settings(data_root=Path(self.root.name))
+        self.settings = Settings(data_root=Path(self.root.name), openai_api_key="fixture")
         self.settings.ensure_directories()
         self.db = Database(self.settings)
         self.db.initialize()
