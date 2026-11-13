@@ -5,11 +5,47 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { projectRoot, checkVersion, validVersion } from './version.mjs';
 
-const documents = ['README.md', 'AGENTS.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'docs/README.md', 'docs/releasing.md', '.github/SECURITY.md', 'THIRD_PARTY_NOTICES.md'];
-const notices = ['third_party/ocs/upstream/LICENSE', 'third_party/open-mascot/LICENSE', 'desktop/src/components/leibox/LICENSE.md',
-  'desktop/public/third-party-notices.txt', 'desktop/public/licenses/open-mascot.txt', 'backend/app/services/attendance/JSQR-LICENSE'];
+const documents = [
+  'README.md',
+  'README.en.md',
+  'README.zh-TW.md',
+  'README.ko.md',
+  'README.ja.md',
+  'README.es.md',
+  'CONTRIBUTING.md',
+  'CHANGELOG.md',
+  '.github/SECURITY.md',
+];
+const legalFiles = ['LICENSES.txt', 'desktop/public/licenses/OPEN_SOURCE_LICENSES.txt'];
+const readmeAssets = [
+  'assets/brand/mumu.png',
+  'assets/brand/banner.svg',
+  'assets/brand/logo.svg',
+  'assets/brand/mumu-bots.gif',
+  'assets/brand/mumu-bots.png',
+  'assets/demo/demo.gif',
+  'assets/demo/demo.mp4',
+  'assets/platforms/xuexitong.png',
+  'assets/platforms/educoder.png',
+  'assets/platforms/zhihuishu.ico',
+  'assets/platforms/icourse.ico',
+  'assets/platforms/icve.ico',
+  'assets/platforms/zjy.ico',
+  'assets/platforms/yuketang.ico',
+  'assets/screenshots/workspace.png',
+];
 const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 function git(root, ...args) { return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); }
+export function readProduct(root = projectRoot) {
+  const product = JSON.parse(fs.readFileSync(path.join(root, 'desktop/product.json'), 'utf8'));
+  if (product.name !== 'Mumu'
+    || product.repository !== 'https://github.com/ravicc02/Mumu'
+    || product.appId !== 'io.github.ravicc02.mumu'
+    || product.artifactId !== 'Mumu'
+    || product.backendExecutable !== 'mumu-backend.exe') throw new Error('desktop/product.json contains an invalid product identity');
+  return product;
+}
+const artifactName = (product, version) => product.artifactId + '-' + version + '-windows-x64-setup.exe';
 
 export function releaseNotes(text, version) {
   if (!validVersion(version)) throw new Error('Invalid release version');
@@ -36,11 +72,13 @@ function documentLinks(root, file, content) {
 
 export function checkRelease(root = projectRoot, { strict = false, tag = '' } = {}) {
   const version = checkVersion(root);
-  for (const file of [...documents, ...notices, 'docs/assets/logo.svg', 'docs/assets/banner.svg', 'docs/assets/workspace.png']) {
+  const product = readProduct(root);
+  for (const file of [...documents, ...legalFiles, ...readmeAssets]) {
     const full = path.join(root, file);
     if (!fs.existsSync(full) || !fs.statSync(full).isFile()) throw new Error('Required file missing: ' + file);
     if (documents.includes(file)) documentLinks(root, file, fs.readFileSync(full, 'utf8'));
   }
+  if (!fs.readFileSync(path.join(root, legalFiles[0])).equals(fs.readFileSync(path.join(root, legalFiles[1])))) throw new Error('Packaged license text differs from LICENSES.txt');
   const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
   if (!/^## \[Unreleased\]$/m.test(changelog)) throw new Error('CHANGELOG.md requires an Unreleased section');
   let commit = '', dirty = null;
@@ -57,12 +95,12 @@ export function checkRelease(root = projectRoot, { strict = false, tag = '' } = 
     if (tag !== 'v' + version) throw new Error('Release tag must equal v' + version);
     if (git(root, 'rev-parse', tag + '^{commit}') !== commit) throw new Error('Release tag does not point to this commit');
   }
-  return { version, git_commit: commit, working_tree_dirty: dirty, strict };
+  return { version, product: product.name, git_commit: commit, working_tree_dirty: dirty, strict };
 }
 
 export function writeReleaseManifest(root = projectRoot, directory = path.join(root, 'desktop/release')) {
   const info = checkRelease(root, { strict: true });
-  const executable = 'Assignment-Studio-' + info.version + '-windows-x64-setup.exe';
+  const executable = artifactName(readProduct(root), info.version);
   const bundle = path.join(directory, 'win-unpacked/resources/backend/_internal/app');
   const build = JSON.parse(fs.readFileSync(path.join(bundle, 'diagnostics/diagnostic-build.json'), 'utf8'));
   const packagedVersion = fs.readFileSync(path.join(bundle, 'VERSION'), 'utf8').trim();
@@ -88,7 +126,8 @@ export function writeReleaseManifest(root = projectRoot, directory = path.join(r
 
 export function verifyReleaseAssets(directory, version) {
   if (!validVersion(version)) throw new Error('Invalid release version');
-  const installer = 'Assignment-Studio-' + version + '-windows-x64-setup.exe';
+  const product = readProduct();
+  const installer = artifactName(product, version);
   const required = [installer, 'RELEASE_NOTES.md', 'build-environment.txt', 'smoke-result.json', 'release-manifest.json'];
   const lines = fs.readFileSync(path.join(directory, 'SHA256SUMS.txt'), 'utf8').trim().split(/\r?\n/);
   const entries = new Map();

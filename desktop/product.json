@@ -1,0 +1,12 @@
+{
+  "name": "Mumu",
+  "slug": "mumu",
+  "repository": "https://github.com/ravicc02/Mumu",
+  "legacyRepository": "https://github.com/ravicc02/ai-quiz-assistant",
+  "releaseApi": "https://api.github.com/repos/ravicc02/Mumu/releases/latest",
+  "appId": "io.github.ravicc02.mumu",
+  "legacyAppId": "local.ai.assignment.studio",
+  "dataDirectory": "AIAssistantStudio",
+  "artifactId": "Mumu",
+  "backendExecutable": "mumu-backend.exe"
+}

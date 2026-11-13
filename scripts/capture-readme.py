@@ -15,7 +15,7 @@ from app.services.browser import chrome_executable
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:5174/')
-    parser.add_argument('--out', default=str(ROOT / 'docs/assets/workspace.png'))
+    parser.add_argument('--out', default=str(ROOT / 'assets/screenshots/workspace.png'))
     args = parser.parse_args()
     accounts = [dict(id='readme-account-' + str(i), name='演示账号 ' + chr(65+i), platform='chaoxing', status='ready') for i in range(3)]
     tasks = []

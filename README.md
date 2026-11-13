@@ -1,64 +1,84 @@
 <div align="center">
 
-<img src="docs/assets/mumu-bots.gif" width="100%" alt="沐沐与不同形状的任务伙伴，循环动画">
+<img src="assets/brand/mumu.png" width="148" alt="Mumu 应用图标">
 
-[![CI](https://github.com/ravicc02/ai-quiz-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/ravicc02/ai-quiz-assistant/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/ravicc02/ai-quiz-assistant?include_prereleases&label=release&color=4054d8)](https://github.com/ravicc02/ai-quiz-assistant/releases)
+<h1>Mumu</h1>
+
+<hr>
+
+**为大学生而造的 刷作业、刷课、签到为一体的辅助学习客户端**
+
+**简体中文** · [English](README.en.md) · [繁體中文](README.zh-TW.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md)
+
+[![CI](https://github.com/ravicc02/Mumu/actions/workflows/ci.yml/badge.svg)](https://github.com/ravicc02/Mumu/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ravicc02/Mumu?include_prereleases&label=release&color=4054d8)](https://github.com/ravicc02/Mumu/releases)
 ![Windows x64](https://img.shields.io/badge/Windows-x64-1e293b?logo=windows)
 
-**作业 · 网课 · 签到 · 实时浏览器 · 3D 任务公司**
+[下载安装](https://github.com/ravicc02/Mumu/releases) · [更新记录](CHANGELOG.md) · [反馈问题](https://github.com/ravicc02/Mumu/issues/new/choose)
 
-[下载安装](https://github.com/ravicc02/ai-quiz-assistant/releases) · [使用文档](docs/README.md) · [更新记录](CHANGELOG.md) · [反馈问题](https://github.com/ravicc02/ai-quiz-assistant/issues/new/choose)
+<a href="assets/demo/demo.mp4">
+  <img src="assets/demo/demo.gif" width="100%" alt="Mumu 任务公司实录演示">
+</a>
+
+[观看完整 23 秒实录](assets/demo/demo.mp4)
 
 </div>
 
-沐沐（Mumu）是一个多账号学习任务工作台。玻璃水球沐沐负责值守，不同形状的任务伙伴在 3D 任务公司中呈现执行状态。授权、采集、执行、人工介入和结果核验使用同一套任务记录。面向 Windows PC，账号授权和运行数据保留在本地，模型服务由使用者配置。
+## 使用须知
 
-![任务公司界面预览](docs/assets/workspace.png)
+> [!CAUTION]
+> Mumu 是面向 Windows PC 的本地学习任务客户端。请在本人账号或已获得明确授权的范围内使用。
+>
+> 严禁商业代刷、账号租售、绕过平台验证、窃取数据或将本项目用于其他违法违规用途。因使用方式违反学校、平台规则或法律法规产生的账号限制、数据损失及法律责任，由使用者承担。
 
-<p align="center"><sub>产品界面示意，使用演示账号与任务数据。</sub></p>
+> [!IMPORTANT]
+> Mumu 不代表或隶属于学习通、头歌、知到智慧树、中国大学 MOOC、智慧职教、职教云和雨课堂。相关名称与 Logo 仅用于识别对应服务。
+>
+> 平台页面和能力会变化，项目不保证所有学校、课程、题型和页面版本持续可用。模型请求会将完成任务所需上下文发送到你配置的模型服务，使用前请确认平台规则、课程要求和数据处理边界。
 
-## 工作区
+## 功能介绍
 
-| 入口 | 用途 |
+| 功能 | 说明 |
 | --- | --- |
-| **平台** | 授权账号，自动同步名称、头像和稳定身份，按平台能力显示入口 |
-| **作业** | 采集未完成且当前可提交的作业；识别题目、填写、暂存、评测及结果核验 |
-| **网课** | 读取课程及任务点，跳过已完成内容，执行已支持的媒体和阅读流程 |
-| **签到** | 多账号批量处理，提供签到码、手势、二维码和位置输入，创建可撤销的批次分享链接 |
-| **任务公司** | 每个任务对应一个 Bot，按状态进入办公区、休息区和介入室；沐沐支持移动、跳跃和 F 交互 |
-| **设置** | 模型、思考强度、执行策略、自动检测、微信推送和维护日志 |
+| **账号与平台** | 按平台和稳定用户 ID 保存账号，自动同步名称与头像；重复授权更新原记录，不按姓名合并账号 |
+| **作业** | 采集未完成且当前可提交的作业；识别题目、生成答案、确定性填写、暂存、评测及提交核验 |
+| **网课** | 读取课程及任务点，跳过已完成内容，执行已支持的媒体和阅读流程，并保存平台进度凭据 |
+| **签到** | 多账号批量处理；支持签到码、手势、二维码和位置输入，可创建可撤销的批次分享链接 |
+| **实时任务浏览器** | 每个任务使用独立浏览器和授权快照；支持实时查看、暂停、重试和人工介入，关闭查看端不会停止任务 |
 
-执行过程支持实时查看、暂停和人工介入。任务分别使用独立浏览器，关闭查看端不会停止后台执行。软件区分“已填写”“待审核”“结果未知”和“平台确认完成”。
+任务分别使用独立浏览器，允许并行处理不同账号。软件只在平台结果可核验时标记完成，不把模型自报成功、截图存在或部分完成当作业务完成凭据。
 
-## 平台能力
+## 支持的平台
 
-| 平台 | 作业 | 网课 | 签到 |
-| --- | --- | --- | --- |
-| 学习通 | 结构化题型、暂存与提交核验 | 媒体、阅读和章节导航适配 | 批量处理与分享 |
-| 头歌 | 课堂实验、Java/JUnit 编辑器、自动评测及有限修复 | — | — |
-| 知到智慧树 | — | 本地适配器 | — |
-| 中国大学 MOOC | — | 本地适配器 | — |
-| 智慧职教 / 职教云 | — | 本地适配器 | — |
-| 雨课堂 | — | 本地适配器 | — |
+| 平台 | 作业 | 网课 | 签到 | 当前能力 |
+| :---: | :---: | :---: | :---: | --- |
+| <img src="assets/platforms/xuexitong.png" height="28" alt="学习通 Logo"><br>**学习通** | 支持 | 支持 | 支持 | 结构化题型、章节学习、批量签到与分享 |
+| <img src="assets/platforms/educoder.png" height="28" alt="头歌 Logo"><br>**头歌** | 支持 | — | — | 课堂实验、Java/JUnit 编辑器、自动评测及有限修复 |
+| <img src="assets/platforms/zhihuishu.ico" height="28" alt="知到智慧树 Logo"><br>**知到智慧树** | — | 支持 | — | 课程任务点、媒体和阅读流程 |
+| <img src="assets/platforms/icourse.ico" height="28" alt="中国大学 MOOC Logo"><br>**中国大学 MOOC** | — | 支持 | — | 课程任务点、媒体和阅读流程 |
+| <img src="assets/platforms/icve.ico" height="28" alt="智慧职教 Logo"><br>**智慧职教** | — | 支持 | — | 课程任务点、媒体和阅读流程 |
+| <img src="assets/platforms/zjy.ico" height="28" alt="职教云 Logo"><br>**职教云** | — | 支持 | — | 课程任务点、媒体和阅读流程 |
+| <img src="assets/platforms/yuketang.ico" height="28" alt="雨课堂 Logo"><br>**雨课堂** | — | 支持 | — | 课程任务点、媒体和阅读流程 |
 
-头歌 Java/JUnit 已完成一项真实四关实验的整体核验。虚拟机、云桌面及图形实操尚未接入。平台注册不等于所有学校和页面版本均已验收，具体范围见[平台能力](docs/platform-capabilities.md)和[验收记录](docs/educoder-code-execution-validation.md)。
+## Star History
 
-网课适配在项目内运行，不需要安装 OCS Desktop 或脚本管理器。复用范围和来源见[第三方说明](THIRD_PARTY_NOTICES.md)。
+<div align="center">
+
+<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
+  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
+</a>
+
+</div>
 
 ## 开始使用
 
-1. 在 [Releases](https://github.com/ravicc02/ai-quiz-assistant/releases) 下载 Windows x64 安装包；发行候选版本标记为 Pre-release。
+1. 在 [Releases](https://github.com/ravicc02/Mumu/releases) 下载 Windows x64 安装包；发行候选版本标记为 Pre-release。
 2. 首次打开进入初始化：检测运行环境；缺少依赖时可点击安装，失败时显示手动命令。
 3. 配置模型接口、Key、模型和思考强度，再选择平台授权。两步均可跳过，之后在设置与平台中补充。
 4. 选择任务执行；遇到待处理事项时通过原任务浏览器介入，处理后继续。
 5. 查看平台核验结果。学习通最终提交与头歌自动评测分别在作业设置中管理。
 
-安装前可核对附件中的 SHA256SUMS.txt。当前安装包尚未配置 Windows 代码签名；应用支持检查正式版本并打开发布页，不自动安装更新。
-
-安装包自带 Electron、Python 后端及业务运行库，不要求使用者先安装 Node.js 或 Python。任务浏览器需要 Chrome 或 Edge；初始化会检测它们。已有账号不因新增引导而重新授权。详细流程见[首次初始化](docs/first-run.md)。
-
-### 从源码运行
+**从源码运行**
 
 环境：Windows 10/11 x64、Node.js 24、Python 3.13、Chrome 或 Edge。
 
@@ -66,7 +86,7 @@
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
 npm --prefix desktop ci
-$env:ANSWER_STUDIO_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
+$env:MUMU_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 npm start
 ~~~
 
@@ -82,9 +102,9 @@ npm run desktop:web
 
 前端为 http://127.0.0.1:5174/，本地 API 为 http://127.0.0.1:8877/。开发和构建步骤见[贡献指南](CONTRIBUTING.md)。
 
-## 数据与维护
+## 数据与隐私
 
-默认数据目录为 %LOCALAPPDATA%/AIAssistantStudio，保存授权、任务、SQLite 和截图。模型请求会将题目及必要上下文发送到使用者配置的模型服务。
+默认数据目录继续使用 %LOCALAPPDATA%/AIAssistantStudio，保存授权、任务、SQLite 和截图。该旧目录名是升级兼容标识，不随产品展示名变更。模型请求会将题目及必要上下文发送到使用者配置的模型服务。
 
 ~~~text
 logs/
@@ -97,20 +117,13 @@ logs/
 ## 项目结构
 
 ~~~text
-desktop/       Vue 界面、Electron 桌面进程、当前产品测试
-backend/       FastAPI、平台适配、任务执行及当前产品测试
+desktop/       Vue 与 Electron；src/app 为入口，src/features 按业务域划分，src/shared 放通用控件
+backend/       FastAPI、平台适配和任务执行；services 按账户、作业、任务、运行时及通知划分
 scripts/       版本、源文件审查、打包、冒烟及发布工具
-docs/          使用说明、架构、来源及验收记录
-third_party/   固定来源的复用代码及原始许可
+assets/        README 品牌、演示和平台标识
 .github/       CI、Release、问题模板和依赖维护
 ~~~
 
-旧 Chrome 扩展、Node 原型和独立演示已移除，历史实现保留在 Git 历史中。测试和本地运行数据不进入安装包。
+## 参与贡献
 
-## 维护与发行
-
-[工作区规范](AGENTS.md) · [文档导航](docs/README.md) · [发布流程](docs/releasing.md) · [更新日志](CHANGELOG.md)
-
-VERSION 是版本唯一来源。main 和 Pull Request 运行 CI；版本标签触发 Windows 打包、冒烟、附件校验及 Release 草稿。正式发布前重新下载校验，已发布版本禁止覆盖。
-
-主项目尚未声明整体许可证，第三方代码保留各自的来源和许可。本项目不代表或隶属于所列教育平台，请在有权操作的账号和课程范围内使用。
+[贡献指南](CONTRIBUTING.md) · [更新日志](CHANGELOG.md)

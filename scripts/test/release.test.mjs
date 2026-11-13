@@ -18,10 +18,20 @@ function fixture(t, gitRepo = false) {
   const put = (file, content) => { const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content); };
   put('VERSION', '1.2.3\n'); put('package.json', JSON.stringify({ version: '1.2.3', description: 'retain me' }));
   put('desktop/package.json', JSON.stringify({ version: '1.2.3' }));
+  put('desktop/product.json', JSON.stringify({
+    name: 'Mumu',
+    repository: 'https://github.com/ravicc02/Mumu',
+    appId: 'io.github.ravicc02.mumu',
+    artifactId: 'Mumu',
+    backendExecutable: 'mumu-backend.exe'
+  }));
   put('desktop/package-lock.json', JSON.stringify({ version: '1.2.3', packages: { '': { version: '1.2.3' }, 'node_modules/vendor': { version: '9.8.7' } } }));
-  for (const file of ['README.md', 'AGENTS.md', 'CONTRIBUTING.md', 'docs/README.md', 'docs/releasing.md', '.github/SECURITY.md', 'THIRD_PARTY_NOTICES.md',
-    'third_party/ocs/upstream/LICENSE', 'third_party/open-mascot/LICENSE', 'desktop/src/components/leibox/LICENSE.md',
-    'desktop/public/third-party-notices.txt', 'desktop/public/licenses/open-mascot.txt', 'backend/app/services/attendance/JSQR-LICENSE', 'docs/assets/logo.svg', 'docs/assets/banner.svg', 'docs/assets/workspace.png']) put(file, 'fixture\n');
+  for (const file of ['README.md', 'README.en.md', 'README.zh-TW.md', 'README.ko.md', 'README.ja.md', 'README.es.md',
+    'CONTRIBUTING.md', '.github/SECURITY.md', 'LICENSES.txt', 'desktop/public/licenses/OPEN_SOURCE_LICENSES.txt',
+    'assets/brand/mumu.png', 'assets/brand/banner.svg', 'assets/brand/logo.svg', 'assets/brand/mumu-bots.gif',
+    'assets/brand/mumu-bots.png', 'assets/demo/demo.gif', 'assets/demo/demo.mp4', 'assets/screenshots/workspace.png', 'assets/platforms/xuexitong.png',
+    'assets/platforms/educoder.png', 'assets/platforms/zhihuishu.ico', 'assets/platforms/icourse.ico',
+    'assets/platforms/icve.ico', 'assets/platforms/zjy.ico', 'assets/platforms/yuketang.ico']) put(file, 'fixture\n');
   put('CHANGELOG.md', '# Changelog\n\n## [Unreleased]\n\n## [1.2.3] - 2026-11-13\n\n### Fixed\n\n- Confirmed change.\n');
   put('.gitignore', 'desktop/release/\n');
   const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -63,7 +73,7 @@ test('release notes extract only a complete dated version section', () => {
 test('source validation checks local documentation links without requiring a release', t => {
   const { root, put } = fixture(t);
   assert.equal(checkRelease(root).version, '1.2.3');
-  put('README.md', '[Missing](docs/missing.md)');
+  put('README.md', '[Missing](assets/missing.png)');
   assert.throws(() => checkRelease(root), /missing.*local link/);
 });
 
@@ -81,7 +91,7 @@ test('release manifest verifies the actual bundled source identity and hashes al
   put(app + 'VERSION', '1.2.3\n');
   const build = { app_version: '1.2.3', git_commit: git('rev-parse', 'HEAD'), working_tree_dirty: false, built_at: '2026-11-13T00:00:00Z', build_fingerprint: 'fixture', source_hashes: { VERSION: hash('1.2.3\n') } };
   put(app + 'diagnostics/diagnostic-build.json', JSON.stringify(build));
-  put('desktop/release/Assignment-Studio-1.2.3-windows-x64-setup.exe', 'fixture executable');
+  put('desktop/release/Mumu-1.2.3-windows-x64-setup.exe', 'fixture executable');
   put('desktop/release/RELEASE_NOTES.md', 'fixture notes'); put('desktop/release/build-environment.txt', 'fixture dependency');
   put('desktop/release/smoke-result.json', JSON.stringify({ version: '1.2.3', desktop_product_version: '1.2.3', packaged_backend_healthy: true, isolated_data: true, installed_app_verified:true, first_run_verified:true, optional_setup_skips_verified:true, packaged_brand_assets_verified:true }));
   const manifest = writeReleaseManifest(root, directory);
@@ -94,6 +104,6 @@ test('release manifest verifies the actual bundled source identity and hashes al
   assert.throws(() => writeReleaseManifest(root, directory), /fingerprint differs/);
   put(app + 'VERSION', '0.0.1\n');
   assert.throws(() => writeReleaseManifest(root, directory), /identity does not match/);
-  put('desktop/release/Assignment-Studio-1.2.3-windows-x64-setup.exe', 'corrupt installer');
+  put('desktop/release/Mumu-1.2.3-windows-x64-setup.exe', 'corrupt installer');
   assert.throws(() => verifyReleaseAssets(directory,'1.2.3'), /checksum differs/);
 });

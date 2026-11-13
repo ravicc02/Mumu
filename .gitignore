@@ -26,3 +26,8 @@ desktop/release/
 *.log
 .DS_Store
 .finesse/
+third_party/
+
+# Local-only maintainer documentation
+/AGENTS.md
+/docs/
