@@ -40,10 +40,11 @@ class LearningStore:
                   phase TEXT NOT NULL DEFAULT 'queued', progress INTEGER NOT NULL DEFAULT 0,
                   current_chapter TEXT, current_unit TEXT, position REAL DEFAULT 0, duration REAL DEFAULT 0,
                   target_json TEXT NOT NULL DEFAULT '[]', completed_json TEXT NOT NULL DEFAULT '[]',
-                  error TEXT, attempt INTEGER NOT NULL DEFAULT 1, parent_id TEXT,
+                  error TEXT, attempt INTEGER NOT NULL DEFAULT 1,
+                  auto_retry_count INTEGER NOT NULL DEFAULT 0, parent_id TEXT,
                   paused_from TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
                   started_at TEXT, finished_at TEXT, heartbeat_at TEXT,
-                  engine_version TEXT NOT NULL DEFAULT 'ocs-5.4.0-studio.3'
+                  engine_version TEXT NOT NULL DEFAULT 'mumu-learning-engine-v1'
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_active_course ON learning_runs(course_id)
                   WHERE status IN ('queued','running','paused','awaiting_user','stopping');
@@ -61,6 +62,8 @@ class LearningStore:
                 connection.execute("ALTER TABLE learning_runs ADD COLUMN headless INTEGER NOT NULL DEFAULT 0")
             if "deleted_at" not in columns:
                 connection.execute("ALTER TABLE learning_runs ADD COLUMN deleted_at TEXT")
+            if "auto_retry_count" not in columns:
+                connection.execute("ALTER TABLE learning_runs ADD COLUMN auto_retry_count INTEGER NOT NULL DEFAULT 0")
 
     def upsert_courses(self, account_id: str, courses: list[dict], year: int, *, replace=True):
         identifiers = []
@@ -109,7 +112,7 @@ class LearningStore:
             active = connection.execute("SELECT id FROM learning_runs WHERE course_id=? AND status IN ('queued','running','paused','awaiting_user','stopping')", (course_id,)).fetchone()
             if active: raise RuntimeError("该课程已有执行任务")
             previous = connection.execute("SELECT id,attempt FROM learning_runs WHERE course_id=? ORDER BY attempt DESC LIMIT 1", (course_id,)).fetchone()
-            connection.execute("INSERT INTO learning_runs(id,course_id,account_id,status,attempt,parent_id,created_at,updated_at,engine_version,headless) VALUES (?,?,?,'queued',?,?,?,?,'ocs-5.4.0-resources.2',?)", (identifier, course_id, course["account_id"], previous["attempt"] + 1 if previous else 1, previous["id"] if previous else None, utc_now(), utc_now(), int(headless)))
+            connection.execute("INSERT INTO learning_runs(id,course_id,account_id,status,attempt,parent_id,created_at,updated_at,engine_version,headless) VALUES (?,?,?,'queued',?,?,?,?,'mumu-learning-resources-v1',?)", (identifier, course_id, course["account_id"], previous["attempt"] + 1 if previous else 1, previous["id"] if previous else None, utc_now(), utc_now(), int(headless)))
         run = self.run(identifier)
         self.database.diagnostics.start("learning", identifier, run, self.database.get_account(course["account_id"]))
         return run
@@ -150,7 +153,7 @@ class LearningStore:
     def update(self, identifier: str, **fields):
         trace = self.database.diagnostics.trace("learning", identifier)
         if trace.available and fields.get("error"): fields["error"] = trace.scrubber.text(fields["error"])
-        allowed = {"status", "phase", "progress", "current_chapter", "current_unit", "position", "duration", "target_json", "completed_json", "error", "paused_from", "started_at", "finished_at", "heartbeat_at"}
+        allowed = {"status", "phase", "progress", "current_chapter", "current_unit", "position", "duration", "target_json", "completed_json", "error", "auto_retry_count", "paused_from", "started_at", "finished_at", "heartbeat_at"}
         if not fields or not set(fields) <= allowed: raise ValueError("无效网课任务字段")
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -196,7 +199,46 @@ class LearningStore:
 
     def recover(self):
         with self.database.connect() as connection:
-            rows = connection.execute("SELECT id FROM learning_runs WHERE status IN ('queued','running','paused','awaiting_user','stopping')").fetchall()
+            rows = connection.execute("SELECT id,status,auto_retry_count FROM learning_runs WHERE status IN ('queued','running','paused','awaiting_user','stopping')").fetchall()
         for row in rows:
-            self.update(row["id"], status="interrupted", phase="interrupted", error="本地服务重启，原浏览器会话已结束。重试前会重新读取平台进度。", finished_at=utc_now())
+            manual = row["status"] in {"paused", "awaiting_user", "stopping"}
+            reason = (
+                f"本地服务重启，原任务状态为 {row['status']}，需要人工确认。"
+                if manual else
+                "本地服务重启，原浏览器会话已结束，将自动重新读取平台进度。"
+            )
+            self.update(
+                row["id"], status="interrupted",
+                phase="interrupted" if manual else "auto_retry_pending",
+                error=reason, finished_at=utc_now(),
+            )
             self.event(row["id"], "interrupted", "本地服务重启，任务已中断")
+        return [dict(row) for row in rows]
+
+    def retryable_interrupted(self, limit=3):
+        with self.database.connect() as connection:
+            rows = connection.execute("""SELECT id,error,auto_retry_count FROM learning_runs
+              WHERE status='interrupted' AND phase='auto_retry_pending' AND auto_retry_count<?
+              ORDER BY julianday(updated_at),rowid""", (limit,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def reopen_for_retry(self, identifier, reason='', limit=3):
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT status,auto_retry_count FROM learning_runs WHERE id=?",
+                (identifier,),
+            ).fetchone()
+            if not row:
+                raise KeyError("网课任务不存在")
+            if row["status"] != "interrupted":
+                raise RuntimeError("只有已中断的网课任务可以自动重试")
+            retry_count = int(row["auto_retry_count"] or 0)
+            if retry_count >= limit:
+                raise RuntimeError("自动重试次数已用完")
+            retry_count += 1
+            connection.execute("""UPDATE learning_runs SET status='queued',phase='queued',error=NULL,
+              finished_at=NULL,started_at=NULL,heartbeat_at=NULL,paused_from=NULL,
+              auto_retry_count=?,updated_at=? WHERE id=?""",
+              (retry_count, utc_now(), identifier))
+        return self.run(identifier)

@@ -14,8 +14,8 @@ from app import main
 from app.config import Settings
 from app.db import Database, ActiveJobConflict
 from app.preferences import AccountSchedule, PreferencesUpdate, load_preferences
-from app.services.assignment_automation import save_preferences, record_discovery, pending_assignments, automation_status
-from app.services.notifier import _weixin_text, notification_examples
+from app.services.assignments.automation import save_preferences, record_discovery, pending_assignments, automation_status
+from app.services.notifications.delivery import _weixin_text, notification_examples
 from app.services.learning.browser import LearningBrowser
 
 

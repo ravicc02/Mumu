@@ -1,12 +1,10 @@
 <div align="center">
 
-<img src="assets/brand/mumu.png" width="148" alt="Icono de la aplicación Mumu">
+<img src="assets/brand/mumu-loop.gif" width="148" alt="Mascota animada de Mumu">
 
 <h1>Mumu</h1>
 
-<hr>
-
-**Un cliente de apoyo al estudio para universitarios que reúne tareas, cursos y asistencia.**
+**Un cliente integral que ayuda a los universitarios con su vida universitaria y sus estudios.**
 
 [简体中文](README.md) · [English](README.en.md) · [繁體中文](README.zh-TW.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · **Español**
 
@@ -36,6 +34,10 @@
 >
 > Las páginas y capacidades de las plataformas pueden cambiar. Mumu no garantiza compatibilidad con todas las escuelas, cursos, tipos de pregunta o versiones de página. Las solicitudes al modelo envían el contexto de la tarea al proveedor configurado. Confirma las normas de la plataforma y los requisitos de tratamiento de datos antes de usar la aplicación.
 
+### Descargo de responsabilidad
+
+> Este proyecto está destinado únicamente a la investigación técnica y el intercambio de aprendizaje. No lo utilices en ninguna situación que infrinja las normas de las plataformas, las regulaciones escolares o las leyes y reglamentos aplicables. Cada usuario asume la responsabilidad correspondiente.
+
 ## Funciones
 
 | Función | Descripción |
@@ -50,25 +52,15 @@ Las tareas se ejecutan en navegadores independientes y pueden procesar cuentas d
 
 ## Plataformas compatibles
 
-| Plataforma | Tareas | Cursos | Asistencia | Compatibilidad actual |
-| :---: | :---: | :---: | :---: | --- |
-| <img src="assets/platforms/xuexitong.png" height="28" alt="Logotipo de Xuexitong"><br>**Xuexitong** | Sí | Sí | Sí | Preguntas estructuradas, aprendizaje por capítulos, asistencia por lotes y uso compartido |
-| <img src="assets/platforms/educoder.png" height="28" alt="Logotipo de EduCoder"><br>**EduCoder** | Sí | — | — | Experimentos de clase, editor Java/JUnit, evaluación automática y reparación limitada |
-| <img src="assets/platforms/zhihuishu.ico" height="28" alt="Logotipo de Zhihuishu"><br>**Zhihuishu** | — | Sí | — | Puntos de tarea, medios y lectura de cursos |
-| <img src="assets/platforms/icourse.ico" height="28" alt="Logotipo de ICourse163"><br>**ICourse163** | — | Sí | — | Puntos de tarea, medios y lectura de cursos |
-| <img src="assets/platforms/icve.ico" height="28" alt="Logotipo de ICVE"><br>**ICVE** | — | Sí | — | Puntos de tarea, medios y lectura de cursos |
-| <img src="assets/platforms/zjy.ico" height="28" alt="Logotipo de ZJY"><br>**ZJY** | — | Sí | — | Puntos de tarea, medios y lectura de cursos |
-| <img src="assets/platforms/yuketang.ico" height="28" alt="Logotipo de Yuketang"><br>**Yuketang** | — | Sí | — | Puntos de tarea, medios y lectura de cursos |
-
-## Star History
-
-<div align="center">
-
-<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
-  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
-</a>
-
-</div>
+| Plataforma | Tareas | Cursos | Asistencia |
+| :---: | :---: | :---: | :---: |
+| <img src="assets/platforms/xuexitong.png" height="28" alt="Logotipo de Xuexitong"><br>**Xuexitong** | Sí | Sí | Sí |
+| <img src="assets/platforms/educoder.png" height="28" alt="Logotipo de EduCoder"><br>**EduCoder** | Sí | — | — |
+| <img src="assets/platforms/zhihuishu.ico" height="28" alt="Logotipo de Zhihuishu"><br>**Zhihuishu** | — | Sí | — |
+| <img src="assets/platforms/icourse.ico" height="28" alt="Logotipo de ICourse163"><br>**ICourse163** | — | Sí | — |
+| <img src="assets/platforms/icve.ico" height="28" alt="Logotipo de ICVE"><br>**ICVE** | — | Sí | — |
+| <img src="assets/platforms/zjy.ico" height="28" alt="Logotipo de ZJY"><br>**ZJY** | — | Sí | — |
+| <img src="assets/platforms/yuketang.ico" height="28" alt="Logotipo de Yuketang"><br>**Yuketang** | — | Sí | — |
 
 ## Primeros pasos
 
@@ -127,3 +119,13 @@ assets/        Marca, demostración y logotipos de plataformas usados por README
 ## Contribución
 
 [Guía de contribución](CONTRIBUTING.md) · [Registro de cambios](CHANGELOG.md)
+
+## Star History
+
+<div align="center">
+
+<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
+  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
+</a>
+
+</div>

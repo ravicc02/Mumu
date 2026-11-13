@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { conciseMessage, presentEvent, taskIssue } from "../src/lib/task-presentation.js";
-import { artifactUrl } from "../src/lib/backend-url.js";
+import { conciseMessage, presentEvent, taskIssue } from "../src/features/tasks/lib/presentation.js";
+import { artifactUrl } from "../src/app/lib/backend-url.js";
 
 test("successful code progress with timeout terminology is not rewritten as a connection failure", () => {
   const message = "当前关卡代码已保存并完整回读：将注解改为 @Test(timeout = 1000)，实现超时测试。";

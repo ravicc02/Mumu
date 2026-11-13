@@ -1,12 +1,10 @@
 <div align="center">
 
-<img src="assets/brand/mumu.png" width="148" alt="Mumu application icon">
+<img src="assets/brand/mumu-loop.gif" width="148" alt="Mumu animated mascot">
 
 <h1>Mumu</h1>
 
-<hr>
-
-**A study assistant for university students, covering assignments, online courses, and attendance.**
+**An all-in-one client that supports university students with campus life and learning.**
 
 [简体中文](README.md) · **English** · [繁體中文](README.zh-TW.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md)
 
@@ -36,6 +34,10 @@
 >
 > Platform pages and capabilities may change. Mumu does not guarantee support for every school, course, question type, or page version. Model requests send task context to the provider you configure. Confirm platform rules and data-handling requirements before use.
 
+### Disclaimer
+
+> This project is intended only for technical research and learning exchange. Do not use it in any scenario that violates platform rules, school regulations, or applicable laws and regulations. Users are responsible for the consequences of their use.
+
 ## Features
 
 | Feature | Description |
@@ -50,25 +52,15 @@ Tasks run in separate browsers and may process different accounts in parallel. M
 
 ## Supported Platforms
 
-| Platform | Assignments | Courses | Attendance | Current support |
-| :---: | :---: | :---: | :---: | --- |
-| <img src="assets/platforms/xuexitong.png" height="28" alt="Xuexitong logo"><br>**Xuexitong** | Yes | Yes | Yes | Structured questions, chapter learning, batch attendance, and sharing |
-| <img src="assets/platforms/educoder.png" height="28" alt="EduCoder logo"><br>**EduCoder** | Yes | — | — | Classroom experiments, Java/JUnit editor, automatic evaluation, and limited repair |
-| <img src="assets/platforms/zhihuishu.ico" height="28" alt="Zhihuishu logo"><br>**Zhihuishu** | — | Yes | — | Course task points, media, and reading flows |
-| <img src="assets/platforms/icourse.ico" height="28" alt="ICourse163 logo"><br>**ICourse163** | — | Yes | — | Course task points, media, and reading flows |
-| <img src="assets/platforms/icve.ico" height="28" alt="ICVE logo"><br>**ICVE** | — | Yes | — | Course task points, media, and reading flows |
-| <img src="assets/platforms/zjy.ico" height="28" alt="ZJY logo"><br>**ZJY** | — | Yes | — | Course task points, media, and reading flows |
-| <img src="assets/platforms/yuketang.ico" height="28" alt="Yuketang logo"><br>**Yuketang** | — | Yes | — | Course task points, media, and reading flows |
-
-## Star History
-
-<div align="center">
-
-<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
-  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
-</a>
-
-</div>
+| Platform | Assignments | Courses | Attendance |
+| :---: | :---: | :---: | :---: |
+| <img src="assets/platforms/xuexitong.png" height="28" alt="Xuexitong logo"><br>**Xuexitong** | Yes | Yes | Yes |
+| <img src="assets/platforms/educoder.png" height="28" alt="EduCoder logo"><br>**EduCoder** | Yes | — | — |
+| <img src="assets/platforms/zhihuishu.ico" height="28" alt="Zhihuishu logo"><br>**Zhihuishu** | — | Yes | — |
+| <img src="assets/platforms/icourse.ico" height="28" alt="ICourse163 logo"><br>**ICourse163** | — | Yes | — |
+| <img src="assets/platforms/icve.ico" height="28" alt="ICVE logo"><br>**ICVE** | — | Yes | — |
+| <img src="assets/platforms/zjy.ico" height="28" alt="ZJY logo"><br>**ZJY** | — | Yes | — |
+| <img src="assets/platforms/yuketang.ico" height="28" alt="Yuketang logo"><br>**Yuketang** | — | Yes | — |
 
 ## Getting Started
 
@@ -127,3 +119,13 @@ assets/        Brand, demo, and platform marks used by README
 ## Contributing
 
 [Contributing guide](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
+
+## Star History
+
+<div align="center">
+
+<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
+  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
+</a>
+
+</div>

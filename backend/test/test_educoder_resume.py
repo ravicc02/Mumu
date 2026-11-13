@@ -8,7 +8,7 @@ from test_educoder_execution import completion
 from app import main
 from app.events import EventHub
 from app.preferences import load_preferences
-from app.services import agent_runner
+from app.services.tasks import runner as agent_runner
 from app.services.educoder import store
 from app.services.educoder.contracts import ContractError
 from app.services.educoder.client import EduCoderClient

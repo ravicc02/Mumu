@@ -28,6 +28,12 @@ desktop/release/
 .finesse/
 third_party/
 
+# Local validation captures and generated artwork batches
+/Test/
+/assets/platforms/generated/
+/assets/platforms/sprite-*.png
+/.codex-tmp/
+
 # Local-only maintainer documentation
 /AGENTS.md
 /docs/

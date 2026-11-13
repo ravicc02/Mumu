@@ -7,7 +7,7 @@ from pathlib import Path
 
 from app.config import Settings
 from app.db import ActiveJobConflict, Database
-from app.services.notifier import _weixin_text
+from app.services.notifications.delivery import _weixin_text
 
 
 class DatabaseTests(unittest.TestCase):

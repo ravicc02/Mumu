@@ -1,6 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
+const defaultProduct = require("../product.json");
 
 const quote = value => "'" + String(value).replaceAll("'", "''") + "'";
 function safeOutput(value) {
@@ -15,7 +16,7 @@ function runFile(file, args, options = {}) {
   }));
 }
 function browserCandidates(env) {
-  return [env.ANSWER_STUDIO_CHROME_PATH,
+  return [env.MUMU_CHROME_PATH, env.ANSWER_STUDIO_CHROME_PATH,
     path.join(env.ProgramFiles || 'C:/Program Files', 'Google/Chrome/Application/chrome.exe'),
     path.join(env['ProgramFiles(x86)'] || 'C:/Program Files (x86)', 'Google/Chrome/Application/chrome.exe'),
     path.join(env.LOCALAPPDATA || '', 'Google/Chrome/Application/chrome.exe'),
@@ -30,12 +31,12 @@ function verifyBackendHealth(payload, version) {
   }
   return true;
 }
-function createBootstrap({ packaged, backendDirectory, dataRoot, python = 'python', env = process.env, run = runFile, io = fs, onReady = async () => {} }) {
+function createBootstrap({ packaged, backendDirectory, dataRoot, python = 'python', env = process.env, product = defaultProduct, run = runFile, io = fs, onReady = async () => {} }) {
   let state = { status: 'idle', items: [], output: '', error: '', backendReady: false };
   let pending = null;
-  const backendExe = path.join(backendDirectory, 'answer-studio-backend.exe');
+  const backendExe = path.join(backendDirectory, product.backendExecutable);
   const requirements = path.join(backendDirectory, 'requirements.txt');
-  const manual = () => packaged ? "Start-Process 'https://github.com/ravicc02/ai-quiz-assistant/releases'"
+  const manual = () => packaged ? "Start-Process '" + product.repository + "/releases'"
     : '& ' + quote(python) + ' -m pip install -r ' + quote(requirements);
   const get = () => structuredClone(state);
   const exists = async target => { try { return (await io.stat(target)).isFile(); } catch { return false; } };
@@ -45,7 +46,7 @@ function createBootstrap({ packaged, backendDirectory, dataRoot, python = 'pytho
     const runtime = state.items[0];
     try {
       if (packaged) {
-        if (!await exists(backendExe)) throw new Error('内置服务文件缺失，请重新安装沐沐。');
+        if (!await exists(backendExe)) throw new Error('内置服务文件缺失，请重新安装' + product.name + '。');
         runtime.detail = '由安装包提供';
       } else {
         await run(python, ['-c', 'import sys; assert sys.version_info >= (3, 11), "Python 3.11+ required"; import fastapi, uvicorn, playwright, browser_use, pydantic, bs4, multipart; print(sys.version.split()[0])'], { cwd: backendDirectory });

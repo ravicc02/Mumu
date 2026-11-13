@@ -1,9 +1,9 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { api } from "../src/api.js";
-import { clamp, resistEdge, stepSpring, pillFlightFrames } from "../src/components/leibox/motion.js";
-import { buildWorkflowStages, canJobAction, mergeJobState, reconcileEvents } from "../src/lib/job-state.js";
-import { splitScreenshot, finalScreenshotSections, readableScreenshotZoom } from "../src/lib/screenshots.js";
+import { api } from "../src/app/api.js";
+import { clamp, resistEdge, stepSpring, pillFlightFrames } from "../src/shared/controls/motion.js";
+import { buildWorkflowStages, canJobAction, mergeJobState, reconcileEvents } from "../src/features/tasks/lib/state.js";
+import { splitScreenshot, finalScreenshotSections, readableScreenshotZoom } from "../src/features/tasks/lib/screenshots.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -118,7 +118,7 @@ test("request bodies and content type survive action dispatch", async () => {
   assert.equal((await api.createAccount("Gym")).id, "account-1");
 });
 
-test("LeiBox spring settles exactly rather than scheduling a permanent animation", () => {
+test("shared spring settles exactly rather than scheduling a permanent animation", () => {
   const state = { p: 0, v: 0, target: 410 };
   let moving = true;
   for (let frame = 0; frame < 600 && moving; frame += 1) {

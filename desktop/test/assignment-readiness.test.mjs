@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assignmentReadiness, requiresMaterials } from "../src/lib/assignment-readiness.js";
+import { assignmentReadiness, requiresMaterials } from "../src/features/assignments/lib/readiness.js";
 
 test("a platform submit button alone never claims that answers are ready", () => {
   assert.equal(assignmentReadiness({ submittable: true }).label, "待检查");

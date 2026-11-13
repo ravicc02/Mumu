@@ -1,4 +1,4 @@
-# AI Assignment Studio Desktop
+# Mumu Desktop
 
 Windows 本地桌面端，技术栈为 Electron、Vue 3、FastAPI、Playwright、browser-use 和 SQLite。
 

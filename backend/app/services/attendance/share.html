@@ -1,18 +1,230 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>批量签到 · Assignment Studio</title>
-<style>
-*{box-sizing:border-box}body{margin:0;background:#f4f6f8;color:#192333;font:14px/1.6 system-ui,sans-serif}main{max-width:660px;margin:48px auto;padding:28px;background:white;border:1px solid #e2e6ed;border-radius:8px}h1{font-size:22px;margin:0 0 8px}p{color:#667184}label{display:block;margin:20px 0 8px}input,textarea{width:100%;border:1px solid #d8dfe7;border-radius:5px;padding:10px;font:inherit}button{border:0;border-radius:5px;background:#3b4ed8;color:white;padding:11px 18px;font:inherit;cursor:pointer;margin-top:20px}button:disabled{opacity:.5;cursor:wait}.row{border-top:1px solid #e8ecf0;padding:14px 0;display:flex;justify-content:space-between;gap:12px}.row small{display:block;color:#728094}.row b{font-weight:500;white-space:nowrap}.status{margin:18px 0;color:#445570}.error{color:#b62d3e}.success{color:#14775e}footer{font-size:12px;color:#728094;margin-top:20px}
-</style></head><body><main><h1>批量签到</h1><p id="summary">正在读取授权范围…</p><div id="items"></div><form id="form"><label for="code">签到码／手势码</label><input id="code" inputmode="numeric" maxlength="16" autocomplete="off"><label for="qr">签到二维码内容</label><textarea id="qr" rows="3" maxlength="4096" placeholder="粘贴学习通签到二维码中的链接"></textarea><label for="image">导入签到二维码</label><input id="image" type="file" accept="image/png,image/jpeg,image/webp"><fieldset id="locationFields" hidden><legend>本次签到位置</legend><label for="latitude">纬度</label><input id="latitude" type="number" min="-90" max="90" step="any"><label for="longitude">经度</label><input id="longitude" type="number" min="-180" max="180" step="any"><label for="address">实际位置</label><input id="address" maxlength="200"><small>仅用于你确认处于此位置的所选账号。</small></fieldset><button id="submit" type="submit" disabled>批量提交</button></form><div id="message" class="status" role="status"></div><footer id="expires"></footer></main>
-<script src="/assets/jsQR.js"></script>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>扫码签到 · Mumu</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f2f5f7;color:#172231;font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+    main{width:min(100% - 24px,680px);margin:24px auto;padding:24px;background:#fff;border:1px solid #dce3e8;border-radius:8px}
+    header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}h1{font-size:22px;line-height:1.2;margin:0}header p{margin:6px 0 0;color:#657183}
+    .badge{font-size:12px;padding:3px 8px;border-radius:999px;background:#edf1f4;color:#526071;white-space:nowrap}
+    .status{margin:18px 0;padding:12px 14px;background:#f5f7f9;border-left:3px solid #59728f;color:#3f4e60}
+    .status.error{border-color:#b7364a;color:#982a3d}.status.success{border-color:#16836a;color:#126c58}
+    .items{border-top:1px solid #e4e9ed}.row{border-bottom:1px solid #e4e9ed;padding:12px 0;display:flex;justify-content:space-between;gap:14px}.row small{display:block;color:#6e7a89;margin-top:2px}.row b{font-weight:600;white-space:nowrap;color:#526071}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 10px}button{border:0;border-radius:6px;background:#263f59;color:#fff;padding:10px 15px;font:inherit;cursor:pointer}button.secondary{background:#e9eef2;color:#26394d}button:disabled{opacity:.5;cursor:wait}
+    input,textarea{width:100%;border:1px solid #cfd8df;border-radius:6px;padding:10px 11px;font:inherit;background:#fff}label{display:block;margin:14px 0 6px;font-weight:600}small{color:#687687}
+    video{display:none;width:100%;max-height:58vh;background:#101820;border-radius:6px;object-fit:cover}.scanning video{display:block}.scanner{border:1px dashed #b9c5ce;border-radius:8px;padding:18px;text-align:center;margin-top:16px}
+    .pin{display:none}.locked .pin{display:block}.locked .content{display:none}.capture{display:none}.purpose-qr .capture{display:block}.purpose-input .input-mode{display:block}.input-mode{display:none}
+    footer{margin-top:18px;font-size:12px;color:#748190;word-break:break-word}.hidden{display:none!important}
+    @media(max-width:520px){main{margin:0;width:100%;min-height:100vh;border:0;border-radius:0;padding:20px 16px}header h1{font-size:20px}}
+  </style>
+</head>
+<body>
+<main id="app" class="locked">
+  <header><div><h1>扫码签到</h1><p id="summary">正在读取签到信息…</p></div><span id="state" class="badge">连接中</span></header>
+  <div id="message" class="status" role="status"></div>
+  <section class="pin">
+    <label for="pin">输入分享 PIN</label>
+    <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="4 至 6 位数字">
+    <div class="toolbar"><button id="unlock" type="button">解锁</button></div>
+  </section>
+  <div class="content">
+    <div id="items" class="items"></div>
+    <section class="capture">
+      <div class="toolbar">
+        <button id="camera" type="button">打开摄像头</button>
+        <button id="stopCamera" class="secondary hidden" type="button">关闭摄像头</button>
+      </div>
+      <div id="scanner" class="scanner">
+        <video id="video" playsinline muted></video>
+        <p>扫描老师当前展示的签到二维码</p>
+        <label for="image">或上传二维码图片</label>
+        <input id="image" type="file" accept="image/png,image/jpeg,image/webp">
+        <label for="manual">或粘贴二维码内容</label>
+        <textarea id="manual" rows="3" maxlength="4096" placeholder="https://mobilelearn.chaoxing.com/..."></textarea>
+        <div class="toolbar"><button id="manualSubmit" type="button">提交二维码</button></div>
+      </div>
+    </section>
+    <section class="input-mode">
+      <form id="inputForm">
+        <label for="code">签到码／手势码</label>
+        <input id="code" inputmode="numeric" maxlength="16" autocomplete="off">
+        <div class="toolbar"><button id="inputSubmit" type="submit">提交签到</button></div>
+      </form>
+    </section>
+  </div>
+  <footer id="expires"></footer>
+</main>
+<script src="/assets/qr-decoder.js"></script>
 <script>
-const token=location.hash.slice(1), headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'};
-let active=true,busy=false;
-const labels={pending:'待执行',queued:'排队中',running:'核验中',submitting:'提交中',succeeded:'已签到',already_signed:'已签到',awaiting_input:'待补充',failed:'失败',auth_required:'待授权',expired:'已结束',manual_required:'需本人处理',unknown:'待核对',cancelled:'已取消'};
-const el=id=>document.getElementById(id);
-async function call(path,body){const response=await fetch('/api/share'+path,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined});const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'输入格式不正确，请核对签到信息');return data}
-function render(data){el('locationFields').hidden=!data.items.some(item=>item.kind==='location'&&!['succeeded','already_signed','expired'].includes(item.status));el('summary').textContent='已签到 '+data.completed+' / '+data.total;el('items').replaceChildren(...data.items.map(item=>{const row=document.createElement('div');row.className='row';const text=document.createElement('span');text.textContent=item.name+' · '+item.course;const detail=document.createElement('small');detail.textContent=item.message;const state=document.createElement('b');state.textContent=labels[item.status]||item.status;if(['succeeded','already_signed'].includes(item.status))state.className='success';text.append(detail);row.append(text,state);return row}));el('submit').disabled=busy||data.status==='running'||data.status==='needs_review'||!data.items.some(item=>['pending','awaiting_input','failed','auth_required','cancelled'].includes(item.status));if(data.expires_at)el('expires').textContent='授权到期：'+new Date(data.expires_at*1000).toLocaleString()}
-async function refresh(){if(!active)return;try{render(await call(''));}catch(error){el('message').textContent=error.message;el('message').classList.add('error');el('submit').disabled=true;active=false}finally{if(active)setTimeout(refresh,2500)}}
-el('form').addEventListener('submit',async event=>{event.preventDefault();if(busy)return;busy=true;el('submit').disabled=true;el('message').textContent='';try{render(await call('/execute',{code:el('code').value.trim(),qr:el('qr').value.trim(),location:(!el('locationFields').hidden&&(el('latitude').value||el('longitude').value||el('address').value.trim()))?{latitude:el('latitude').value?Number(el('latitude').value):null,longitude:el('longitude').value?Number(el('longitude').value):null,address:el('address').value.trim(),source:'manual'}:null}));el('message').textContent='已提交，正在逐账号核验';}catch(error){el('message').textContent=error.message;}finally{busy=false}});refresh();
+const token = location.hash.slice(1);
+const remote = location.pathname.startsWith('/qr/');
+const base = remote ? '/api/qr' : '/api/share';
+const endpoint = path => base + (remote && !path ? '/session' : path);
+const el = id => document.getElementById(id);
+let state = null, busy = false, active = true, stream = null, scanTimer = null;
 
-el('image').addEventListener('change',async event=>{let bitmap;try{const file=event.target.files[0];if(!file)return;if(file.size>4*1024*1024)throw new Error('图片不得超过 4 MB');bitmap=await createImageBitmap(file);const scale=Math.min(1,1800/Math.max(bitmap.width,bitmap.height));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));const context=canvas.getContext('2d',{willReadFrequently:true});context.drawImage(bitmap,0,0,canvas.width,canvas.height);const pixels=context.getImageData(0,0,canvas.width,canvas.height);const result=jsQR(pixels.data,pixels.width,pixels.height);if(!result?.data)throw new Error('图片中未识别到二维码');el('qr').value=result.data;el('message').textContent='二维码已识别';}catch(error){el('message').textContent=error.message;}finally{bitmap?.close();event.target.value='';}});
-</script></body></html>
+const labels = {waiting:'等待扫码',captured:'已收到二维码',pending:'待执行',queued:'排队中',running:'核验中',submitting:'提交中',signing:'签到中',succeeded:'已签到',already_signed:'已签到',completed:'已完成',partial:'部分完成',awaiting_input:'待补充',failed:'失败',auth_required:'待授权',expired:'已结束',manual_required:'需本人处理',unknown:'待核对',cancelled:'已取消',revoked:'已撤销'};
+function pin() { return el('pin').value.trim(); }
+function headers() { return {Authorization:'Bearer ' + token, 'Content-Type':'application/json', ...(pin() ? {'X-Mumu-Pin':pin()} : {})}; }
+function show(message, kind = '') { el('message').textContent = message; el('message').className = 'status ' + kind; }
+function setLocked(locked) { el('app').classList.toggle('locked', locked); if (locked) show('该链接需要 PIN 才能继续'); }
+
+async function call(path, body) {
+  const response = await fetch(endpoint(path), {method:body ? 'POST' : 'GET', headers:headers(), body:body ? JSON.stringify(body) : undefined});
+  let data = {};
+  try { data = await response.json(); } catch {}
+  if (!response.ok) {
+    if (response.status === 401) setLocked(true);
+    throw new Error(typeof data.detail === 'string' ? data.detail : '请求未通过，请稍后重试');
+  }
+  return data;
+}
+
+function render(data) {
+  state = data;
+  el('summary').textContent = (data.group_name || data.course || '扫码签到') + ' · 已签到 ' + (data.completed || 0) + ' / ' + (data.total || 0);
+  el('state').textContent = labels[data.status] || data.status || '等待扫码';
+  el('app').classList.toggle('purpose-qr', data.purpose !== 'input');
+  el('app').classList.toggle('purpose-input', data.purpose === 'input');
+  const locked = Boolean(data.requires_pin && !data.unlocked);
+  setLocked(locked);
+  if (data.items) {
+    el('items').replaceChildren(...data.items.map(item => {
+      const row = document.createElement('div'); row.className = 'row';
+      const text = document.createElement('span');
+      const name = document.createElement('strong'); name.textContent = item.name + ' · ' + item.course;
+      const detail = document.createElement('small'); detail.textContent = item.message || '';
+      text.append(name, detail);
+      const status = document.createElement('b'); status.textContent = labels[item.status] || item.status;
+      row.append(text, status); return row;
+    }));
+  }
+  if (!locked && data.status === 'completed') show(data.persistent ? '本次所有账号均已签到成功，可继续扫描下一次教师二维码' : '所有账号均已签到成功', 'success');
+  else if (!locked && data.status === 'partial') show('部分账号需要核对，请查看逐账号结果', 'error');
+  else if (!locked && data.status === 'failed' && data.persistent) show('本次签到未完成，请扫描教师当前二维码重试', 'error');
+  else if (!locked && data.status === 'waiting' && data.items?.some(item => item.status === 'failed')) show('未匹配到课程活动，请重新扫描教师二维码', 'error');
+  else if (!locked && data.status === 'waiting') show('等待扫描教师当前展示的签到二维码');
+  if (data.expires_at) el('expires').textContent = '授权到期：' + new Date(data.expires_at * 1000).toLocaleString();
+  else if (data.persistent) el('expires').textContent = '可随时在 Mumu 中撤销';
+}
+
+async function refresh() {
+  if (!active) return;
+  try {
+    const data = await call('');
+    render(data);
+    if (!data.persistent && ['completed', 'partial', 'failed', 'expired', 'revoked'].includes(data.status)) active = false;
+    if (data.status === 'revoked') active = false;
+  } catch (error) {
+    show(error.message, 'error');
+    active = false;
+  } finally {
+    if (active) {
+      const currentStatus = state?.status;
+      setTimeout(refresh, ['captured', 'queued', 'signing'].includes(currentStatus) ? 500 : currentStatus === 'waiting' ? 1000 : 2000);
+    }
+  }
+}
+
+async function unlock() {
+  if (busy) return; busy = true;
+  try {
+    await call('/unlock', {});
+    setLocked(false); show('已解锁，请扫描签到二维码。', 'success');
+    active = true; refresh();
+  } catch (error) { show(error.message, 'error'); }
+  finally { busy = false; }
+}
+
+async function capture(text, source) {
+  if (!text || busy) return;
+  busy = true; stopCamera();
+  try {
+    show('二维码已识别，正在提交…');
+    const data = await call('/capture', {text, source});
+    render(data);
+    show(data.status === 'completed' ? '签到已完成，可继续扫描下一次' : '二维码已接收，正在逐账号执行', 'success');
+    active = true;
+    refresh();
+  } catch (error) { show(error.message, 'error'); }
+  finally { busy = false; }
+}
+
+async function decodeFile(file) {
+  if (!file) return;
+  if (file.size > 4 * 1024 * 1024) throw new Error('图片不得超过 4 MB');
+  const bitmap = await createImageBitmap(file);
+  try {
+    const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d', {willReadFrequently:true});
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    const found = decodeQrCode(pixels.data, pixels.width, pixels.height);
+    if (!found?.data) throw new Error('图片中未识别到二维码');
+    await capture(found.data, 'image');
+  } finally { bitmap.close(); }
+}
+
+function stopCamera() {
+  if (scanTimer) cancelAnimationFrame(scanTimer);
+  scanTimer = null;
+  if (stream) stream.getTracks().forEach(track => track.stop());
+  stream = null; el('video').srcObject = null;
+  el('scanner').classList.remove('scanning');
+  el('camera').classList.remove('hidden'); el('stopCamera').classList.add('hidden');
+}
+
+async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) { show('当前浏览器不支持摄像头，请上传图片。', 'error'); return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false});
+    el('video').srcObject = stream; await el('video').play();
+    el('scanner').classList.add('scanning');
+    el('camera').classList.add('hidden'); el('stopCamera').classList.remove('hidden');
+    const canvas = document.createElement('canvas'), context = canvas.getContext('2d', {willReadFrequently:true});
+    const tick = () => {
+      if (!stream || busy) return;
+      if (el('video').readyState >= 2) {
+        canvas.width = el('video').videoWidth; canvas.height = el('video').videoHeight;
+        context.drawImage(el('video'), 0, 0);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+        const found = decodeQrCode(pixels.data, pixels.width, pixels.height);
+        if (found?.data) { capture(found.data, 'camera'); return; }
+      }
+      scanTimer = requestAnimationFrame(tick);
+    };
+    tick();
+  } catch { show('未取得摄像头权限，可改用图片上传。', 'error'); stopCamera(); }
+}
+
+async function submitInput(event) {
+  event.preventDefault(); if (busy) return;
+  busy = true;
+  try {
+    const data = await call('/execute', {code:el('code').value.trim(), qr:'', location:null});
+    render(data); show('已提交，正在逐账号核验', 'success');
+  } catch (error) { show(error.message, 'error'); }
+  finally { busy = false; }
+}
+
+el('unlock').addEventListener('click', unlock);
+el('camera').addEventListener('click', startCamera);
+el('stopCamera').addEventListener('click', stopCamera);
+el('image').addEventListener('change', async event => {
+  try { await decodeFile(event.target.files[0]); }
+  catch (error) { show(error.message, 'error'); }
+  finally { event.target.value = ''; }
+});
+el('manualSubmit').addEventListener('click', () => capture(el('manual').value.trim(), 'paste'));
+el('inputForm').addEventListener('submit', submitInput);
+window.addEventListener('beforeunload', stopCamera);
+if (!token) { show('链接缺少授权信息，请重新生成。', 'error'); active = false; }
+else refresh();
+</script>
+</body>
+</html>

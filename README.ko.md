@@ -1,12 +1,10 @@
 <div align="center">
 
-<img src="assets/brand/mumu.png" width="148" alt="Mumu 애플리케이션 아이콘">
+<img src="assets/brand/mumu-loop.gif" width="148" alt="Mumu 동적 캐릭터">
 
 <h1>Mumu</h1>
 
-<hr>
-
-**대학생을 위한 과제, 온라인 강의, 출석 통합 학습 보조 클라이언트**
+**대학생의 캠퍼스 생활과 학습을 지원하는 올인원 클라이언트**
 
 [简体中文](README.md) · [English](README.en.md) · [繁體中文](README.zh-TW.md) · **한국어** · [日本語](README.ja.md) · [Español](README.es.md)
 
@@ -36,6 +34,10 @@
 >
 > 플랫폼 페이지와 지원 기능은 변경될 수 있습니다. 모든 학교, 강좌, 문제 유형 및 페이지 버전의 지속적인 지원을 보장하지 않습니다. 모델 요청은 사용자가 설정한 공급자에게 작업 컨텍스트를 전송합니다. 사용 전에 플랫폼 규칙과 데이터 처리 요구 사항을 확인하세요.
 
+### 면책 조항
+
+> 이 프로젝트는 기술 연구와 학습 교류 목적으로만 사용해야 하며, 플랫폼 규칙, 학교 관리 규정 또는 법률과 규정을 위반하는 어떤 상황에서도 사용하지 마십시오. 사용자는 그에 따른 책임을 직접 부담해야 합니다.
+
 ## 기능 소개
 
 | 기능 | 설명 |
@@ -50,25 +52,15 @@
 
 ## 지원 플랫폼
 
-| 플랫폼 | 과제 | 온라인 강의 | 출석 | 현재 지원 |
-| :---: | :---: | :---: | :---: | --- |
-| <img src="assets/platforms/xuexitong.png" height="28" alt="Xuexitong 로고"><br>**Xuexitong** | 지원 | 지원 | 지원 | 구조화 문제, 챕터 학습, 일괄 출석 및 공유 |
-| <img src="assets/platforms/educoder.png" height="28" alt="EduCoder 로고"><br>**EduCoder** | 지원 | — | — | 클래스 실습, Java/JUnit 편집기, 자동 평가 및 제한적 복구 |
-| <img src="assets/platforms/zhihuishu.ico" height="28" alt="Zhihuishu 로고"><br>**Zhihuishu** | — | 지원 | — | 강좌 작업 지점, 미디어 및 읽기 흐름 |
-| <img src="assets/platforms/icourse.ico" height="28" alt="ICourse163 로고"><br>**ICourse163** | — | 지원 | — | 강좌 작업 지점, 미디어 및 읽기 흐름 |
-| <img src="assets/platforms/icve.ico" height="28" alt="ICVE 로고"><br>**ICVE** | — | 지원 | — | 강좌 작업 지점, 미디어 및 읽기 흐름 |
-| <img src="assets/platforms/zjy.ico" height="28" alt="ZJY 로고"><br>**ZJY** | — | 지원 | — | 강좌 작업 지점, 미디어 및 읽기 흐름 |
-| <img src="assets/platforms/yuketang.ico" height="28" alt="Yuketang 로고"><br>**Yuketang** | — | 지원 | — | 강좌 작업 지점, 미디어 및 읽기 흐름 |
-
-## Star History
-
-<div align="center">
-
-<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
-  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
-</a>
-
-</div>
+| 플랫폼 | 과제 | 온라인 강의 | 출석 |
+| :---: | :---: | :---: | :---: |
+| <img src="assets/platforms/xuexitong.png" height="28" alt="Xuexitong 로고"><br>**Xuexitong** | 지원 | 지원 | 지원 |
+| <img src="assets/platforms/educoder.png" height="28" alt="EduCoder 로고"><br>**EduCoder** | 지원 | — | — |
+| <img src="assets/platforms/zhihuishu.ico" height="28" alt="Zhihuishu 로고"><br>**Zhihuishu** | — | 지원 | — |
+| <img src="assets/platforms/icourse.ico" height="28" alt="ICourse163 로고"><br>**ICourse163** | — | 지원 | — |
+| <img src="assets/platforms/icve.ico" height="28" alt="ICVE 로고"><br>**ICVE** | — | 지원 | — |
+| <img src="assets/platforms/zjy.ico" height="28" alt="ZJY 로고"><br>**ZJY** | — | 지원 | — |
+| <img src="assets/platforms/yuketang.ico" height="28" alt="Yuketang 로고"><br>**Yuketang** | — | 지원 | — |
 
 ## 시작하기
 
@@ -127,3 +119,13 @@ assets/        README에서 사용하는 브랜드, 데모 및 플랫폼 표시
 ## 기여
 
 [기여 안내](CONTRIBUTING.md) · [변경 기록](CHANGELOG.md)
+
+## Star History
+
+<div align="center">
+
+<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
+  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
+</a>
+
+</div>

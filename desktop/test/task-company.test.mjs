@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { companyLayout, companyRoomForTask, companyRoute, companyLiveTask } from '../src/lib/task-company.js';
-import { CompanyPhysics } from '../src/lib/task-company-physics.js';
-import { createCompanyScreenFeed } from '../src/lib/task-company-screen.js';
+import { companyLayout, companyRoomForTask, companyRoute, companyLiveTask } from '../src/features/task-town/lib/company.js';
+import { CompanyPhysics } from '../src/features/task-town/lib/physics.js';
+import { createCompanyScreenFeed } from '../src/features/task-town/lib/screen.js';
 
 const task = (id, status) => ({ id, status, account_id: 'account', assignment_id: id, assignment_title: id, task_kind: 'assignment' });
 

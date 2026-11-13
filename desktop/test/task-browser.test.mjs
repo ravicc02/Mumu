@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assignmentBrowserTask, activeAssignmentBrowserTask } from "../src/lib/task-browser.js";
+import { assignmentBrowserTask, activeAssignmentBrowserTask } from "../src/features/tasks/lib/browser.js";
 
 test("the chosen assignment keeps its own browser even when another task is running", () => {
   const jobs = [ { id: "one", account_id: "a", browser_available: true, status: "running" }, { id: "two", account_id: "a", browser_available: true, status: "running" } ];

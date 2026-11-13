@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 
 from playwright.async_api import async_playwright
 
-from app.services.browser import chrome_executable
-from app.services.draft_saver import DraftSaveError, save_assignment_draft
-from app.services.screenshot_capture import capture_screenshot_segments, screenshot_regions
+from app.services.runtime.browser import chrome_executable
+from app.services.assignments.draft_saver import DraftSaveError, save_assignment_draft
+from app.services.runtime.screenshots import capture_screenshot_segments, screenshot_regions
 
 
 class ScreenshotRegionTests(unittest.TestCase):

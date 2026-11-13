@@ -1,8 +1,8 @@
 {
-  "name": "ai-assignment-studio-desktop",
-  "version": "0.5.1",
-  "description": "Local Windows assignment automation studio",
-  "author": "AI Assignment Studio Contributors",
+  "name": "mumu-desktop",
+  "version": "0.6.0",
+  "description": "Mumu local Windows learning task workspace",
+  "author": "Mumu Contributors",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -20,9 +20,6 @@
   "dependencies": {
     "@lucide/vue": "^1.72.0",
     "cannon-es": "^0.20.0",
-    "jsqr": "^1.4.0",
-    "open-mascot": "file:../third_party/open-mascot",
-    "pathfinding": "0.4.18",
     "qrcode": "^1.5.4",
     "three": "^0.187.0",
     "vue": "^3.5.13"
@@ -37,8 +34,8 @@
     "wait-on": "^8.0.2"
   },
   "build": {
-    "appId": "local.ai.assignment.studio",
-    "productName": "沐沐",
+    "appId": "io.github.ravicc02.mumu",
+    "productName": "Mumu",
     "directories": {
       "output": "release"
     },
@@ -47,11 +44,12 @@
       "dist/**/*",
       "electron/**/*",
       "build/icon.png",
+      "product.json",
       "package.json"
     ],
     "extraResources": [
       {
-        "from": "../backend/dist/answer-studio-backend",
+        "from": "../backend/dist/mumu-backend",
         "to": "backend",
         "filter": [
           "**/*"
@@ -59,7 +57,7 @@
       }
     ],
     "win": {
-      "artifactName": "Assignment-Studio-${version}-windows-${arch}-setup.${ext}",
+      "artifactName": "Mumu-${version}-windows-${arch}-setup.${ext}",
       "icon": "build/icon.ico",
       "signAndEditExecutable": false,
       "target": [
@@ -68,7 +66,8 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "guid": "eb16fffb-9f96-5004-94a4-fb5b2f48fec9"
     }
   }
 }

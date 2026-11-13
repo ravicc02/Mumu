@@ -25,7 +25,7 @@ from app.diagnostics.privacy import Scrubber, task_scrubber
 from app.diagnostics.probe import capture_page
 from app.diagnostics.recorder import DiagnosticStore, NullTrace
 from app.diagnostics.routes import diagnostic_router, install_request_diagnostics
-from app.services.browser import chrome_executable
+from app.services.runtime.browser import chrome_executable
 
 
 def setup(root, *, legacy=False):
@@ -326,7 +326,7 @@ class DiagnosticAsyncTests(unittest.IsolatedAsyncioTestCase):
                 browser = await playwright.chromium.launch(headless=True,executable_path=str(chrome_executable()))
                 try:
                     page = await browser.new_page()
-                    await page.set_content('''<div class="questionLi" id="question28"><h3><span class="colorShallow">多选题</span>PRIVATE QUESTION TEXT</h3><div class="reading_answer" data-answer-studio-unit="q28:r1"><span class="read_type">多选题</span><span data="A" class="num_option_dx check_answer_dx" onclick="choose(this)">PRIVATE OPTION</span><input type="password" name="password" value="secret-password-not-captured"></div></div>''')
+                    await page.set_content('''<div class="questionLi" id="question28"><h3><span class="colorShallow">多选题</span>PRIVATE QUESTION TEXT</h3><div class="reading_answer" data-mumu-unit="q28:r1"><span class="read_type">多选题</span><span data="A" class="num_option_dx check_answer_dx" onclick="choose(this)">PRIVATE OPTION</span><input type="password" name="password" value="secret-password-not-captured"></div></div>''')
                     await capture_page(trace,page,'failure-controls',['q28:r1'])
                     files = unpack(build_bundle(db,'assignment',job['id']))
                     fixture_name = next(name for name in files if name.startswith('replay/'))

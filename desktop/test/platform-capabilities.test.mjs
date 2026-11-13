@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { accountsForBusiness, businessAccountId, recordsForAccount, supportsBusiness } from "../src/lib/platforms.js";
+import { accountsForBusiness, businessAccountId, recordsForAccount, supportsBusiness } from "../src/features/platforms/lib/catalog.js";
 
 const accounts = [
   { id: "educoder", name: "Same name", platform: "educoder", status: "ready" },

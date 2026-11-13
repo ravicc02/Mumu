@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { TOWN_DISTRICTS, townDistrict, townTaskKey, townTaskActions, BOT_SHAPES, botShape } from "../src/lib/task-town.js";
-import { companyLayout } from "../src/lib/task-company.js";
-import { buildTaskOverview } from "../src/lib/task-overview.js";
+import { TOWN_DISTRICTS, townDistrict, townTaskKey, townTaskActions, BOT_SHAPES, botShape } from "../src/features/task-town/lib/model.js";
+import { companyLayout } from "../src/features/task-town/lib/company.js";
+import { buildTaskOverview } from "../src/features/tasks/lib/overview.js";
 
 test("every task state has a semantic district, including queued, stopped and legacy errors", () => {
   const expected = { queued: "active", running: "active", stopping: "active", needs_intervention: "review", awaiting_user: "review", completed: "completed", interrupted: "interrupted", failed: "interrupted", incomplete: "incomplete", paused: "paused", stopped: "paused" };

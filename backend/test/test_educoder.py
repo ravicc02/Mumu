@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, patch
 
 from app.config import Settings
 from app.db import Database
-from app.services.agent_runner import JobControl
+from app.services.tasks.runner import JobControl
 from app.services.educoder import store
 from app.services.educoder.client import EduCoderClient
 from app.services.educoder.contracts import ContractError, course_record, experiment_record, paged, site_url
 from app.services.educoder.executor import CodeFile, CodePatch, ExperimentError, challenge_list, execute_experiment, file_content, repository_path
-from app.services.account_identity import cache_avatar, save_identity
-from app.services.job_state import available_job_actions
+from app.services.accounts.identity import cache_avatar, save_identity
+from app.services.tasks.state import available_job_actions
 from app.diagnostics.privacy import Scrubber
 
 
@@ -235,7 +235,7 @@ class EducoderTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_wrong_identity_is_not_saved_and_avatar_download_has_a_host_boundary(self):
         page = SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(get=AsyncMock())))
-        with patch("app.services.account_identity.read_identity",AsyncMock(return_value={"name":"Other","platform_user_id":"wrong"})):
+        with patch("app.services.accounts.identity.read_identity",AsyncMock(return_value={"name":"Other","platform_user_id":"wrong"})):
             with self.assertRaises(RuntimeError): await save_identity(self.db,self.account["id"],page)
         self.assertEqual(self.db.get_account(self.account["id"])["name"],"pending")
         self.assertIsNone(await cache_avatar(self.account,{"avatar_url":"https://127.0.0.1/private"},page.context))

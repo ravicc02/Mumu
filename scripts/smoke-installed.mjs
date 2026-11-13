@@ -11,8 +11,9 @@ if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true') throw
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const version = (await fs.readFile(path.join(root,'VERSION'),'utf8')).trim();
 const manifest = JSON.parse(await fs.readFile(path.join(root,'desktop/package.json'),'utf8'));
+const product = JSON.parse(await fs.readFile(path.join(root,'desktop/product.json'),'utf8'));
 const release = path.join(root,'desktop/release');
-const installer = path.join(release,'Assignment-Studio-'+version+'-windows-x64-setup.exe');
+const installer = path.join(release,product.artifactId+'-'+version+'-windows-x64-setup.exe');
 const installRoot = await fs.mkdtemp(path.join(os.tmpdir(),'mumu-install-'));
 const dataRoot = path.join(installRoot,'verification-data'), profileRoot = path.join(installRoot,'verification-profile');
 const driver = execFileSync('python',['-c',"import pathlib,playwright; print(pathlib.Path(playwright.__file__).parent/'driver'/'package')"],{encoding:'utf8'}).trim();
@@ -26,7 +27,7 @@ try {
   const executable = path.join(installRoot,manifest.build.productName+'.exe');
   await fs.access(executable);
   app = await _electron.launch({executablePath:executable,args:['--no-sandbox','--user-data-dir='+profileRoot],cwd:installRoot,
-    env:{...process.env,ANSWER_STUDIO_DATA:dataRoot},timeout:60000});
+    env:{...process.env,MUMU_DATA:dataRoot},timeout:60000});
   const page = await app.firstWindow(); page.setDefaultTimeout(60000);
   await page.getByRole('heading',{name:'准备运行环境',exact:true}).waitFor();
   await page.waitForFunction(()=>!document.querySelector('.startup-footer .button.dark')?.disabled);
@@ -53,7 +54,7 @@ try {
   await page.locator('.startup-experience').waitFor({state:'hidden'});
   await page.reload(); await page.locator('.dashboard-heading').waitFor();
   assert.equal(await page.locator('.startup-experience').count(),0);
-  assert.equal(await page.locator('.brand h1').innerText(),'沐沐');
+  assert.equal(await page.locator('.brand h1').innerText(),product.name);
   const evidencePath = path.join(release,'smoke-result.json');
   const evidence = JSON.parse((await fs.readFile(evidencePath,'utf8')).replace(/^\uFEFF/,''));
   Object.assign(evidence,{installed_app_verified:true,first_run_verified:true,optional_setup_skips_verified:true,packaged_brand_assets_verified:true});

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { monitorSummary, newMonitorState, reconcileMonitor, restoreMonitorState } from "../src/lib/task-monitor.js";
+import { monitorSummary, newMonitorState, reconcileMonitor, restoreMonitorState } from "../src/features/tasks/lib/monitor.js";
 
 const task = (id, status = "queued", extra = {}) => ({ id, task_key: "assignment:a:" + id, task_kind: "assignment", account_id: "a", assignment_id: id,
   assignment_title: id, status, submission_status: status === "completed" ? "submitted_verified" : "not_started", created_at: "2026-11-12T00:00:00Z", updated_at: "2026-11-12T00:00:00Z", ...extra });

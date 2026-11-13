@@ -6,13 +6,13 @@ import logging
 from urllib.parse import urlsplit
 
 from playwright.async_api import async_playwright, TimeoutError as BrowserTimeout
-from ..browser import chrome_executable
+from ..runtime.browser import chrome_executable
 from .contracts import ContractError, identifier, site_url
 
 
 API_ORIGIN = "https://data.educoder.net"
 HEADERS = {"pc-authorization", "x-edu-type", "x-edu-timestamp", "x-edu-signature"}
-logger = logging.getLogger("answer-studio.educoder")
+logger = logging.getLogger("mumu.educoder")
 
 
 class EduCoderClient:
@@ -43,7 +43,7 @@ class EduCoderClient:
             return
 
     async def __aenter__(self):
-        from ..platform_auth import restore_state
+        from ..accounts.auth import restore_state
         attached = self.page is not None
         if self.page is None:
             self.playwright = await async_playwright().start()

@@ -3,8 +3,8 @@ import unittest
 
 from playwright.async_api import async_playwright
 
-from app.services.browser import chrome_executable
-from app.services.quiz_adapter import EXTRACT_QUESTIONS_SCRIPT, FILL_ANSWERS_SCRIPT
+from app.services.runtime.browser import chrome_executable
+from app.services.assignments.quiz_adapter import EXTRACT_QUESTIONS_SCRIPT, FILL_ANSWERS_SCRIPT
 
 
 class QuizSelectionTests(unittest.IsolatedAsyncioTestCase):

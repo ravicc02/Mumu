@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, ValidationError
 from ...db import utc_now
 from .client import EduCoderClient
 from .contracts import ContractError, identifier, site_url
-from ..task_spec import educoder_task_spec
+from ..tasks.spec import educoder_task_spec
 from .code_contract import CodeContractError, fingerprint, validate_patch
 from .evaluation import EvaluationReport, failed_report, classify_evaluation
 

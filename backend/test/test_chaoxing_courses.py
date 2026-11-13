@@ -3,8 +3,8 @@ import unittest
 
 from playwright.async_api import async_playwright
 
-from app.services.browser import chrome_executable
-from app.services.chaoxing import _fetch_student_course_list, _parse_courses
+from app.services.runtime.browser import chrome_executable
+from app.services.assignments.chaoxing import _fetch_student_course_list, _parse_courses
 
 
 COURSE = '''<div class="course"><a href="/mycourse/stucoursemiddle?courseid=101&amp;clazzid=201&amp;cpi=1">

@@ -11,9 +11,9 @@ from unittest.mock import AsyncMock, patch
 from app.config import Settings
 from app.db import Database
 from app.events import EventHub
-from app.services import agent_runner as runner
-from app.services.job_state import annotate_queues, available_job_actions
-from app.services.quiz_adapter import QuizAnswer, QuizAnswerSheet
+from app.services.tasks import runner as runner
+from app.services.tasks.state import annotate_queues, available_job_actions
+from app.services.assignments.quiz_adapter import QuizAnswer, QuizAnswerSheet
 
 
 def fixture(root):

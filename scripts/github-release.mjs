@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { projectRoot, checkVersion } from './version.mjs';
-import { checkRelease, verifyReleaseAssets } from './release.mjs';
+import { checkRelease, readProduct, verifyReleaseAssets } from './release.mjs';
 
 export function assertEditableRelease(release) {
   if (release && release.isDraft !== true) throw new Error('Published releases are immutable; create a new version instead.');
@@ -22,6 +22,7 @@ function gh(args, {json=false, missing=false}={}) {
 
 export function manageRelease(action, tag, directory=path.join(projectRoot,'desktop/release')) {
   const version=checkVersion();
+  const product=readProduct();
   checkRelease(projectRoot,{strict:true,tag});
   if(tag!=='v'+version) throw new Error('Tag differs from VERSION');
   const repository=process.env.GH_REPO || JSON.parse(gh(['repo','view','--json','nameWithOwner'])).nameWithOwner;
@@ -29,11 +30,11 @@ export function manageRelease(action, tag, directory=path.join(projectRoot,'desk
   const release=gh(['release','view',tag,'--repo',repository,'--json','isDraft,assets,tagName'],{json:true,missing:true});
   assertEditableRelease(release);
   if(action==='guard') return {tag,editable:true};
-  const names=['Assignment-Studio-'+version+'-windows-x64-setup.exe','SHA256SUMS.txt','release-manifest.json','RELEASE_NOTES.md','build-environment.txt','smoke-result.json'];
+  const names=[product.artifactId+'-'+version+'-windows-x64-setup.exe','SHA256SUMS.txt','release-manifest.json','RELEASE_NOTES.md','build-environment.txt','smoke-result.json'];
   if(action==='draft') {
     verifyReleaseAssets(directory,version);
     const assets=names.map(name=>path.join(directory,name));
-    const common=['--repo',repository,'--title','沐沐 '+tag,'--notes-file',path.join(directory,'RELEASE_NOTES.md')];
+    const common=['--repo',repository,'--title',product.name+' '+tag,'--notes-file',path.join(directory,'RELEASE_NOTES.md')];
     if(release) {
       gh(['release','upload',tag,...assets,'--repo',repository,'--clobber']);
       gh(['release','edit',tag,'--draft',...common]);
@@ -45,7 +46,7 @@ export function manageRelease(action, tag, directory=path.join(projectRoot,'desk
   if(action==='publish') {
     if(!release) throw new Error('Build the release draft first');
     if(release.assets.length!==names.length || !names.every(name=>release.assets.some(asset=>asset.name===name))) throw new Error('Draft release assets are incomplete');
-    const download=fs.mkdtempSync(path.join(os.tmpdir(),'studio-release-verify-'));
+    const download=fs.mkdtempSync(path.join(os.tmpdir(),'mumu-release-verify-'));
     try {
       gh(['release','download',tag,'--repo',repository,'--dir',download]);
       const evidence=verifyReleaseAssets(download,version);
@@ -54,7 +55,7 @@ export function manageRelease(action, tag, directory=path.join(projectRoot,'desk
       gh(['release','edit',tag,'--repo',repository,'--draft=false',version.includes('-')?'--prerelease':'--prerelease=false',version.includes('-')?'--latest=false':'--latest']);
       return {...evidence,published:true};
     } finally {
-      if(path.dirname(download)!==path.resolve(os.tmpdir()) || !path.basename(download).startsWith('studio-release-verify-')) throw new Error('Invalid release verification directory');
+      if(path.dirname(download)!==path.resolve(os.tmpdir()) || !path.basename(download).startsWith('mumu-release-verify-')) throw new Error('Invalid release verification directory');
       fs.rmSync(download,{recursive:true,force:true});
     }
   }

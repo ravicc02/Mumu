@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const product = require("../product.json");
 
 module.exports = async function afterPack(context) {
   if (context.electronPlatformName !== "win32") {
@@ -20,12 +21,12 @@ module.exports = async function afterPack(context) {
     "version-string": {
       FileVersion: version,
       ProductVersion: version,
-      CompanyName: "AI Assignment Studio Contributors",
-      FileDescription: "沐沐",
+      CompanyName: "Mumu Contributors",
+      FileDescription: product.name,
       InternalFilename: productName,
-      LegalCopyright: "Copyright AI Assignment Studio Contributors",
+      LegalCopyright: "Copyright Mumu Contributors",
       OriginalFilename: `${productName}.exe`,
-      ProductName: "沐沐"
+      ProductName: product.name
     }
   };
   if (fs.existsSync(iconPath)) {

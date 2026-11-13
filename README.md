@@ -1,12 +1,10 @@
 <div align="center">
 
-<img src="assets/brand/mumu.png" width="148" alt="Mumu 应用图标">
+<img src="assets/brand/mumu-loop.gif" width="148" alt="Mumu 动态形象">
 
 <h1>Mumu</h1>
 
-<hr>
-
-**为大学生而造的 刷作业、刷课、签到为一体的辅助学习客户端**
+**辅助大学生校园生活以及学习的一体式客户端**
 
 **简体中文** · [English](README.en.md) · [繁體中文](README.zh-TW.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md)
 
@@ -36,6 +34,10 @@
 >
 > 平台页面和能力会变化，项目不保证所有学校、课程、题型和页面版本持续可用。模型请求会将完成任务所需上下文发送到你配置的模型服务，使用前请确认平台规则、课程要求和数据处理边界。
 
+### 免责声明
+
+> 本项目仅用于技术研究与学习交流，请勿用于任何违反平台规则、学校管理规定或法律法规的场景。使用者需自行承担相应责任。
+
 ## 功能介绍
 
 | 功能 | 说明 |
@@ -43,40 +45,27 @@
 | **账号与平台** | 按平台和稳定用户 ID 保存账号，自动同步名称与头像；重复授权更新原记录，不按姓名合并账号 |
 | **作业** | 采集未完成且当前可提交的作业；识别题目、生成答案、确定性填写、暂存、评测及提交核验 |
 | **网课** | 读取课程及任务点，跳过已完成内容，执行已支持的媒体和阅读流程，并保存平台进度凭据 |
-| **签到** | 多账号批量处理；支持签到码、手势、二维码和位置输入，可创建可撤销的批次分享链接 |
-| **实时任务浏览器** | 每个任务使用独立浏览器和授权快照；支持实时查看、暂停、重试和人工介入，关闭查看端不会停止任务 |
+| **签到** | 多账号批量处理；支持签到码、手势、二维码和位置，可创建可撤销的批次分享链接 |
+| |
 
-任务分别使用独立浏览器，允许并行处理不同账号。软件只在平台结果可核验时标记完成，不把模型自报成功、截图存在或部分完成当作业务完成凭据。
 
 ## 支持的平台
 
-| 平台 | 作业 | 网课 | 签到 | 当前能力 |
-| :---: | :---: | :---: | :---: | --- |
-| <img src="assets/platforms/xuexitong.png" height="28" alt="学习通 Logo"><br>**学习通** | 支持 | 支持 | 支持 | 结构化题型、章节学习、批量签到与分享 |
-| <img src="assets/platforms/educoder.png" height="28" alt="头歌 Logo"><br>**头歌** | 支持 | — | — | 课堂实验、Java/JUnit 编辑器、自动评测及有限修复 |
-| <img src="assets/platforms/zhihuishu.ico" height="28" alt="知到智慧树 Logo"><br>**知到智慧树** | — | 支持 | — | 课程任务点、媒体和阅读流程 |
-| <img src="assets/platforms/icourse.ico" height="28" alt="中国大学 MOOC Logo"><br>**中国大学 MOOC** | — | 支持 | — | 课程任务点、媒体和阅读流程 |
-| <img src="assets/platforms/icve.ico" height="28" alt="智慧职教 Logo"><br>**智慧职教** | — | 支持 | — | 课程任务点、媒体和阅读流程 |
-| <img src="assets/platforms/zjy.ico" height="28" alt="职教云 Logo"><br>**职教云** | — | 支持 | — | 课程任务点、媒体和阅读流程 |
-| <img src="assets/platforms/yuketang.ico" height="28" alt="雨课堂 Logo"><br>**雨课堂** | — | 支持 | — | 课程任务点、媒体和阅读流程 |
-
-## Star History
-
-<div align="center">
-
-<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
-  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
-</a>
-
-</div>
+| 平台 | 作业 | 网课 | 签到 |
+| :---: | :---: | :---: | :---: |
+| <img src="assets/platforms/xuexitong.png" height="28" alt="学习通 Logo"><br>**学习通** | 支持 | 支持 | 支持 |
+| <img src="assets/platforms/educoder.png" height="28" alt="头歌 Logo"><br>**头歌** | 支持 | — | — |
+| <img src="assets/platforms/zhihuishu.ico" height="28" alt="知到智慧树 Logo"><br>**知到智慧树** | — | 支持 | — |
+| <img src="assets/platforms/icourse.ico" height="28" alt="中国大学 MOOC Logo"><br>**中国大学 MOOC** | — | 支持 | — |
+| <img src="assets/platforms/icve.ico" height="28" alt="智慧职教 Logo"><br>**智慧职教** | — | 支持 | — |
+| <img src="assets/platforms/zjy.ico" height="28" alt="职教云 Logo"><br>**职教云** | — | 支持 | — |
+| <img src="assets/platforms/yuketang.ico" height="28" alt="雨课堂 Logo"><br>**雨课堂** | — | 支持 | — |
 
 ## 开始使用
 
-1. 在 [Releases](https://github.com/ravicc02/Mumu/releases) 下载 Windows x64 安装包；发行候选版本标记为 Pre-release。
+1. 在 [Releases](https://github.com/ravicc02/Mumu/releases) 下载 Windows x64 安装包
 2. 首次打开进入初始化：检测运行环境；缺少依赖时可点击安装，失败时显示手动命令。
 3. 配置模型接口、Key、模型和思考强度，再选择平台授权。两步均可跳过，之后在设置与平台中补充。
-4. 选择任务执行；遇到待处理事项时通过原任务浏览器介入，处理后继续。
-5. 查看平台核验结果。学习通最终提交与头歌自动评测分别在作业设置中管理。
 
 **从源码运行**
 
@@ -90,8 +79,6 @@ $env:MUMU_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 npm start
 ~~~
 
-网页预览分两个终端运行：
-
 ~~~powershell
 # 终端一：仓库根目录
 .\.venv\Scripts\python.exe backend\run_server.py --host 127.0.0.1 --port 8877
@@ -99,8 +86,6 @@ npm start
 # 终端二：仓库根目录
 npm run desktop:web
 ~~~
-
-前端为 http://127.0.0.1:5174/，本地 API 为 http://127.0.0.1:8877/。开发和构建步骤见[贡献指南](CONTRIBUTING.md)。
 
 ## 数据与隐私
 
@@ -127,3 +112,13 @@ assets/        README 品牌、演示和平台标识
 ## 参与贡献
 
 [贡献指南](CONTRIBUTING.md) · [更新日志](CHANGELOG.md)
+
+## Star History
+
+<div align="center">
+
+<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
+  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
+</a>
+
+</div>

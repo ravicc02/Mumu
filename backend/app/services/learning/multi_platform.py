@@ -11,16 +11,16 @@ from playwright.async_api import async_playwright
 
 from .browser import LearningBrowser, RUNTIME
 from .live import LiveBrowserChannel
-from ..browser import chrome_executable, COURSE_BROWSER_ARGS
-from ..platform_auth import restore_state
+from ..runtime.browser import chrome_executable, COURSE_BROWSER_ARGS
+from ..accounts.auth import restore_state
 from ..platforms.catalog import account_home, platform_spec, platform_url
 from ...diagnostics.probe import attach_network, capture_page
 
-UPSTREAM = Path(__file__).with_name("ocs-study.js").read_text(encoding="utf-8")
+STUDY_RUNTIME = Path(__file__).with_name("study-runtime.js").read_text(encoding="utf-8")
 PLATFORM_RUNTIME = Path(__file__).with_name("platform-runtime.js").read_text(encoding="utf-8")
 
 
-class OCSLearningBrowser(LearningBrowser):
+class PlatformLearningBrowser(LearningBrowser):
     def __init__(self, account, *, headless=True, authenticate=True):
         super().__init__(account, headless=headless, authenticate=authenticate)
         self.platform = account["platform"]
@@ -43,7 +43,7 @@ class OCSLearningBrowser(LearningBrowser):
         self._watch_context_lifecycle()
         await restore_state(self.context, self.account["storage_state_path"])
         await self.context.expose_binding("__studioCourseClick", self._navigation_click)
-        for source in (RUNTIME, UPSTREAM, PLATFORM_RUNTIME): await self.context.add_init_script(source)
+        for source in (RUNTIME, STUDY_RUNTIME, PLATFORM_RUNTIME): await self.context.add_init_script(source)
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         attach_network(self.diagnostics, self.context)
         self.live = LiveBrowserChannel(self.page, self.context, resolve_page=self.resolve_live_page)
@@ -56,7 +56,7 @@ class OCSLearningBrowser(LearningBrowser):
 
     async def call(self, frame, method, *args):
         self.ensure_connected()
-        for source in (RUNTIME, UPSTREAM, PLATFORM_RUNTIME): await frame.evaluate(source)
+        for source in (RUNTIME, STUDY_RUNTIME, PLATFORM_RUNTIME): await frame.evaluate(source)
         if method in {"play", "pause", "stop", "readResource", "resourceTabs"}: return await super().call(frame, method, *args)
         if method not in {"snapshot", "catalog", "prepare", "discover"}: raise ValueError("未知平台课程动作")
         return await asyncio.wait_for(frame.evaluate("({method,platform})=>window.__studioCourse[method](platform)", {"method":method,"platform":self.platform}),15)
@@ -160,7 +160,7 @@ class OCSLearningBrowser(LearningBrowser):
             if target.get("navigable"):
                 await self.catalog_frame.locator('[data-studio-chapter='+json.dumps(identifier)+']').click(timeout=10000)
             elif self.platform=="zjy":
-                await self.catalog_frame.evaluate("({id})=>{ const vue=window.__studioOCSUpstream.zjy.getVueBindElement(); if(!vue?.nextObj||String(vue.nextObj.id)!==id) throw new Error('该章节缺少可操作入口'); vue.preNext(vue.nextObj); }",{"id":identifier})
+                await self.catalog_frame.evaluate("({id})=>{ const vue=window.__mumuStudyRuntime.zjy.getVueBindElement(); if(!vue?.nextObj||String(vue.nextObj.id)!==id) throw new Error('该章节缺少可操作入口'); vue.preNext(vue.nextObj); }",{"id":identifier})
             else: raise RuntimeError("该章节尚未提供可操作入口，请在浏览器选择章节")
         await asyncio.sleep(1)
         available=[]

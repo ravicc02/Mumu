@@ -1,7 +1,0 @@
-{
-  "repository": "https://github.com/0oooh/open-mascot-studio",
-  "commit": "b83ca3863f4e35424342d42538873af1bacddf9f",
-  "package": "packages/open-mascot",
-  "license": "MIT",
-  "changes": "Unmodified source. Used locally for expression poses, blinking, gaze and motion interpolation. Glass and liquid rendering are implemented by Assignment Studio."
-}

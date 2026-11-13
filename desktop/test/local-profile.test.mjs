@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { avatarFromFile, loadLocalProfile, localProfileKey, normalizeLocalProfile, saveLocalProfile } from "../src/lib/local-profile.js";
+import { avatarFromFile, loadLocalProfile, localProfileKey, normalizeLocalProfile, saveLocalProfile } from "../src/features/accounts/lib/local-profile.js";
 function storage(){const values=new Map();return{values,getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value)};}
 
 test("local profile persists without changing platform account preferences",()=>{

@@ -10,10 +10,10 @@ from playwright.async_api import async_playwright
 
 from app.config import Settings
 from app.db import Database
-from app.services.assignment_readiness import assess_questions, execution_block, unit_requirements
-from app.services.browser import chrome_executable
-from app.services.quiz_adapter import extract_questions
-from app.services import agent_runner as runner
+from app.services.assignments.readiness import assess_questions, execution_block, unit_requirements
+from app.services.runtime.browser import chrome_executable
+from app.services.assignments.quiz_adapter import extract_questions
+from app.services.tasks import runner as runner
 
 EXPERIMENT = "按附件中的要求完成实验。提交材料：（1）软件工程实验报告-第1组-张三.docx（2）经维护后的源程序代码-小米便签.rar（3）演示视频.mp4"
 PRACTICE = "认真阅读附件文档，按照综合实践报告模板撰写报告，最终提交压缩包，内容包括：综合实践报告.docx、项目源码压缩包.rar、演示视频.mp4。"

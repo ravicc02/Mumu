@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { setImmediate } from "node:timers/promises";
-import { collectAccountBatch } from "../src/lib/collection-batch.js";
+import { collectAccountBatch } from "../src/features/assignments/lib/collection-batch.js";
 
 test("one-click collection respects concurrency and a failed account does not stop the rest", async () => {
   const accounts = ["busy", "a", "b", "c"].map(id => ({ id, name:id }));

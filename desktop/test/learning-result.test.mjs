@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { learningResultSummary, learningScreenshotSections, loadLearningResult } from "../src/lib/learning-result.js";
-import { api } from "../src/api.js";
+import { learningResultSummary, learningScreenshotSections, loadLearningResult } from "../src/features/learning/lib/result.js";
+import { api } from "../src/app/api.js";
 
 test("historical course results load the requested run without depending on the current course list", async () => {
   const calls = [];

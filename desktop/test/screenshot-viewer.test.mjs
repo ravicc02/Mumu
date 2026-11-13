@@ -4,12 +4,12 @@ import { readFile } from "node:fs/promises";
 import { parse, compileScript } from "@vue/compiler-sfc";
 import { createRenderer, defineComponent, h, nextTick, ref } from "vue";
 
-const { descriptor } = parse(await readFile(new URL("../src/components/ScreenshotViewer.vue", import.meta.url), "utf8"));
+const { descriptor } = parse(await readFile(new URL("../src/features/tasks/components/ScreenshotViewer.vue", import.meta.url), "utf8"));
 let source = compileScript(descriptor, { id: "viewer-test", inlineTemplate: true }).content;
 for (const name of ["vue", "@lucide/vue"]) {
   source = source.replaceAll(`from "${name}"`, `from ${JSON.stringify(import.meta.resolve(name))}`);
 }
-source = source.replace('from "../lib/screenshots"', `from ${JSON.stringify(new URL("../src/lib/screenshots.js", import.meta.url).href)}`);
+source = source.replace('from "../lib/screenshots.js"', `from ${JSON.stringify(new URL("../src/features/tasks/lib/screenshots.js", import.meta.url).href)}`);
 const { default: Viewer } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 const node = type => ({ type, children: [], props: {}, parent: null });

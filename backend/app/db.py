@@ -560,7 +560,7 @@ class Database:
         settings: Settings,
         run_id: str | None = None,
     ) -> str:
-        from .services.assignment_availability import assignment_expired
+        from .services.assignments.availability import assignment_expired
         assignment = {**assignment, "submittable": bool(assignment.get("submittable")) and not assignment_expired(assignment)}
         assignment_id = uuid.uuid4().hex
         with self.connect() as connection:
@@ -676,7 +676,7 @@ class Database:
                 """,
                 values,
             ).fetchall()
-        from .services.assignment_availability import assignment_expired
+        from .services.assignments.availability import assignment_expired
         records = [assignment_record(row) for row in rows]
         return [item for item in records if not assignment_expired(item)] if submittable_only else records
 

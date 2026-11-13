@@ -9,7 +9,7 @@ import zipfile
 
 def main():
     if hasattr(sys.stdout, "reconfigure"): sys.stdout.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(description="Read and verify a local Assignment Studio diagnostic bundle")
+    parser = argparse.ArgumentParser(description="Read and verify a local Mumu diagnostic bundle")
     parser.add_argument("bundle")
     args = parser.parse_args()
     with zipfile.ZipFile(args.bundle) as archive:

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { companyLayout } from '../src/lib/task-company.js';
-import { CompanyPhysics } from '../src/lib/task-company-physics.js';
-import { CompanyNavigation } from '../src/lib/task-company-navigation.js';
+import { companyLayout } from '../src/features/task-town/lib/company.js';
+import { CompanyPhysics } from '../src/features/task-town/lib/physics.js';
+import { CompanyNavigation } from '../src/features/task-town/lib/navigation.js';
 
 function setup(t) {
   const layout = companyLayout([]), physics = new CompanyPhysics(layout);

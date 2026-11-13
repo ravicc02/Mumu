@@ -9,8 +9,8 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.db import Database
-from app.services import chaoxing
-from app.services.account_identity import finish_chaoxing_authorization, read_identity, save_identity
+from app.services.assignments import chaoxing
+from app.services.accounts.identity import finish_chaoxing_authorization, read_identity, save_identity
 from app.services.learning.store import LearningStore
 
 
@@ -25,8 +25,8 @@ class AccountIdentityTests(unittest.IsolatedAsyncioTestCase):
         self.account = self.db.create_account("legacy alias", "chaoxing", self.settings)
         self.identity = {"name": "Platform Name", "platform_user_id": "123", "avatar_url": "https://photo.chaoxing.com/avatar.jpg"}
         self.page = SimpleNamespace(context=SimpleNamespace(storage_state=AsyncMock(return_value={"cookies": [], "origins": []})))
-        self.read = patch("app.services.account_identity.read_identity", AsyncMock(return_value=self.identity))
-        self.avatar = patch("app.services.account_identity.cache_avatar", AsyncMock(return_value="image/jpeg"))
+        self.read = patch("app.services.accounts.identity.read_identity", AsyncMock(return_value=self.identity))
+        self.avatar = patch("app.services.accounts.identity.cache_avatar", AsyncMock(return_value="image/jpeg"))
         self.read.start(); self.avatar.start()
 
     async def asyncTearDown(self):
@@ -100,7 +100,7 @@ class AccountIdentityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(LearningStore(self.db).course(course["id"])["account_id"], self.account["id"])
 
     async def test_read_failure_does_not_mark_authorization_successful(self):
-        with patch("app.services.account_identity.read_identity", AsyncMock(return_value={"name": "", "platform_user_id": ""})):
+        with patch("app.services.accounts.identity.read_identity", AsyncMock(return_value={"name": "", "platform_user_id": ""})):
             with self.assertRaisesRegex(RuntimeError, "未读取完整"):
                 await finish_chaoxing_authorization(self.db, self.account["id"], self.page)
         self.assertNotEqual(self.db.get_account(self.account["id"])["status"], "ready")

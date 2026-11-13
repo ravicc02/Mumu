@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { api } from "../src/api.js";
-import { assignmentReadiness } from "../src/lib/assignment-readiness.js";
-import { buildWorkflowStages } from "../src/lib/job-state.js";
-import { overviewResult } from "../src/lib/task-overview.js";
+import { api } from "../src/app/api.js";
+import { assignmentReadiness } from "../src/features/assignments/lib/readiness.js";
+import { buildWorkflowStages } from "../src/features/tasks/lib/state.js";
+import { overviewResult } from "../src/features/tasks/lib/overview.js";
 
 test("EduCoder course discovery and selection use local, account-scoped APIs",async()=>{
   const original=globalThis.fetch,calls=[];

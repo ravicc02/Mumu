@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { accountSchedule, restorePreferenceDraft, scheduleError } from "../src/lib/settings.js";
+import { accountSchedule, restorePreferenceDraft, scheduleError } from "../src/features/settings/lib/preferences.js";
 
 test("schedule drafts preserve seconds, units and legacy minute configurations", () => {
   assert.deepEqual(accountSchedule({ id: "a", auto_collect_interval_minutes: 30 }), { account_id: "a", enabled: false, auto_execute: false, interval_value: 30, interval_unit: "min" });

@@ -36,8 +36,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $browserPath = python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "ANSWER_STUDIO_CHROME_PATH=$browserPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "ANSWER_STUDIO_DATA=$env:RUNNER_TEMP/studio-ci-data" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MUMU_CHROME_PATH=$browserPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MUMU_DATA=$env:RUNNER_TEMP/mumu-ci-data" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - run: npm run version:check
       - run: npm run audit:source
       - run: npm run release:check

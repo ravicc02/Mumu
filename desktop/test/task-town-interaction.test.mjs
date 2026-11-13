@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nearestTownResident, TOWN_MOVE_KEYS, townTypingTarget } from '../src/lib/task-town-interaction.js';
+import { nearestTownResident, TOWN_MOVE_KEYS, townTypingTarget } from '../src/features/task-town/lib/interaction.js';
 
 test('proximity offers only one nearby, visible, settled resident', () => {
   const bots = [{ key: 'one', x: 1.2, z: 0 }, { key: 'two', x: 1.6, z: 0 },

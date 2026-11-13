@@ -1,12 +1,10 @@
 <div align="center">
 
-<img src="assets/brand/mumu.png" width="148" alt="Mumu アプリケーションアイコン">
+<img src="assets/brand/mumu-loop.gif" width="148" alt="Mumu の動くキャラクター">
 
 <h1>Mumu</h1>
 
-<hr>
-
-**大学生向けの課題・オンライン授業・出席確認をまとめる学習支援クライアント**
+**大学生のキャンパスライフと学習を支援するオールインワンクライアント**
 
 [简体中文](README.md) · [English](README.en.md) · [繁體中文](README.zh-TW.md) · [한국어](README.ko.md) · **日本語** · [Español](README.es.md)
 
@@ -36,6 +34,10 @@
 >
 > プラットフォームのページと対応機能は変更される場合があります。すべての学校、コース、問題形式、ページバージョンでの継続利用を保証するものではありません。モデルリクエストは、利用者が設定したプロバイダーへタスクのコンテキストを送信します。使用前にプラットフォームの規則とデータ処理要件を確認してください。
 
+### 免責事項
+
+> 本プロジェクトは技術研究と学習交流のみを目的としています。プラットフォームの規則、学校の管理規定、法令に違反するいかなる場面でも使用しないでください。利用者はそれに伴う責任を自ら負うものとします。
+
 ## 機能紹介
 
 | 機能 | 説明 |
@@ -50,25 +52,15 @@
 
 ## 対応プラットフォーム
 
-| プラットフォーム | 課題 | オンライン授業 | 出席確認 | 現在の対応 |
-| :---: | :---: | :---: | :---: | --- |
-| <img src="assets/platforms/xuexitong.png" height="28" alt="Xuexitong ロゴ"><br>**Xuexitong** | 対応 | 対応 | 対応 | 構造化問題、章別学習、一括出席確認と共有 |
-| <img src="assets/platforms/educoder.png" height="28" alt="EduCoder ロゴ"><br>**EduCoder** | 対応 | — | — | クラス実験、Java/JUnit エディター、自動評価、限定的な修復 |
-| <img src="assets/platforms/zhihuishu.ico" height="28" alt="Zhihuishu ロゴ"><br>**Zhihuishu** | — | 対応 | — | コースのタスクポイント、メディア、閲覧フロー |
-| <img src="assets/platforms/icourse.ico" height="28" alt="ICourse163 ロゴ"><br>**ICourse163** | — | 対応 | — | コースのタスクポイント、メディア、閲覧フロー |
-| <img src="assets/platforms/icve.ico" height="28" alt="ICVE ロゴ"><br>**ICVE** | — | 対応 | — | コースのタスクポイント、メディア、閲覧フロー |
-| <img src="assets/platforms/zjy.ico" height="28" alt="ZJY ロゴ"><br>**ZJY** | — | 対応 | — | コースのタスクポイント、メディア、閲覧フロー |
-| <img src="assets/platforms/yuketang.ico" height="28" alt="Yuketang ロゴ"><br>**Yuketang** | — | 対応 | — | コースのタスクポイント、メディア、閲覧フロー |
-
-## Star History
-
-<div align="center">
-
-<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
-  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
-</a>
-
-</div>
+| プラットフォーム | 課題 | オンライン授業 | 出席確認 |
+| :---: | :---: | :---: | :---: |
+| <img src="assets/platforms/xuexitong.png" height="28" alt="Xuexitong ロゴ"><br>**Xuexitong** | 対応 | 対応 | 対応 |
+| <img src="assets/platforms/educoder.png" height="28" alt="EduCoder ロゴ"><br>**EduCoder** | 対応 | — | — |
+| <img src="assets/platforms/zhihuishu.ico" height="28" alt="Zhihuishu ロゴ"><br>**Zhihuishu** | — | 対応 | — |
+| <img src="assets/platforms/icourse.ico" height="28" alt="ICourse163 ロゴ"><br>**ICourse163** | — | 対応 | — |
+| <img src="assets/platforms/icve.ico" height="28" alt="ICVE ロゴ"><br>**ICVE** | — | 対応 | — |
+| <img src="assets/platforms/zjy.ico" height="28" alt="ZJY ロゴ"><br>**ZJY** | — | 対応 | — |
+| <img src="assets/platforms/yuketang.ico" height="28" alt="Yuketang ロゴ"><br>**Yuketang** | — | 対応 | — |
 
 ## はじめに
 
@@ -127,3 +119,13 @@ assets/        README で使用するブランド、デモ、プラットフォ�
 ## コントリビューション
 
 [コントリビューションガイド](CONTRIBUTING.md) · [変更履歴](CHANGELOG.md)
+
+## Star History
+
+<div align="center">
+
+<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
+  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
+</a>
+
+</div>

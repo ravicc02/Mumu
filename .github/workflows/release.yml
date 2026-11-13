@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag (for example v0.5.0-rc.6)
+        description: Existing version tag (for example v0.6.0-rc.1)
         required: true
         type: string
       publish:
@@ -62,8 +62,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $browserPath = python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "ANSWER_STUDIO_CHROME_PATH=$browserPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "ANSWER_STUDIO_DATA=$env:RUNNER_TEMP/studio-release-data" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MUMU_CHROME_PATH=$browserPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MUMU_DATA=$env:RUNNER_TEMP/mumu-release-data" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - run: npm test
       - run: npm run test:desktop
       - run: python -m unittest discover -s backend/test -v
@@ -90,7 +90,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
           path: |
-            desktop/release/Assignment-Studio-*-windows-x64-setup.exe
+            desktop/release/Mumu-*-windows-x64-setup.exe
             desktop/release/SHA256SUMS.txt
             desktop/release/release-manifest.json
             desktop/release/RELEASE_NOTES.md

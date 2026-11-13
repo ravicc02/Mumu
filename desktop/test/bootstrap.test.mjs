@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const { createBootstrap, safeOutput, verifyBackendHealth } = createRequire(import.meta.url)('../electron/bootstrap.cjs');
 function fixture(options = {}) {
-  const files = new Set(['/backend/answer-studio-backend.exe', '/chrome.exe']);
+  const files = new Set(['/backend/mumu-backend.exe', '/chrome.exe']);
   const calls = [], ready = [];
   const io = { stat: async value => { if (!files.has(value.replaceAll('\\', '/'))) throw new Error('missing'); return { isFile: () => true }; }, mkdir: async () => {}, access: async () => {}, writeFile: async () => {}, unlink: async () => {} };
   const run = async (...args) => { calls.push(args); return { stdout: '', stderr: '' }; };
-  const bootstrap = createBootstrap({ packaged: true, backendDirectory: '/backend', dataRoot: '/data', env: { ANSWER_STUDIO_CHROME_PATH: '/chrome.exe' }, io, run, onReady: async (...args) => ready.push(args), ...options });
+  const bootstrap = createBootstrap({ packaged: true, backendDirectory: '/backend', dataRoot: '/data', env: { MUMU_CHROME_PATH: '/chrome.exe' }, io, run, onReady: async (...args) => ready.push(args), ...options });
   return { bootstrap, files, calls, ready, io, run };
 }
 test('packaged app uses bundled libraries and never asks users to install Python', async () => {
@@ -18,7 +18,7 @@ test('packaged app uses bundled libraries and never asks users to install Python
   assert.equal(state.items.find(item => item.id === 'runtime').installable, false);
 });
 test('missing Python installs the runtime before pip and starts with the discovered interpreter', async () => {
-  const base = fixture(), started = [], env = {ANSWER_STUDIO_CHROME_PATH:'/chrome.exe',LOCALAPPDATA:'/fixture'};
+  const base = fixture(), started = [], env = {MUMU_CHROME_PATH:'/chrome.exe',LOCALAPPDATA:'/fixture'};
   const { bootstrap } = fixture({packaged:false,python:'missing-python',env,io:base.io,onReady:async python=>started.push(python),run:async(file,args)=>{
     base.calls.push([file,args]);
     if(file==='missing-python') throw Object.assign(new Error('not found'),{code:'ENOENT'});
@@ -54,7 +54,7 @@ test('failed installation preserves retry and the manual command, without false 
   assert.match(state.output, /winget/); assert.match(state.error, /手动命令/); assert.match(state.items[1].command, /Google.Chrome/);
 });
 test('incomplete package does not try pip or start a missing backend', async () => {
-  const base = fixture(); base.files.delete('/backend/answer-studio-backend.exe');
+  const base = fixture(); base.files.delete('/backend/mumu-backend.exe');
   const { bootstrap, calls, ready } = fixture({ io: base.io });
   const state = await bootstrap.check(); assert.equal(state.status, 'blocked');
   assert.equal(calls.length, 0); assert.equal(ready.length, 0); assert.match(state.items[0].command, /releases/);

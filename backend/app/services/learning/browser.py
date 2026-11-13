@@ -10,21 +10,21 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 from bs4 import BeautifulSoup
 from playwright.async_api import Error as PlaywrightError, async_playwright
 
-from .. import chaoxing
-from ..browser import chrome_executable, COURSE_BROWSER_ARGS, TaskBrowserProfile
-from ..screenshot_capture import capture_screenshot_segments
+from ..assignments import chaoxing
+from ..runtime.browser import chrome_executable, COURSE_BROWSER_ARGS, TaskBrowserProfile
+from ..runtime.screenshots import capture_screenshot_segments
 from .live import LiveBrowserChannel
 from ...diagnostics.recorder import NullTrace
 from ...diagnostics.probe import attach_network, capture_page as capture_diagnostic_page
 
 RUNTIME = Path(__file__).with_name("runtime.js").read_text(encoding="utf-8")
-UPSTREAM = Path(__file__).with_name("ocs-study.js").read_text(encoding="utf-8")
+STUDY_RUNTIME = Path(__file__).with_name("study-runtime.js").read_text(encoding="utf-8")
 
 
 def create_learning_browser(account, **options):
     if account["platform"] == "chaoxing": return LearningBrowser(account, **options)
-    from .multi_platform import OCSLearningBrowser
-    return OCSLearningBrowser(account, **options)
+    from .multi_platform import PlatformLearningBrowser
+    return PlatformLearningBrowser(account, **options)
 
 
 class LearningBrowser:
@@ -60,7 +60,7 @@ class LearningBrowser:
             args=COURSE_BROWSER_ARGS + ([] if self.headless else ["--start-maximized"]),
         )
         self._watch_context_lifecycle()
-        await self.context.add_init_script(UPSTREAM)
+        await self.context.add_init_script(STUDY_RUNTIME)
         await self.context.add_init_script(RUNTIME)
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         attach_network(self.diagnostics, self.context)
@@ -145,7 +145,7 @@ class LearningBrowser:
     async def call(self, frame, method, *args):
         self.ensure_connected()
         if method not in {"snapshot", "play", "pause", "stop", "openChapter", "parseCatalog", "readResource", "resourceTabs"}: raise ValueError("未知课程动作")
-        await frame.evaluate(UPSTREAM)
+        await frame.evaluate(STUDY_RUNTIME)
         await frame.evaluate(RUNTIME)
         timeout = max(15, args[0].get("resource_wait_seconds", 15) + 2) if method == "play" and args else 15
         if method == "readResource": timeout = 180

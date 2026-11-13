@@ -10,7 +10,7 @@ import test_educoder as fixtures
 from app.services.educoder.executor import CodeFile, CodePatch, ExperimentError, ExperimentRuntime, challenge_list
 from app.services.educoder.code_contract import CodeContractError, validate_patch
 from app.services.educoder.evaluation import EvaluationReport, classify_evaluation
-from app.services.task_spec import educoder_task_spec
+from app.services.tasks.spec import educoder_task_spec
 from app.services.educoder.client import EduCoderClient
 
 

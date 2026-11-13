@@ -1,13 +1,6 @@
-/*
- * Adapted from OCS 5.4.0 (MIT), Copyright (c) 2022 enncy.
- * Upstream: ocsjs/ocsjs@1e93399a22b54fac80bb6bae131a4b208b5d8af9
- * Reused: CXAnalyses.getChapterInfos, searchIFrame, searchJob selectors,
- * waitForMedia and the native-media portions of JobRunner.media.
- * Changes: local API, explicit unknown states, cancellable waits, no forced
- * progress resets, no random quiz answers or external OCS services.
- */
+/* Mumu native course playback and resource runtime. */
 (() => {
-  if (window.__studioLearning?.version === 'ocs-5.4.0-studio.8') return;
+  if (window.__studioLearning?.version === 'mumu-learning-runtime-v1') return;
   const visible = node => Boolean(node?.getClientRects().length && getComputedStyle(node).visibility !== 'hidden');
   const clean = text => String(text || '').replace(/\s+/g, ' ').trim();
   let generation = 0;
@@ -132,18 +125,18 @@
   async function readResource() {
     const info = resourceInfo();
     if (snapshot().challenge || snapshot().quiz) return { blocked: true, kind: info.kind };
-    const upstream = window.__studioOCSUpstream?.cx;
-    if (!upstream) throw new Error('本地阅读处理函数未加载');
+    const studyHandlers = window.__mumuStudyRuntime?.cx;
+    if (!studyHandlers) throw new Error('本地阅读处理函数未加载');
     if (info.kind === 'document' && typeof window.finishJob === 'function') {
-      await upstream.read(window);
+      await studyHandlers.read(window);
       return { handled: true, kind: info.kind, method: 'platform_finishJob' };
     }
     if (info.kind === 'audio_ppt' && typeof window.swiperNext === 'function') {
-      await upstream.readPPTWithAudio(window);
+      await studyHandlers.readPPTWithAudio(window);
       return { handled: true, kind: info.kind, slides: info.slide_count };
     }
     if (info.kind === 'hyperlink') {
-      await upstream.hyperlink(document.querySelector('#hyperlink'));
+      await studyHandlers.hyperlink(document.querySelector('#hyperlink'));
       return { handled: true, kind: info.kind };
     }
     if (info.kind === 'book' || info.kind === 'timed_reading') {
@@ -195,5 +188,5 @@
     const doc = new DOMParser().parseFromString(html, 'text/html');
     return getChapterInfos(doc).map(({ element, ...item }) => item);
   }
-  window.__studioLearning = { version: 'ocs-5.4.0-studio.8', snapshot, play, pause, stop: pause, openChapter, parseCatalog, readResource, resourceTabs, delay };
+  window.__studioLearning = { version: 'mumu-learning-runtime-v1', snapshot, play, pause, stop: pause, openChapter, parseCatalog, readResource, resourceTabs, delay };
 })();

@@ -60,7 +60,7 @@ class LiveBrowserChannel:
     async def _ack(self, client, identifier):
         try: await client.send("Page.screencastFrameAck", {"sessionId": identifier})
         except Exception:
-            logging.getLogger("answer-studio.browser").exception("Acknowledging browser frame failed")
+            logging.getLogger("mumu.browser").exception("Acknowledging browser frame failed")
             if not self.closed and self.client is client:
                 for queue in self.subscribers:
                     self._put(queue, {"type": "closed", "message": "浏览器画面连接已断开"})
@@ -112,7 +112,7 @@ class LiveBrowserChannel:
         except asyncio.CancelledError:
             raise
         except Exception:
-            logging.getLogger("answer-studio.browser").exception("Following Agent page failed")
+            logging.getLogger("mumu.browser").exception("Following Agent page failed")
             for queue in self.subscribers:
                 self._put(queue, {"type": "closed", "message": "任务页面连接已断开，请重新连接"})
 

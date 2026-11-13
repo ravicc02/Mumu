@@ -21,7 +21,7 @@ try {
         --noconfirm `
         --clean `
         --onedir `
-        --name "answer-studio-backend" `
+        --name "mumu-backend" `
         --collect-all browser_use `
         --collect-all playwright `
         --exclude-module torch `
@@ -40,13 +40,11 @@ try {
         --collect-submodules app `
         --add-data "../VERSION;app" `
         --add-data "app/services/learning/runtime.js;app/services/learning" `
-        --add-data "app/services/learning/ocs-study.js;app/services/learning" `
+        --add-data "app/services/learning/study-runtime.js;app/services/learning" `
         --add-data "app/services/learning/platform-runtime.js;app/services/learning" `
         --add-data "app/services/platforms/catalog.json;app/services/platforms" `
         --add-data "app/services/attendance/share.html;app/services/attendance" `
-        --add-data "app/services/attendance/jsQR.js;app/services/attendance" `
-        --add-data "app/services/attendance/JSQR-LICENSE;app/services/attendance" `
-        --add-data "app/services/learning/OCS-LICENSE;app/services/learning" `
+        --add-data "app/services/attendance/qr-decoder.js;app/services/attendance" `
         --add-data "build/diagnostic-build.json;app/diagnostics" `
         --hidden-import "app.main" `
         --hidden-import "uvicorn.logging" `
@@ -61,4 +59,4 @@ try {
     $env:PYTHONPATH = $oldPythonPath
 }
 
-Write-Host "Backend bundle: $dist\answer-studio-backend"
+Write-Host "Backend bundle: $dist\mumu-backend"

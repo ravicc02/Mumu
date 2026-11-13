@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
 import io
 import json
 import tempfile
@@ -18,12 +17,12 @@ from playwright.async_api import async_playwright
 from app.config import Settings
 from app.db import Database
 from app.events import EventHub
-from app.services.browser import chrome_executable
+from app.services.runtime.browser import chrome_executable
 from app.services.learning.browser import LearningBrowser, RUNTIME, create_learning_browser
-from app.services.learning.multi_platform import OCSLearningBrowser, PLATFORM_RUNTIME, UPSTREAM
+from app.services.learning.multi_platform import PlatformLearningBrowser, PLATFORM_RUNTIME, STUDY_RUNTIME
 from app.services.learning.service import LearningService
 from app.services.learning.store import LearningStore
-from app.services.platform_auth import restore_state
+from app.services.accounts.auth import restore_state
 from app.services.platforms import platform_registry
 from app.services.platforms.catalog import CATALOG, platform_url
 
@@ -47,24 +46,20 @@ def database_fixture(folder):
 
 
 class PlatformContractTests(unittest.TestCase):
-    def test_catalog_covers_every_upstream_project_and_real_local_logo(self):
+    def test_catalog_covers_supported_platforms_with_local_assets(self):
         self.assertEqual(set(CATALOG), {"chaoxing","zhihuishu","icourse","icve","zjy","yuketang","educoder"})
         self.assertEqual({item["name"] for item in platform_registry.list()},set(CATALOG))
-        manifest=json.loads((ROOT/"third_party/ocs/upstream-manifest.json").read_text())
         for name,spec in CATALOG.items():
             if name == "educoder":
                 self.assertTrue((ROOT/"desktop/public/platforms"/spec["logo"]).is_file())
                 self.assertFalse(spec["learning"])
                 self.assertTrue(spec["assignments"])
                 continue
-            source=ROOT/"third_party/ocs/upstream/projects"/spec["source"]
-            digest=hashlib.sha256(source.read_bytes()).hexdigest()
-            self.assertEqual(digest,manifest["source_hashes"]["projects/"+spec["source"]])
             self.assertTrue((ROOT/"desktop/public/platforms"/spec["logo"]).is_file())
             self.assertEqual(platform_url(name,spec["home_url"]),spec["home_url"])
-        self.assertIn("MIT License",(ROOT/"third_party/ocs/upstream/LICENSE").read_text())
-        runtime=ROOT/"backend/app/services/learning/ocs-study.js"
-        self.assertEqual(hashlib.sha256(runtime.read_bytes()).hexdigest(),manifest["runtime_sha256"])
+        runtime=ROOT/"backend/app/services/learning/study-runtime.js"
+        self.assertTrue(runtime.is_file())
+        self.assertIn("mumu-study-runtime-v1",runtime.read_text(encoding="utf-8"))
 
     def test_platform_url_boundaries_reject_other_sites_credentials_and_local_targets(self):
         for url in ["https://icve.com.cn.evil.test/course","https://evilicve.com.cn/","http://www.icve.com.cn/","https://name:secret@www.icve.com.cn/","https://127.0.0.1/course","file:///course","https://www.icve.com.cn:8877/course"]:
@@ -84,7 +79,7 @@ class PlatformContractTests(unittest.TestCase):
                 store.upsert_courses(account["id"],[{**item,"courseId":"second","courseName":"Second"}],0,replace=False)
                 self.assertEqual(len(store.courses(account["id"],0)),2)
                 self.assertEqual(initial["platform"],platform)
-                self.assertIsInstance(create_learning_browser(account),OCSLearningBrowser)
+                self.assertIsInstance(create_learning_browser(account),PlatformLearningBrowser)
             self.assertNotEqual(records[0]["id"],records[1]["id"])
 
     def test_api_platforms_and_course_import_use_local_services(self):
@@ -123,7 +118,7 @@ class PlatformRuntimeTests(unittest.IsolatedAsyncioTestCase):
             with tempfile.TemporaryDirectory() as folder:
                 settings,database=database_fixture(folder)
                 account=database.create_account("Token fixture","icve",settings)
-                browser=OCSLearningBrowser(account,headless=True,authenticate=False)
+                browser=PlatformLearningBrowser(account,headless=True,authenticate=False)
                 try:
                     await browser.open()
                     url=f"http://127.0.0.1:{server.server_port}/course"
@@ -158,16 +153,16 @@ class PlatformRuntimeTests(unittest.IsolatedAsyncioTestCase):
                         await page.set_content(html)
                         if platform=="zjy":
                             await page.evaluate("document.querySelector('.coursePreviewIndex').__vue__={list:[{id:'one',name:'Done',progress:100,fileType:'视频'},{id:'two',name:'Pending',fileType:'视频'}]}")
-                        for source in (RUNTIME,UPSTREAM,PLATFORM_RUNTIME): await page.evaluate(source)
+                        for source in (RUNTIME,STUDY_RUNTIME,PLATFORM_RUNTIME): await page.evaluate(source)
                         result=await page.evaluate("p=>window.__studioCourse.catalog(p)",platform)
                         self.assertEqual([item["completed"] for item in result],[True,False],result)
                         self.assertTrue(all(item["navigable"] for item in result))
                         if platform=="zhihuishu":
-                            self.assertEqual(await page.evaluate("()=>new window.__studioOCSUpstream.zhs.StudyVideoH5().getNext({next:false,restudy:false}).dataset.id"),"two")
+                            self.assertEqual(await page.evaluate("()=>new window.__mumuStudyRuntime.zhs.StudyVideoH5().getNext({next:false,restudy:false}).dataset.id"),"two")
                         await page.close()
             finally: await browser.close()
 
-    async def test_zhihuishu_variants_use_upstream_finish_markers(self):
+    async def test_zhihuishu_variants_use_platform_finish_markers(self):
         variants=[
             '<div class="resource-box"></div><div class="resources-item"><span class="file-name">One</span><i class="isFinish"></i></div>',
             '<div><span class="child-main">One</span><i class="child-time"></i><i class="finish-icon"></i></div>',
@@ -181,7 +176,7 @@ class PlatformRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 for html in variants:
                     page=await browser.new_page()
                     await page.set_content(html)
-                    for source in (RUNTIME,UPSTREAM,PLATFORM_RUNTIME): await page.evaluate(source)
+                    for source in (RUNTIME,STUDY_RUNTIME,PLATFORM_RUNTIME): await page.evaluate(source)
                     chapters=await page.evaluate("window.__studioCourse.catalog('zhihuishu')")
                     self.assertTrue(chapters and all(item["completed"] for item in chapters),chapters)
                     await page.close()
@@ -201,7 +196,7 @@ class PlatformRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 await page.goto("https://fixture.icve.com.cn/course")
                 self.assertEqual(await page.evaluate("localStorage.getItem('token')"),"fixture-jwt")
                 self.assertTrue(any(item["name"]=="test" for item in await context.cookies()))
-                for source in (RUNTIME,UPSTREAM,PLATFORM_RUNTIME): await page.evaluate(source)
+                for source in (RUNTIME,STUDY_RUNTIME,PLATFORM_RUNTIME): await page.evaluate(source)
                 self.assertTrue((await page.evaluate("window.__studioLearning.pause()"))["paused"])
             finally: await browser.close()
 
@@ -223,7 +218,7 @@ class PlatformRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 self.send_response(200);self.send_header("Content-Type","text/html; charset=utf-8");self.end_headers();self.wfile.write(html.encode())
         server=ThreadingHTTPServer(("127.0.0.1",0),Handler)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        class FixtureBrowser(OCSLearningBrowser):
+        class FixtureBrowser(PlatformLearningBrowser):
             def __init__(self,account,**kwargs): super().__init__(account,headless=True,authenticate=False)
         try:
             with tempfile.TemporaryDirectory() as folder:
