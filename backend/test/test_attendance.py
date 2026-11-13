@@ -468,6 +468,11 @@ class AttendanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(http.get.await_count,2)
         http.aclose.assert_awaited_once()
 
+    async def test_unconfigured_remote_gateway_closes_without_a_client(self):
+        gateway=RemoteShareGateway(self.service,'','')
+        self.assertIsNone(gateway.client)
+        await gateway.close()
+
     async def test_remote_monitor_does_not_send_redundant_intermediate_status(self):
         item={'account_name':'Alice','course_name':'Course','title':'QR','kind':'qr','status':'succeeded','message':'ok'}
         service=SimpleNamespace(

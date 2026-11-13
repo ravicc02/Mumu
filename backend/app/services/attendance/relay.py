@@ -1125,4 +1125,5 @@ class RemoteShareGateway:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-        await self.client.close()
+        if self.client:
+            await self.client.close()
