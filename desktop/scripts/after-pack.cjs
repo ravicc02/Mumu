@@ -32,6 +32,9 @@ module.exports = async function afterPack(context) {
     options.icon = iconPath;
   }
 
-  await rcedit(executablePath, options);
+  const { "version-string": versionStrings, ...fixedMetadata } = options;
+  await rcedit(executablePath, fixedMetadata);
+  // Fixed version setters overwrite display strings, so restore SemVer last.
+  await rcedit(executablePath, { "version-string": versionStrings });
   console.log(`Applied product metadata and icon to ${executablePath}`);
 };
