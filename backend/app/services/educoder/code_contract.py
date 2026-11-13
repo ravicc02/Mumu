@@ -6,7 +6,15 @@ import re
 
 
 class CodeContractError(ValueError):
-    pass
+    def __init__(self, message, *, details=None):
+        super().__init__(message)
+        self.details = details or {}
+
+
+def java_declarations(content):
+    # Match declaration text only: \s would also consume preceding blank lines.
+    pattern = r"(?m)^[ \t]*(package\s+[^;]+;|import\s+[^;]+;|(?:public\s+)?(?:class|interface|enum)\s+\w+)"
+    return re.findall(pattern, content)
 
 
 def fingerprint(files):
@@ -42,10 +50,12 @@ def validate_patch(files, changes):
         old = files[item.path]
         protected = protected_segments(old)
         if protected is not None and protected_segments(item.content) != protected:
-            raise CodeContractError("模型修改了 Begin/End 之外的脚手架，未执行写入。")
+            raise CodeContractError("模型修改了 Begin/End 之外的脚手架，未执行写入。",
+                details={"path": item.path, "rule": "protected_segments"})
         if protected is None:
-            declarations = r"(?m)^\s*(?:package\s+[^;]+;|import\s+[^;]+;|(?:public\s+)?(?:class|interface|enum)\s+\w+)"
-            if re.findall(declarations, old) != re.findall(declarations, item.content):
-                raise CodeContractError("模型修改了包名、导入或类型声明，未执行写入。")
+            expected, actual = java_declarations(old), java_declarations(item.content)
+            if expected != actual:
+                raise CodeContractError("模型修改了包名、导入或类型声明，未执行写入。",
+                    details={"path": item.path, "rule": "java_declarations", "expected": expected, "actual": actual})
         result[item.path] = item.content
     return result

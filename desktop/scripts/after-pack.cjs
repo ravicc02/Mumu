@@ -21,11 +21,11 @@ module.exports = async function afterPack(context) {
       FileVersion: version,
       ProductVersion: version,
       CompanyName: "AI Assignment Studio Contributors",
-      FileDescription: "AI Assignment Studio",
-      InternalFilename: "AI Assignment Studio",
+      FileDescription: "沐沐",
+      InternalFilename: productName,
       LegalCopyright: "Copyright AI Assignment Studio Contributors",
-      OriginalFilename: "AI Assignment Studio.exe",
-      ProductName: "AI Assignment Studio"
+      OriginalFilename: `${productName}.exe`,
+      ProductName: "沐沐"
     }
   };
   if (fs.existsSync(iconPath)) {

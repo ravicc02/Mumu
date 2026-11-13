@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -18,6 +19,27 @@ def completion(text="updated source"):
 
 
 class CodeContractTests(unittest.TestCase):
+    def test_suite_annotations_can_replace_blank_line_before_class(self):
+        original = "package step3;\n\nimport org.junit.runner.RunWith;\nimport org.junit.runners.Suite;\n\n//******\n\npublic class SuiteTest {\n}\n"
+        changed = original.replace("//******\n\n", "//******\n@RunWith(Suite.class)\n@Suite.SuiteClasses({CalculateTest.class, CarTest.class})\n")
+        patch = CodePatch(summary="Complete suite annotations", files=[CodeFile(path="SuiteTest.java", content=changed)])
+        self.assertEqual(validate_patch({"SuiteTest.java": original}, patch)["SuiteTest.java"], changed)
+
+    def test_declaration_indentation_does_not_change_protected_identity(self):
+        original = "\npackage sample;\n\nimport org.junit.Test;\n\npublic class Main {}\n"
+        changed = "package sample;\nimport org.junit.Test;\n  public class Main {}\n"
+        self.assertEqual(validate_patch({"Main.java": original}, completion(changed).completion)["Main.java"], changed)
+
+    def test_declaration_changes_still_reject_and_identify_the_file(self):
+        original = "package sample;\nimport org.junit.Test;\npublic class Main {}\n"
+        for old, new in (("sample", "other"), ("org.junit.Test", "other.Test"), ("class Main", "class Other")):
+            with self.subTest(declaration=old):
+                with self.assertRaises(CodeContractError) as failure:
+                    validate_patch({"Main.java": original}, completion(original.replace(old, new)).completion)
+                self.assertEqual(failure.exception.details["path"], "Main.java")
+                self.assertEqual(failure.exception.details["rule"], "java_declarations")
+                self.assertNotEqual(failure.exception.details["expected"], failure.exception.details["actual"])
+
     def test_editable_regions_preserve_every_protected_byte(self):
         original = "package sample;\nclass Main {\n// Begin\n\n// End\n}\n"
         changed = original.replace("// Begin\n\n", "// Begin\n  int value = 1;\n")
@@ -60,6 +82,34 @@ class CodeExecutionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.case = fixtures.EducoderTests(); await self.case.asyncSetUp()
     async def asyncTearDown(self): await self.case.asyncTearDown()
+
+    async def test_suite_annotation_patch_reaches_save_evaluation_and_completion(self):
+        original = "package step3;\nimport org.junit.runner.RunWith;\nimport org.junit.runners.Suite;\n\npublic class Main {}\n"
+        changed = original.replace("\n\npublic class", "\n@RunWith(Suite.class)\n@Suite.SuiteClasses({CalculateTest.class, CarTest.class})\npublic class")
+        runtime = fixtures.FakeRuntime()
+        runtime.files = dict.fromkeys(runtime.files, original)
+        model = SimpleNamespace(ainvoke=AsyncMock(return_value=completion(changed)))
+        result, runtime, _ = await self.case.run_experiment(True, runtime, model)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(runtime.writes, 2)
+        self.assertEqual(runtime.evaluations, 2)
+        self.assertTrue(all(content == changed for content in runtime.files.values()))
+
+    async def test_rejected_declarations_return_specific_contract_to_repair_model(self):
+        original = "package sample;\npublic class Main {}\n"
+        runtime = fixtures.FakeRuntime()
+        runtime.files = dict.fromkeys(runtime.files, original)
+        model = SimpleNamespace(ainvoke=AsyncMock(side_effect=[
+            completion(original.replace("sample", "other")), completion(original), completion(original)]))
+        result, runtime, _ = await self.case.run_experiment(True, runtime, model)
+        self.assertEqual(result["status"], "completed")
+        request = json.loads(model.ainvoke.await_args_list[1].args[0][1].content)
+        rejection = request["previous_failure"]
+        self.assertEqual(rejection["contract"], {"path": "Main.java", "rule": "java_declarations",
+            "expected": ["package sample;", "public class Main"], "actual": ["package other;", "public class Main"]})
+        self.assertEqual(rejection["model_call"], 1)
+        self.assertEqual(runtime.writes, 0)
+        self.assertEqual(runtime.evaluations, 2)
 
     async def test_compile_failure_repairs_from_feedback_then_verifies_all_stages(self):
         class Runtime(fixtures.FakeRuntime):

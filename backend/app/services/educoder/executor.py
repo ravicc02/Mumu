@@ -452,7 +452,8 @@ async def execute_code_stage(database, job, runtime, llm, emit, control, diagnos
         diagnostics.snapshot("educoder-model-patch", changes.model_dump(mode="json"), content=True)
         try: proposed = validate_patch(latest, changes)
         except CodeContractError as error:
-            feedback = {"kind": "file_contract", "details": str(error)}
+            feedback = {"kind": "file_contract", "details": str(error), "contract": error.details,
+                "model_call": model_calls, "challenge_id": runtime.task_id}
             diagnostics.record("educoder.patch_rejected", str(error), feedback, level="warning")
             if model_calls < spec.budget.max_model_calls:
                 await emit("educoder_repairing", "代码修改越过授权边界，正在要求模型修正；未写入文件", {"model_calls": model_calls})

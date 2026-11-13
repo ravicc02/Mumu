@@ -71,6 +71,9 @@ jobs:
       - name: Smoke test the packaged application
         shell: pwsh
         run: ./scripts/smoke-package.ps1
+      - name: Install and verify the first-run experience
+        shell: pwsh
+        run: node scripts/smoke-installed.mjs
       - name: Create notes, provenance and checksums
         shell: pwsh
         run: |

@@ -4,12 +4,13 @@ import asyncio
 import dataclasses
 import shutil
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -384,6 +385,30 @@ async def health() -> dict[str, Any]:
 @app.get("/api/accounts")
 async def list_accounts() -> list[dict[str, Any]]:
     return [{**account, "capabilities": platform_spec(account["platform"]), "learning_run": learning_service.active(account["id"]), "automation": automation_status(database, account["id"])} for account in database.list_accounts()]
+
+
+@app.post("/api/system/open-log-directory")
+async def open_log_directory(request: Request) -> dict[str, bool]:
+    allowed_origins = {"http://127.0.0.1:5174", "http://127.0.0.1:5175",
+        "http://localhost:5174", "http://127.0.0.1:8877"}
+    if not request.client or request.client.host not in {"127.0.0.1", "::1"} or request.headers.get("origin") not in allowed_origins:
+        raise HTTPException(403, "只能通过本机应用打开日志目录。")
+    opener = getattr(os, "startfile", None)
+    if opener is None:
+        raise HTTPException(501, "当前系统不支持打开日志目录。")
+    try:
+        settings.logs_root.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(opener, str(settings.logs_root))
+    except OSError as error:
+        logger.exception("Failed to open the configured log directory")
+        raise HTTPException(500, "无法打开日志目录，请检查系统文件管理器。") from error
+    return {"opened": True}
+
+
+@app.get("/api/setup/environment")
+async def get_setup_environment() -> dict[str, Any]:
+    from .services.setup_environment import setup_environment
+    return await asyncio.to_thread(setup_environment, settings)
 
 
 @app.get("/api/settings")

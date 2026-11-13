@@ -1,6 +1,8 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import QRCode from "qrcode";
+import StartupExperience from "./components/StartupExperience.vue";
+import { onboardingComplete, completeOnboarding } from "./lib/onboarding";
 import {
   Check, CheckCheck, Circle, CircleAlert, ClipboardList, ClipboardCheck,
   Ellipsis, ExternalLink, FileText, Layers3,
@@ -162,6 +164,28 @@ const weixinConfig = ref(null);
 const weixinPreferencesBusy = ref(false);
 const weixinSessionBusy = ref(false);
 const verificationBusy = ref(false);
+const setupOpen = ref(false);
+const setupDismissible = ref(false);
+function reopenSetup() { settingsOpen.value = false; setupDismissible.value = true; setupOpen.value = true; }
+const setupScope = computed(() => settingsInfo.value?.data_root || health.value?.data_root || "");
+let initializationChecked = false;
+async function initializeFirstRun() {
+  if (initializationChecked) return;
+  if (window.desktopApi?.bootstrapState) {
+    try { if ((await window.desktopApi.bootstrapState()).status !== "ready") { setupOpen.value = true; return; } }
+    catch { setupOpen.value = true; return; }
+  }
+  initializationChecked = true;
+  if (health.value?.ok && setupScope.value && accounts.value.some(account => account.status === "ready")) {
+    try { if (!onboardingComplete(setupScope.value)) completeOnboarding(setupScope.value, { model: health.value.ai_configured ? "configured" : "skipped", platform: "authorized" }); }
+    catch (failure) { notice.value = failure.message; }
+    setupOpen.value = false;
+    return;
+  }
+  setupOpen.value = !onboardingComplete(setupScope.value);
+}
+async function setupRuntimeReady() { await connectBackend(); if (!setupDismissible.value) await initializeFirstRun(); }
+async function finishSetup() { setupOpen.value = false; await connectBackend(); }
 let socket = null;
 let socketReconnectTimer = null;
 let socketGeneration = 0;
@@ -183,7 +207,7 @@ let agentSnapshotBusy = false;
 let weixinGeneration = 0;
 let weixinPollingGeneration = null;
 let connectionTimer = null;
-let connecting = false;
+let connecting = null;
 let appUnmounted = false;
 let taskDetailsTrigger = null;
 let noticeTimer = null;
@@ -814,10 +838,9 @@ async function refreshWorkspace() {
   }
 }
 
-async function connectBackend() {
-  if (connecting) return;
-  connecting = true;
-  try {
+function connectBackend() {
+  if (connecting) return connecting;
+  connecting = (async () => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       await loadHealth();
       if (health.value) {
@@ -826,9 +849,8 @@ async function connectBackend() {
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
-  } finally {
-    connecting = false;
-  }
+  })().finally(() => { connecting = null; });
+  return connecting;
 }
 
 async function confirmPlatformAuthorization(account) {
@@ -1664,11 +1686,10 @@ async function openDataDirectory() {
 async function openLogDirectory() {
   if (window.desktopApi?.openLogDirectory) {
     await window.desktopApi.openLogDirectory();
-    return true;
-  } else if (settingsInfo.value?.logs_root) {
-    return await copyValue(settingsInfo.value.logs_root, "日志目录路径已复制");
+  } else {
+    await api.openLogDirectory();
   }
-  return false;
+  return true;
 }
 
 function openSettings(section = "account") { settingsSection.value = section; settingsOpen.value = true; }
@@ -1884,7 +1905,12 @@ onMounted(async () => {
   if(autoCheckUpdates.value) void checkForUpdates();
   document.addEventListener("click", closeAccountMenuOnOutsideClick);
   document.addEventListener("keydown", closeAccountMenuOnEscape);
+  if (window.desktopApi?.bootstrapState) {
+    try { setupOpen.value = (await window.desktopApi.bootstrapState()).status !== "ready"; }
+    catch { setupOpen.value = true; }
+  }
   await connectBackend();
+  await initializeFirstRun();
   connectionTimer = setInterval(async () => {
     availabilityNow.value = Date.now();
     const wasOffline = !health.value;
@@ -1921,11 +1947,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :inert="setupOpen || undefined">
     <header class="topbar">
       <div class="brand">
-        <span class="brand-mark"><Layers3 :size="21" :stroke-width="1.6" /></span>
-        <h1>Assignment Studio</h1>
+        <span class="brand-mark"><img src="/brand/mumu.png" width="35" height="35" alt="" /></span>
+        <h1>沐沐</h1>
       </div>
       <div class="topbar-breadcrumb"><span>{{ isolatedPreview ? '隔离验证' : '工作区' }}</span><ChevronRight :size="13" /><strong>{{ navItems.find(item => item.id === activePage)?.label }}</strong></div>
       <div class="topbar-meta">
@@ -2447,7 +2473,7 @@ onUnmounted(() => {
       </Transition>
     </div>
 
-    <SettingsDialog :open="settingsOpen" v-model:section="settingsSection" :accounts="accounts" :info="settingsInfo" :profile="localProfile" :save-profile="updateLocalProfile" :update="updateState" :auto-check="autoCheckUpdates" :check-updates="checkForUpdates" :set-auto-check="updateAutoCheck" :open-external="openProjectLink" :open-data="openDataDirectory" :open-logs="openLogDirectory" @close="settingsOpen=false" @saved="preferencesSaved" @model-saved="modelSettingsSaved" @platforms="settingsOpen=false;activePage='platforms'" />
+    <SettingsDialog :open="settingsOpen" v-model:section="settingsSection" :accounts="accounts" :info="settingsInfo" :profile="localProfile" :save-profile="updateLocalProfile" :update="updateState" :auto-check="autoCheckUpdates" :check-updates="checkForUpdates" :set-auto-check="updateAutoCheck" :open-external="openProjectLink" :open-data="openDataDirectory" :open-logs="openLogDirectory" @close="settingsOpen=false" @saved="preferencesSaved" @model-saved="modelSettingsSaved" @setup="reopenSetup" @platforms="settingsOpen=false;activePage='platforms'" />
     <LearningTaskDetails :open="learningResultOpen" :run-id="learningResultId" @close="learningResultOpen = false" @workspace="openLearningWorkspace" />
 
     <Transition name="dialog">
@@ -2800,6 +2826,7 @@ onUnmounted(() => {
 
 
     <AccountAuthorization :open="authorizationOpen" :state="authorizationState" :platform-label="platformLabel(authorizationState.platform)" @close="authorizationOpen = false" @retry="authorizationFlow.retry()" />
+    <StartupExperience v-if="setupOpen" :can-close="setupDismissible" @close="setupOpen=false" :scope="setupScope" :accounts="accounts" :model-configured="Boolean(health?.ai_configured)" @ready="setupRuntimeReady" @complete="finishSetup" @model-saved="modelSettingsSaved" @authorized="accounts = $event" />
 
     <Transition name="dialog">
       <div v-if="deleteTaskTarget" class="modal-backdrop" @mousedown.self="!deleteTaskBusy && (deleteTaskTarget = null)">

@@ -61,6 +61,14 @@ export const api = {
   learningBrowserUrl: id => `${BASE_URL.replace(/^http/, "ws")}/api/learning/runs/${id}/browser`,
   health: () => request("/api/health"),
   settings: () => request("/api/settings"),
+  setupEnvironment: () => request("/api/setup/environment"),
+  openLogDirectory: async () => {
+    try { return await request("/api/system/open-log-directory", { method: "POST" }); }
+    catch (error) {
+      if (error.message === "Not Found") throw new Error("请在任务结束后重启本地服务，启用打开日志目录功能。");
+      throw error;
+    }
+  },
   preferences: () => request("/api/preferences"),
   savePreferences: config => request("/api/preferences", { method: "PATCH", body: JSON.stringify(config) }),
   modelConfig: () => request("/api/model-config"),

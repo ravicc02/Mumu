@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/banner.svg" width="100%" alt="Assignment Studio — 多账号学习任务工作台">
+<img src="docs/assets/mumu-bots.gif" width="100%" alt="沐沐与不同形状的任务伙伴，循环动画">
 
 [![CI](https://github.com/ravicc02/ai-quiz-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/ravicc02/ai-quiz-assistant/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ravicc02/ai-quiz-assistant?include_prereleases&label=release&color=4054d8)](https://github.com/ravicc02/ai-quiz-assistant/releases)
@@ -12,7 +12,7 @@
 
 </div>
 
-Assignment Studio 将多账号学习任务集中在本机管理：授权、采集、执行、人工介入和结果核验使用同一套任务记录。面向 Windows PC，账号授权和运行数据保留在本地，模型服务由使用者配置。
+沐沐（Mumu）是一个多账号学习任务工作台。玻璃水球沐沐负责值守，不同形状的任务伙伴在 3D 任务公司中呈现执行状态。授权、采集、执行、人工介入和结果核验使用同一套任务记录。面向 Windows PC，账号授权和运行数据保留在本地，模型服务由使用者配置。
 
 ![任务公司界面预览](docs/assets/workspace.png)
 
@@ -49,12 +49,14 @@ Assignment Studio 将多账号学习任务集中在本机管理：授权、采�
 ## 开始使用
 
 1. 在 [Releases](https://github.com/ravicc02/ai-quiz-assistant/releases) 下载 Windows x64 安装包；发行候选版本标记为 Pre-release。
-2. 点击左下角头像，在模型配置中填写接口地址、Key、模型和思考强度。
-3. 进入“平台”授权账号，再在对应业务中选择账号和采集范围。
+2. 首次打开进入初始化：检测运行环境；缺少依赖时可点击安装，失败时显示手动命令。
+3. 配置模型接口、Key、模型和思考强度，再选择平台授权。两步均可跳过，之后在设置与平台中补充。
 4. 选择任务执行；遇到待处理事项时通过原任务浏览器介入，处理后继续。
 5. 查看平台核验结果。学习通最终提交与头歌自动评测分别在作业设置中管理。
 
 安装前可核对附件中的 SHA256SUMS.txt。当前安装包尚未配置 Windows 代码签名；应用支持检查正式版本并打开发布页，不自动安装更新。
+
+安装包自带 Electron、Python 后端及业务运行库，不要求使用者先安装 Node.js 或 Python。任务浏览器需要 Chrome 或 Edge；初始化会检测它们。已有账号不因新增引导而重新授权。详细流程见[首次初始化](docs/first-run.md)。
 
 ### 从源码运行
 

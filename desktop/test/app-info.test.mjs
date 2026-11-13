@@ -1,11 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { allowedProjectLink, appInfo, checkPublishedRelease, loadUpdatePreference, saveUpdatePreference } from "../src/lib/app-info.js";
+import { allowedProjectLink, appInfo, displayVersion, checkPublishedRelease, loadUpdatePreference, saveUpdatePreference } from "../src/lib/app-info.js";
 const require=createRequire(import.meta.url),nativeLinks=require("../electron/external-links.cjs");
 const release=version=>({tag_name:version,html_url:appInfo.repository+"/releases/tag/"+version,draft:false,prerelease:false});
 const response=(status,value)=>({status,ok:status===200,json:async()=>value});
 test("about version matches the packaged application manifest",()=>assert.equal(appInfo.version,require("../package.json").version));
+test("about displays the base version without changing the update version",()=>{
+  assert.equal(displayVersion, require("../package.json").version.split(/[+-]/)[0]);
+  assert.match(displayVersion, /^\d+\.\d+\.\d+$/);
+});
 test("a stable release supersedes a local prerelease of the same version",async()=>{
   const result=await checkPublishedRelease({currentVersion:"0.5.0-rc.1",fetcher:async()=>response(200,release("v0.5.0"))});
   assert.equal(result.status,"available");

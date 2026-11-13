@@ -74,6 +74,7 @@ export function writeReleaseManifest(root = projectRoot, directory = path.join(r
   }
   const smoke = JSON.parse(fs.readFileSync(path.join(directory, 'smoke-result.json'), 'utf8').replace(/^\uFEFF/, ''));
   if (smoke.version !== info.version || smoke.packaged_backend_healthy !== true || smoke.desktop_product_version !== info.version || smoke.isolated_data !== true) throw new Error('Package smoke evidence is missing or does not match this version');
+  if (smoke.installed_app_verified !== true || smoke.first_run_verified !== true || smoke.optional_setup_skips_verified !== true || smoke.packaged_brand_assets_verified !== true) throw new Error('Installed application and first-run verification evidence is missing');
   const assets = [executable, 'RELEASE_NOTES.md', 'build-environment.txt', 'smoke-result.json'];
   const files = assets.map(name => { const bytes = fs.readFileSync(path.join(directory, name)); return { name, bytes: bytes.length, sha256: sha256(bytes) }; });
   const manifest = { schema_version: 1, version: info.version, tag: 'v' + info.version, git_commit: info.git_commit,

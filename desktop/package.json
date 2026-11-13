@@ -1,6 +1,6 @@
 {
   "name": "ai-assignment-studio-desktop",
-  "version": "0.5.0-rc.6",
+  "version": "0.5.0",
   "description": "Local Windows assignment automation studio",
   "author": "AI Assignment Studio Contributors",
   "private": true,
@@ -38,7 +38,7 @@
   },
   "build": {
     "appId": "local.ai.assignment.studio",
-    "productName": "AI Assignment Studio",
+    "productName": "沐沐",
     "directories": {
       "output": "release"
     },
@@ -46,6 +46,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "build/icon.png",
       "package.json"
     ],
     "extraResources": [

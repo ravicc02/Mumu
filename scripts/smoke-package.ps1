@@ -6,7 +6,8 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $version = (Get-Content -LiteralPath (Join-Path $root "VERSION") -Raw).Trim()
 $releaseRoot = if ([IO.Path]::IsPathRooted($ReleaseDirectory)) { $ReleaseDirectory } else { Join-Path $root $ReleaseDirectory }
-$desktopExe = Join-Path $releaseRoot "win-unpacked/AI Assignment Studio.exe"
+$productName = (Get-Content -LiteralPath (Join-Path $root "desktop/package.json") -Encoding UTF8 -Raw | ConvertFrom-Json).build.productName
+$desktopExe = Join-Path $releaseRoot ("win-unpacked/" + $productName + ".exe")
 $backendExe = Join-Path $releaseRoot "win-unpacked/resources/backend/answer-studio-backend.exe"
 if (!(Test-Path -LiteralPath $desktopExe -PathType Leaf) -or !(Test-Path -LiteralPath $backendExe -PathType Leaf)) { throw "Packaged executables are missing" }
 $productVersion = (Get-Item -LiteralPath $desktopExe).VersionInfo.ProductVersion

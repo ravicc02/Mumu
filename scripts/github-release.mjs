@@ -33,7 +33,7 @@ export function manageRelease(action, tag, directory=path.join(projectRoot,'desk
   if(action==='draft') {
     verifyReleaseAssets(directory,version);
     const assets=names.map(name=>path.join(directory,name));
-    const common=['--repo',repository,'--title','Assignment Studio '+tag,'--notes-file',path.join(directory,'RELEASE_NOTES.md')];
+    const common=['--repo',repository,'--title','沐沐 '+tag,'--notes-file',path.join(directory,'RELEASE_NOTES.md')];
     if(release) {
       gh(['release','upload',tag,...assets,'--repo',repository,'--clobber']);
       gh(['release','edit',tag,'--draft',...common]);

@@ -1,5 +1,6 @@
 import manifest from "../../package.json" with { type: "json" };
-export const appInfo = { name: "Assignment Studio", version: manifest.version, repository: "https://github.com/ravicc02/ai-quiz-assistant", releaseApi: "https://api.github.com/repos/ravicc02/ai-quiz-assistant/releases/latest" };
+export const appInfo = { name: "沐沐", version: manifest.version, repository: "https://github.com/ravicc02/ai-quiz-assistant", releaseApi: "https://api.github.com/repos/ravicc02/ai-quiz-assistant/releases/latest" };
+export const displayVersion = appInfo.version.split(/[+-]/)[0];
 export const updatePreferenceKey = "studio:updates:v1";
 export function loadUpdatePreference(storage = localStorage) {
   try { return JSON.parse(storage.getItem(updatePreferenceKey) || "{}").auto_check === true; }

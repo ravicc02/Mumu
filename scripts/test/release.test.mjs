@@ -83,7 +83,7 @@ test('release manifest verifies the actual bundled source identity and hashes al
   put(app + 'diagnostics/diagnostic-build.json', JSON.stringify(build));
   put('desktop/release/Assignment-Studio-1.2.3-windows-x64-setup.exe', 'fixture executable');
   put('desktop/release/RELEASE_NOTES.md', 'fixture notes'); put('desktop/release/build-environment.txt', 'fixture dependency');
-  put('desktop/release/smoke-result.json', JSON.stringify({ version: '1.2.3', desktop_product_version: '1.2.3', packaged_backend_healthy: true, isolated_data: true }));
+  put('desktop/release/smoke-result.json', JSON.stringify({ version: '1.2.3', desktop_product_version: '1.2.3', packaged_backend_healthy: true, isolated_data: true, installed_app_verified:true, first_run_verified:true, optional_setup_skips_verified:true, packaged_brand_assets_verified:true }));
   const manifest = writeReleaseManifest(root, directory);
   assert.equal(manifest.files.length, 4);
   assert.equal(verifyReleaseAssets(directory,'1.2.3').verified,true);

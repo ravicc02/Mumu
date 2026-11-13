@@ -7,6 +7,21 @@ import { splitScreenshot, finalScreenshotSections, readableScreenshotZoom } from
 
 const originalFetch = globalThis.fetch;
 
+test("log directory opens through the local service without sending a path", async () => {
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, "http://127.0.0.1:8877/api/system/open-log-directory");
+    assert.equal(options.method, "POST");
+    assert.equal(options.body, undefined);
+    return new Response(JSON.stringify({ opened: true }));
+  };
+  assert.equal((await api.openLogDirectory()).opened, true);
+});
+
+test("an old backend explains when the directory opener can be enabled", async () => {
+  globalThis.fetch = async () => new Response(JSON.stringify({ detail: "Not Found" }), { status: 404 });
+  await assert.rejects(api.openLogDirectory(), /任务结束后重启本地服务/);
+});
+
 test("an older running backend explains that diagnostics activate after a safe restart", async () => {
   globalThis.fetch = async () => new Response(JSON.stringify({ detail: "Not Found" }), { status: 404 });
   await assert.rejects(api.diagnosticInfo("assignment", "task-one"), /任务结束后重启应用/);

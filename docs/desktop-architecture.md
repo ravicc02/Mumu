@@ -17,7 +17,7 @@
 ## 进程结构
 
 ```text
-AI Assignment Studio.exe
+沐沐.exe
 ├── Electron main
 │   ├── 启动 answer-studio-backend.exe
 │   └── 加载 Vue 控制台

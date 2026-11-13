@@ -54,6 +54,7 @@ def chrome_executable() -> Path:
             r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"
         ),
         r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
     ]
     for candidate in candidates:
         if candidate and Path(candidate).is_file():
