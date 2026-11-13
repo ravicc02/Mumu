@@ -7,14 +7,14 @@ import { projectRoot, checkVersion } from './version.mjs';
 import { checkRelease, verifyReleaseAssets } from './release.mjs';
 
 export function assertEditableRelease(release) {
-  if (release && release.draft !== true) throw new Error('Published releases are immutable; create a new version instead.');
+  if (release && release.isDraft !== true) throw new Error('Published releases are immutable; create a new version instead.');
 }
 
 function gh(args, {json=false, missing=false}={}) {
   const result=spawnSync('gh',args,{encoding:'utf8',cwd:projectRoot});
   if(result.error) throw result.error;
   if(result.status!==0) {
-    if(missing && /HTTP 404/.test(result.stderr)) return null;
+    if(missing && /HTTP 404|release not found/i.test(result.stderr)) return null;
     throw new Error('GitHub command failed: '+result.stderr.trim());
   }
   return json ? JSON.parse(result.stdout) : result.stdout.trim();
@@ -26,7 +26,7 @@ export function manageRelease(action, tag, directory=path.join(projectRoot,'desk
   if(tag!=='v'+version) throw new Error('Tag differs from VERSION');
   const repository=process.env.GH_REPO || JSON.parse(gh(['repo','view','--json','nameWithOwner'])).nameWithOwner;
   if(!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('Invalid GitHub repository');
-  const release=gh(['api','repos/'+repository+'/releases/tags/'+tag],{json:true,missing:true});
+  const release=gh(['release','view',tag,'--repo',repository,'--json','isDraft,assets,tagName'],{json:true,missing:true});
   assertEditableRelease(release);
   if(action==='guard') return {tag,editable:true};
   const names=['Assignment-Studio-'+version+'-windows-x64-setup.exe','SHA256SUMS.txt','release-manifest.json','RELEASE_NOTES.md','build-environment.txt','smoke-result.json'];
