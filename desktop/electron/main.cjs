@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const http = require("node:http");
+const { allowedProjectLink } = require("./external-links.cjs");
 
 let backendProcess = null;
 let mainWindow = null;
@@ -51,9 +52,7 @@ function startBackend() {
     : path.join(backendDirectory(), "answer-studio-backend.exe");
   const args = isDev
     ? [
-        "-m",
-        "uvicorn",
-        "app.main:app",
+        "run_server.py",
         "--host",
         "127.0.0.1",
         "--port",
@@ -125,12 +124,19 @@ app.on("before-quit", () => {
   }
 });
 
+ipcMain.handle("app:open-project-link", async (_event,url) => {
+  if(!allowedProjectLink(url)) throw new Error("项目链接无效");
+  await shell.openExternal(url);
+  return true;
+});
+
 ipcMain.handle("app:open-data-directory", async () => {
   const dataRoot = path.join(
     process.env.LOCALAPPDATA || app.getPath("userData"),
     "AIAssistantStudio"
   );
-  await shell.openPath(dataRoot);
+  const error = await shell.openPath(dataRoot);
+  if(error) throw new Error(error);
   return dataRoot;
 });
 
@@ -140,6 +146,7 @@ ipcMain.handle("app:open-log-directory", async () => {
     "AIAssistantStudio",
     "logs"
   );
-  await shell.openPath(logsRoot);
+  const error = await shell.openPath(logsRoot);
+  if(error) throw new Error(error);
   return logsRoot;
 });

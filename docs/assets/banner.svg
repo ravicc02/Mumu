@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="300" viewBox="0 0 1280 300" role="img" aria-labelledby="title desc">
+  <title id="title">Assignment Studio</title>
+  <desc id="desc">多账号学习任务工作台，Windows PC、本地运行、实时浏览器与人工介入。</desc>
+  <rect width="1280" height="300" rx="12" fill="#f4f7fb"/>
+  <path d="M62 87l35-20 35 20-35 20zM62 101l35 20 35-20M62 115l35 20 35-20" fill="none" stroke="#4054d8" stroke-width="5" stroke-linejoin="round"/>
+  <text x="62" y="197" fill="#15272c" font-family="Segoe UI,Arial,sans-serif" font-size="58" font-weight="700">Assignment Studio</text>
+  <text x="64" y="243" fill="#58697a" font-family="Microsoft YaHei,Segoe UI,sans-serif" font-size="23">多账号学习任务工作台 · Windows PC</text>
+  <path d="M840 92h65v111h67M905 148h64" fill="none" stroke="#ccd7e3" stroke-width="2"/>
+  <rect x="799" y="70" width="46" height="46" rx="10" fill="#4b67df"/>
+  <circle cx="1013" cy="89" r="25" fill="#35ad98"/>
+  <rect x="991" y="134" width="45" height="40" rx="13" fill="#e8ad48"/>
+  <path d="M1014 181q30 0 30 24t-30 24-30-24 30-24" fill="#758bd2"/>
+  <path d="M811 85v17m17-17v17M1004 82v10m17-10v10M1005 147v10m18-10v10M1005 200v9m18-9v9" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+  <ellipse cx="1151" cy="249" rx="69" ry="9" fill="#dfe6ed"/>
+  <circle cx="1151" cy="154" r="80" fill="#e7f3f7" stroke="#9dbfc9" stroke-width="2"/>
+  <path d="M1074 166q35-10 76 0t78-1a79 79 0 0 1-154 1" fill="#45b7c9"/>
+  <path d="M1090 121q8-24 26-30" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+  <path d="M1130 150v15m39-15v15" stroke="#213c4b" stroke-width="8" stroke-linecap="round"/>
+  <path d="M1140 180q11 9 23-1" fill="none" stroke="#213c4b" stroke-width="3" stroke-linecap="round"/>
+</svg>

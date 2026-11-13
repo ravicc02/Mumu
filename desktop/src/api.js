@@ -1,23 +1,68 @@
-const BASE_URL = "http://127.0.0.1:8877";
+import { API_BASE as BASE_URL, artifactUrl } from "./lib/backend-url.js";
 
 async function request(path, options = {}) {
-  const response = await fetch(`${BASE_URL}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    },
-    ...options
-  });
+  let response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+    });
+  } catch (error) {
+    if (error.name === "AbortError") throw error;
+    throw new Error("无法连接本地服务（8877），请检查服务是否正在运行。", { cause: error });
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.detail || payload.error || `请求失败 ${response.status}`);
+    const detail = Array.isArray(payload.detail)
+      ? payload.detail.map(item => item.msg || "参数无效").join("；")
+      : payload.detail;
+    throw new Error(detail || payload.error || `请求失败 ${response.status}`);
   }
   return payload;
 }
 
 export const api = {
+  attendanceActivities: () => request('/api/attendance/activities'),
+  collectAttendance: id => request('/api/attendance/accounts/' + encodeURIComponent(id) + '/collect', {method:'POST'}),
+  attendanceBatches: () => request('/api/attendance/batches'),
+  attendanceBatch: id => request('/api/attendance/batches/' + encodeURIComponent(id)),
+  createAttendanceBatch: ids => request('/api/attendance/batches', {method:'POST',body:JSON.stringify({activity_ids:ids})}),
+  attendanceAction: (id, action, inputs = {}) => request('/api/attendance/batches/' + encodeURIComponent(id) + '/actions/' + action, {method:'POST',body:JSON.stringify(inputs)}),
+  shareAttendance: (id, options) => request('/api/attendance/batches/' + encodeURIComponent(id) + '/shares', {method:'POST',body:JSON.stringify(options)}),
+  revokeAttendanceShare: id => request('/api/attendance/shares/' + encodeURIComponent(id), {method:'DELETE'}),
+  openAttendance: id => request('/api/attendance/activities/' + encodeURIComponent(id) + '/open', {method:'POST'}),
+  artifactUrl,
+  learningRun: id => request("/api/learning/runs/" + encodeURIComponent(id)),
+  browserSession: (kind, id) => request(kind === "assignment" ? "/api/jobs/" + id + "/browser/session" : "/api/learning/runs/" + id + "/browser/session", { method: "POST" }),
+  browserUrl: (kind, id) => BASE_URL.replace(/^http/, "ws") + (kind === "assignment" ? "/api/jobs/" + id + "/browser" : "/api/learning/runs/" + id + "/browser"),
+  diagnosticInfo: async (kind, id) => {
+    try { return await request(`/api/diagnostics/${kind}/${id}`); }
+    catch (error) { if (error.message === "Not Found") throw new Error("当前后端尚未加载诊断接口，请在任务结束后重启应用。"); throw error; }
+  },
+  exportDiagnostics: async (kind, id, options = {}) => {
+    let response;
+    try { response = await fetch(`${BASE_URL}/api/diagnostics/${kind}/${id}/export`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(options) }); }
+    catch { throw new Error("无法连接本地服务，请检查服务是否正在运行。"); }
+    if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.detail || `诊断导出失败（${response.status}）`); }
+    if (!response.headers.get("Content-Type")?.includes("application/zip")) throw new Error("服务返回的诊断包格式不正确，请更新本地服务后重试。");
+    return { blob: await response.blob(), filename: `diagnostic-${kind}-${id.slice(0,16)}.zip` };
+  },
+  learningCourses: (accountId, year) => request(`/api/learning/courses?account_id=${accountId}&academic_year=${year}`),
+  collectLearningCourses: (accountId, year) => request(`/api/learning/accounts/${accountId}/collect?academic_year=${year}`, { method: "POST" }),
+  learningRuns: accountId => request(`/api/learning/runs${accountId ? `?account_id=${encodeURIComponent(accountId)}` : ""}`),
+  deleteTask: task => request(task.task_kind === "learning" ? `/api/learning/runs/${encodeURIComponent(task.id)}` : `/api/jobs/${encodeURIComponent(task.id)}`, { method: "DELETE" }),
+  createLearningRun: courseId => request("/api/learning/runs", { method: "POST", body: JSON.stringify({ course_id: courseId }) }),
+  controlLearningRun: (id, action) => request(`/api/learning/runs/${id}/${action}`, { method: "POST" }),
+  learningEvents: (id, cursor = 0) => request(`/api/learning/runs/${id}/events?after_id=${cursor}`),
+  learningSnapshot: id => request(`/api/learning/runs/${id}/snapshot`),
+  learningArtifacts: id => request(`/api/learning/runs/${id}/artifacts`),
+  learningArtifactUrl: id => `${BASE_URL}/api/learning/artifacts/${id}`,
+  learningBrowserSession: id => request(`/api/learning/runs/${id}/browser/session`, { method: "POST" }),
+  learningBrowserUrl: id => `${BASE_URL.replace(/^http/, "ws")}/api/learning/runs/${id}/browser`,
   health: () => request("/api/health"),
   settings: () => request("/api/settings"),
+  preferences: () => request("/api/preferences"),
+  savePreferences: config => request("/api/preferences", { method: "PATCH", body: JSON.stringify(config) }),
   modelConfig: () => request("/api/model-config"),
   saveModelConfig: (config) => request("/api/model-config", {
     method: "PUT",
@@ -31,6 +76,10 @@ export const api = {
     method: "POST",
     body: JSON.stringify(config)
   }),
+  weixinConnector: () => request("/api/connectors/weixin"),
+  updateWeixinPreferences: config => request("/api/connectors/weixin/preferences", {
+    method: "PATCH", body: JSON.stringify(config)
+  }),
   weixinQr: () => request("/api/connectors/weixin/qrcode", { method: "POST" }),
   weixinStatus: (code, verifyCode = "") => request("/api/connectors/weixin/status", {
     method: "POST",
@@ -41,13 +90,13 @@ export const api = {
   }),
   accounts: () => request("/api/accounts"),
   platforms: () => request("/api/platforms"),
-  createAccount: (name, platform = "chaoxing") => request("/api/accounts", {
+  accountAvatarUrl: account => BASE_URL + '/api/accounts/' + encodeURIComponent(account.id) + '/avatar?v=' + encodeURIComponent(account.identity_verified_at || ''),
+  platformCourses: id => request('/api/accounts/' + encodeURIComponent(id) + '/courses'),
+  collectPlatformCourses: id => request('/api/accounts/' + encodeURIComponent(id) + '/courses/collect', { method: 'POST' }),
+  selectPlatformCourses: (id,courseIds) => request('/api/accounts/' + encodeURIComponent(id) + '/course-selections', { method: 'PUT', body: JSON.stringify({course_ids:courseIds}) }),
+  createAccount: (name, platform = "chaoxing", entry_url = "") => request("/api/accounts", {
     method: "POST",
-    body: JSON.stringify({ name, platform })
-  }),
-  renameAccount: (accountId, name) => request(`/api/accounts/${accountId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ name })
+    body: JSON.stringify({ name, platform, ...(entry_url ? { entry_url } : {}) })
   }),
   updateCollectionSchedule: (accountId, config) => request(
     `/api/accounts/${accountId}/collection-schedule`,
@@ -62,6 +111,8 @@ export const api = {
   login: (accountId) => request(`/api/accounts/${accountId}/login`, {
     method: "POST"
   }),
+  confirmAuthorization: id => request("/api/accounts/" + id + "/confirm-authorization", { method: "POST" }),
+  addLearningCourse: data => request("/api/learning/courses", { method: "POST", body: JSON.stringify(data) }),
   loginStatus: (accountId) => request(`/api/accounts/${accountId}/login-status`),
   refreshSession: (accountId) => request(
     `/api/accounts/${accountId}/refresh-session`,
@@ -74,6 +125,7 @@ export const api = {
     `/api/accounts/${accountId}/open-browser`,
     { method: "POST" }
   ),
+  inspectAssignment: id => request(`/api/assignments/${id}/inspect`, { method: "POST" }),
   openAssignment: (assignmentId) => request(
     `/api/assignments/${assignmentId}/open`,
     { method: "POST" }
@@ -118,7 +170,10 @@ export const api = {
     `/api/jobs/${jobId}/finish-intervention`,
     { method: "POST" }
   ),
-  retryJob: (jobId) => request(`/api/jobs/${jobId}/retry`, { method: "POST" }),
+  retryJob: (jobId, autoSubmit = false) => request(`/api/jobs/${jobId}/retry`, {
+    method: "POST", body: JSON.stringify({ auto_submit: autoSubmit })
+  }),
+  continueJob: (jobId) => request(`/api/jobs/${jobId}/continue`, { method: "POST" }),
   verifySubmission: (jobId, status, note = "") => request(
     `/api/jobs/${jobId}/submission-status`,
     {
@@ -132,5 +187,5 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ message: "AI Assignment Studio 测试通知" })
   }),
-  wsUrl: (jobId) => `ws://127.0.0.1:8877/ws/jobs/${jobId}`
+  wsUrl: (jobId, afterId = 0) => `${BASE_URL.replace(/^http/, 'ws')}/ws/jobs/${jobId}?after_id=${afterId}`
 };

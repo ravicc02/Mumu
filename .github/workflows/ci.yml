@@ -1,0 +1,47 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: '1'
+      PYTHONPATH: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: npm --prefix desktop ci
+      - run: python -m pip install -r backend/requirements.txt
+      - name: Install isolated test browser
+        shell: pwsh
+        run: |
+          python -m playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $browserPath = python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "ANSWER_STUDIO_CHROME_PATH=$browserPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ANSWER_STUDIO_DATA=$env:RUNNER_TEMP/studio-ci-data" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - run: npm run version:check
+      - run: npm run audit:source
+      - run: npm run release:check
+      - run: npm test
+      - run: npm run test:desktop
+      - run: python -m unittest discover -s backend/test -v
+      - run: npm --prefix desktop run build:web

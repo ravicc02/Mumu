@@ -1,0 +1,232 @@
+{
+  "repository": "https://github.com/ocsjs/ocsjs",
+  "commit": "1e93399a22b54fac80bb6bae131a4b208b5d8af9",
+  "version": "5.4.0",
+  "license": "MIT",
+  "source_hashes": {
+    "projects/cx.ts": "82ec2ebd1bb4baf45aeed4f200ab46ad5f68cf69f529be6ab3c127249d56ff80",
+    "projects/zhs.ts": "f20a5b664e87f2b24d1ff448d0f4b5a4a482a85470e51e4cf57e880b6be4fcd8",
+    "projects/icourse.ts": "c5f6d28925830b8d01a56e1387c9ccc44c32d27956608f895d0139c8c2bce9c1",
+    "projects/icve.ts": "20fa60d5c1e490639a52681fa4818f4d912771ee37f8097abede87ff8ca74506",
+    "projects/zjy.ts": "3d959c9dac3e688dba91012a3835c37d0a17c4ab2427f53b628bba69adf1b110",
+    "projects/yuketang.ts": "ae5a9e172500a80475270c75555a30a3e13a7826177b46bbee5926c77c28ae46"
+  },
+  "extracted_fragments": [
+    {
+      "file": "projects/cx.ts",
+      "from_line": 1980,
+      "to_line": 1984
+    },
+    {
+      "file": "projects/cx.ts",
+      "from_line": 2322,
+      "to_line": 2337
+    },
+    {
+      "file": "projects/cx.ts",
+      "from_line": 2341,
+      "to_line": 2350
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 92,
+      "to_line": 94
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 96,
+      "to_line": 98
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 100,
+      "to_line": 115
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 158,
+      "to_line": 160
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 219,
+      "to_line": 222
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 224,
+      "to_line": 235
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 237,
+      "to_line": 319
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 326,
+      "to_line": 328
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 330,
+      "to_line": 332
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 334,
+      "to_line": 336
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 338,
+      "to_line": 360
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 433,
+      "to_line": 435
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 437,
+      "to_line": 439
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 441,
+      "to_line": 443
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 445,
+      "to_line": 477
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 548,
+      "to_line": 550
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 552,
+      "to_line": 554
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 556,
+      "to_line": 558
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 560,
+      "to_line": 582
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 593,
+      "to_line": 595
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 597,
+      "to_line": 599
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 601,
+      "to_line": 603
+    },
+    {
+      "file": "projects/zhs.ts",
+      "from_line": 605,
+      "to_line": 613
+    },
+    {
+      "file": "projects/zjy.ts",
+      "from_line": 425,
+      "to_line": 428
+    },
+    {
+      "file": "projects/zjy.ts",
+      "from_line": 430,
+      "to_line": 432
+    },
+    {
+      "file": "projects/zjy.ts",
+      "from_line": 434,
+      "to_line": 436
+    },
+    {
+      "file": "projects/zjy.ts",
+      "from_line": 438,
+      "to_line": 444
+    },
+    {
+      "file": "projects/zjy.ts",
+      "from_line": 497,
+      "to_line": 518
+    },
+    {
+      "file": "projects/zjy.ts",
+      "from_line": 521,
+      "to_line": 541
+    },
+    {
+      "file": "projects/icourse.ts",
+      "from_line": 291,
+      "to_line": 358
+    },
+    {
+      "file": "projects/icourse.ts",
+      "from_line": 398,
+      "to_line": 399
+    },
+    {
+      "file": "projects/icourse.ts",
+      "from_line": 401,
+      "to_line": 402
+    },
+    {
+      "file": "projects/icourse.ts",
+      "from_line": 404,
+      "to_line": 404
+    },
+    {
+      "file": "projects/icourse.ts",
+      "from_line": 524,
+      "to_line": 555
+    },
+    {
+      "file": "projects/icourse.ts",
+      "from_line": 417,
+      "to_line": 417
+    },
+    {
+      "file": "projects/yuketang.ts",
+      "from_line": 209,
+      "to_line": 209
+    },
+    {
+      "file": "projects/yuketang.ts",
+      "from_line": 210,
+      "to_line": 211
+    },
+    {
+      "file": "projects/yuketang.ts",
+      "from_line": 212,
+      "to_line": 212
+    },
+    {
+      "file": "projects/yuketang.ts",
+      "from_line": 214,
+      "to_line": 225
+    },
+    {
+      "file": "projects/icve.ts",
+      "from_line": 102,
+      "to_line": 104
+    }
+  ],
+  "runtime_sha256": "7ae7935deee0dcb2e007bd76149245e923af5805505c5aa1dab34ffbd99a2672"
+}

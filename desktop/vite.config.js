@@ -6,8 +6,9 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     host: "127.0.0.1",
-    port: 5174,
-    strictPort: true
+    port: Number(process.env.VITE_PORT || 5174),
+    strictPort: true,
+    fs: { allow: [".."] }
   },
   build: {
     outDir: "dist"

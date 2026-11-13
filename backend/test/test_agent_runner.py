@@ -4,7 +4,8 @@ import tempfile
 import unittest
 import asyncio
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from app.config import Settings
 from app.db import Database
@@ -78,7 +79,14 @@ class FakeIncompleteAgent(FakeAgent):
 
 class FakeBrowserSession:
     def __init__(self, **_kwargs):
-        pass
+        self.page = SimpleNamespace(session_id="test", evaluate=AsyncMock(return_value={"saved": True, "evidence": "platform_callback"}))
+        self.cdp_client = SimpleNamespace(send=SimpleNamespace(Page=SimpleNamespace(
+            getLayoutMetrics=AsyncMock(return_value={"cssContentSize": {"width": 1440, "height": 900}, "cssLayoutViewport": {"clientWidth": 1440, "clientHeight": 900}}),
+            captureScreenshot=AsyncMock(return_value={"data": "cG5n"}),
+        )))
+
+    async def get_current_page(self):
+        return self.page
 
     async def start(self) -> None:
         return None
@@ -136,6 +144,9 @@ class FakeFocusSession:
 
 
 class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncTearDown(self) -> None:
+        await agent_runner.close_preserved_sessions()
+
     def test_error_diagnostic_explains_model_and_browser_failures(self) -> None:
         model_error = agent_runner._diagnose_error(
             RuntimeError("Invalid JSON: validation error for AgentOutput"),
@@ -545,7 +556,7 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                 timeout=1,
             )
 
-    async def test_job_reaches_completed_with_logs_and_artifacts(self) -> None:
+    async def test_filled_job_waits_for_review_with_logs_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = Settings(
                 data_root=Path(temp_dir),
@@ -619,11 +630,6 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(agent_runner, "ChatOpenAI", lambda **_kwargs: object()),
                 patch.object(agent_runner, "Agent", FakeAgent),
                 patch.object(
-                    agent_runner.preview_manager,
-                    "invalidate",
-                    fake_invalidate,
-                ),
-                patch.object(
                     agent_runner,
                     "send_completion_notification",
                     fake_notify,
@@ -642,8 +648,14 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                 )
 
             completed = database.get_job(job["id"])
-            self.assertEqual(completed["status"], "completed")
-            self.assertEqual(completed["progress"], 100)
+            self.assertEqual(completed["status"], "needs_intervention")
+            self.assertEqual(completed["browser_retained"], 1)
+            events = database.list_events(job["id"])
+            saved_at = next(index for index, event in enumerate(events) if event["kind"] == "draft_saved")
+            reviewed_at = next(index for index, event in enumerate(events) if event["kind"] == "needs_intervention")
+            self.assertLess(saved_at, reviewed_at)
+            final = next(event for event in events if event["kind"] == "final_screenshot")
+            self.assertEqual(len(final["data"]["segments"]), 1)
             event_kinds = {
                 event["kind"]
                 for event in database.list_events(job["id"])
@@ -659,7 +671,7 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                     "step",
                     "screenshot",
                     "final_screenshot",
-                    "completed",
+                    "needs_intervention",
                 }.issubset(event_kinds)
             )
             step_event = next(
@@ -743,11 +755,6 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 patch.object(agent_runner, "ChatOpenAI", lambda **_kwargs: object()),
                 patch.object(agent_runner, "Agent", FakeIncompleteAgent),
-                patch.object(
-                    agent_runner.preview_manager,
-                    "invalidate",
-                    no_op,
-                ),
                 patch.object(agent_runner, "_terminate_process", no_op),
                 patch.object(
                     agent_runner,
@@ -763,13 +770,13 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                 )
 
             result = database.get_job(job["id"])
-            self.assertEqual(result["status"], "needs_intervention")
+            self.assertEqual(result["status"], "incomplete")
             self.assertEqual(
                 result["submission_status"],
                 "partial_pending_review",
             )
             self.assertIn(
-                "needs_intervention",
+                "incomplete",
                 {
                     event["kind"]
                     for event in database.list_events(job["id"])
@@ -780,10 +787,11 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                 EventHub(),
                 job["id"],
             )
-            self.assertEqual(finished["status"], "stopped")
-            self.assertEqual(finished["error"], "用户已结束手动介入")
+            self.assertEqual(finished["status"], "incomplete")
+            self.assertEqual(finished["browser_retained"], 0)
+            self.assertFalse(database.has_active_job(account["id"]))
 
-    async def test_notification_failure_does_not_change_completed_status(self) -> None:
+    async def test_notification_failure_does_not_change_review_status(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = Settings(
                 data_root=Path(temp_dir),
@@ -849,11 +857,6 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 patch.object(agent_runner, "ChatOpenAI", lambda **_kwargs: object()),
                 patch.object(agent_runner, "Agent", FakeAgent),
-                patch.object(
-                    agent_runner.preview_manager,
-                    "invalidate",
-                    fake_invalidate,
-                ),
                 patch.object(agent_runner, "_terminate_process", no_op),
                 patch.object(
                     agent_runner,
@@ -869,7 +872,7 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                 )
 
             completed = database.get_job(job["id"])
-            self.assertEqual(completed["status"], "completed")
+            self.assertEqual(completed["status"], "needs_intervention")
             self.assertEqual(
                 completed["submission_status"],
                 "filled_pending_review",
@@ -878,8 +881,86 @@ class AgentRunnerTests(unittest.IsolatedAsyncioTestCase):
                 event["kind"]
                 for event in database.list_events(job["id"])
             ]
-            self.assertIn("completed", event_kinds)
+            self.assertIn("needs_intervention", event_kinds)
             self.assertIn("notification_error", event_kinds)
+
+    async def test_run_outcomes_require_submission_and_preserve_manual_review(self) -> None:
+        cases = [
+            (False, True, False, "已填写全部题目", "needs_intervention"),
+            (True, True, True, "已提交", "completed"),
+            (True, True, False, "已填写全部题目", "incomplete"),
+            (False, False, False, "缺少上传附件，无法完成第 3 题", "incomplete"),
+            (False, False, False, "上游 timeout，模型请求失败", "interrupted"),
+            (False, False, False, "network 拓扑图缺少附件，无法完成第 3 题", "incomplete"),
+            (False, False, False, "RAISE: upstream API error 503", "interrupted"),
+            (False, True, False, "SAVE_FAIL: 已填写但平台拒绝暂存", "incomplete"),
+        ]
+        for auto_submit, success, submitted, message, expected in cases:
+            with self.subTest(expected=expected, auto_submit=auto_submit), tempfile.TemporaryDirectory() as root:
+                settings = Settings(data_root=Path(root), openai_api_key="test", openai_model="test-model")
+                settings.ensure_directories()
+                database = Database(settings)
+                database.initialize()
+                account = database.create_account("test", "chaoxing", settings)
+                assignment_id = database.upsert_assignment(account["id"], "chaoxing", {
+                    "title": "test", "taskUrl": "https://example.test/work", "workId": "test",
+                    "courseId": "course", "classId": "class", "submittable": True,
+                }, settings)
+                job = database.create_job(account["id"], assignment_id, auto_submit, True)
+
+                class OutcomeHistory(FakeHistory):
+                    def final_result(self):
+                        return message
+
+                    def is_successful(self):
+                        return success
+
+                class OutcomeAgent(FakeAgent):
+                    async def run(self, max_steps, on_step_start):
+                        await on_step_start(self)
+                        if message.startswith("RAISE:"):
+                            raise RuntimeError(message)
+                        await self.on_step(None, FakeOutput(), 0)
+                        return OutcomeHistory()
+
+                with (
+                    patch.object(agent_runner, "_launch_chrome", AsyncMock(return_value=(FakeProcess(), "ws://test"))),
+                    patch.object(agent_runner, "_capture_screenshot", AsyncMock(return_value=(b"png", "https://example.test/work"))),
+                    patch.object(agent_runner, "BrowserSession", FakeBrowserSession),
+                    patch.object(agent_runner, "_restore_storage_state_to_session", AsyncMock(return_value=1)),
+                    patch.object(agent_runner, "_verify_session_page", fake_verify_session_page),
+                    patch.object(agent_runner, "_run_structured_chaoxing_quiz", AsyncMock(return_value={"unit_count": 1} if auto_submit else None)),
+                    patch.object(agent_runner, "save_assignment_draft", AsyncMock(return_value={"saved": True}, side_effect=agent_runner.DraftSaveError("暂时保存失败") if message.startswith("SAVE_FAIL:") else None)),
+                    patch.object(agent_runner, "_submission_evidence", AsyncMock(return_value={"confirmed": submitted})),
+                    patch.object(agent_runner, "_build_agent_llm", lambda *args, **kwargs: object()),
+                    patch.object(agent_runner, "Agent", OutcomeAgent),
+                    patch.object(agent_runner, "_terminate_process", AsyncMock()),
+                    patch.object(agent_runner, "send_completion_notification", AsyncMock(return_value={})),
+                ):
+                    hub = EventHub()
+                    await agent_runner.run_job(database, hub, settings, job["id"])
+                    result = database.get_job(job["id"])
+                    self.assertEqual(result["status"], expected)
+                    self.assertEqual(bool(result["browser_retained"]), expected in {"needs_intervention", "incomplete"})
+                    if message.startswith("SAVE_FAIL:"):
+                        self.assertIn("暂时保存失败", result["error"])
+                        self.assertNotIn("draft_saved", [event["kind"] for event in database.list_events(job["id"])])
+                    if expected == "completed":
+                        self.assertEqual(result["submission_status"], "submitted_verified")
+                        self.assertEqual(result["progress"], 100)
+                    if expected == "needs_intervention":
+                        closed = await agent_runner.finish_job_intervention(database, hub, job["id"])
+                        self.assertEqual(closed["status"], "needs_intervention")
+                        database.mark_interrupted_jobs()
+                        self.assertEqual(database.get_job(job["id"])["status"], "needs_intervention")
+                        reviewed = await agent_runner.review_job_submission(database, hub, job["id"], "submitted_verified")
+                        self.assertEqual(reviewed["status"], "completed")
+                    if expected == "incomplete":
+                        reviewed = await agent_runner.review_job_submission(database, hub, job["id"], "submitted_verified")
+                        self.assertEqual(reviewed["status"], "completed")
+                        self.assertFalse(reviewed["browser_available"])
+                        self.assertFalse(database.has_active_job(account["id"]))
+                    await agent_runner.close_preserved_sessions()
 
 
 if __name__ == "__main__":

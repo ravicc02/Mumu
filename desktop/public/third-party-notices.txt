@@ -1,0 +1,74 @@
+LeiBox application adaptations
+Source: https://github.com/leishifu666/LeiBox
+Reference checkout: f7a4c8acf55bc1cf817d6804373ae224340f3357
+
+The task filter tabs and resize handle adapt the glass-tab-menu spring
+integrator and elastic-panel-resize drag handling. Design references
+recorded by LeiBox: solutionb and Alvish. No original reference artwork
+or videos are included. These adaptations form part of this application.
+
+The status selector also adapts the blister-dropdown pop/arc/landing
+trajectory. Its LeiBox-recorded design reference is Adeline / AstraOS.
+No reference foil artwork, HTML, video, or audio is included.
+
+MIT + Commons Clause License Condition v1.0
+Copyright (c) 2026 David Haz
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, and distribute the Software as part of
+an application, website, or product, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+You may use this Software, including for any commercial purpose, so long as
+you do not sell, sublicense, or redistribute the components themselves -
+whether alone, in a bundle, or as a ported version.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Company click-to-move navigation
+PathFinding.js 0.4.18 (MIT), with heap 0.2.5 (PSF).
+The algorithms are used without upstream source modifications.
+Full notices: licenses/pathfinding.txt and licenses/heap.txt.
+
+Platform marks
+Chaoxing mark: https://mobilelearn-static.chaoxing.com/mobilelearn/front/mobile/weixin/images/logo.png
+WeChat mark: Simple Icons, CC0-1.0.
+These marks identify their respective services; no endorsement is implied.
+
+OCS local course runtime adaptation
+Source: https://github.com/ocsjs/ocsjs
+Release 5.4.0, commit 1e93399a22b54fac80bb6bae131a4b208b5d8af9.
+Adapted chapter extraction, iframe/resource discovery, media waits and media
+handling. The runtime has no OCS Desktop or script-manager dependency.
+
+MIT License
+
+Copyright (c) 2022 enncy
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

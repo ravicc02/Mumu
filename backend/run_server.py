@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import logging
 
 import uvicorn
 
-from app.main import app
+from app.config import settings
+from app.diagnostics.logging import configure_logging
+
+settings.ensure_directories()
+configure_logging(settings)
+try:
+    from app.main import app
+except Exception:
+    logging.getLogger("answer-studio.startup").exception("Backend initialization failed")
+    raise
 
 
 def main() -> None:
@@ -17,6 +27,7 @@ def main() -> None:
         host=args.host,
         port=args.port,
         log_level="info",
+        log_config=None,
     )
 
 

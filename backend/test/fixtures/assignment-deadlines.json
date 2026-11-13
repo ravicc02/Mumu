@@ -1,0 +1,14 @@
+[
+  {"name":"expired despite submit button","item":{"deadline_text":"10-13 11:08至10-18 23:59","semester":"2026-2027-1","submittable":true},"now":"2026-11-12T08:00:00Z","expired":true},
+  {"name":"currently open","item":{"deadline_text":"11-02 10:09至11-30 10:09","semester":"2026-2027-1"},"now":"2026-11-12T08:00:00Z","expired":false},
+  {"name":"autumn course crosses year","item":{"deadline_text":"12-30 10:00至01-05 23:59","semester":"2026-2027-1"},"now":"2026-11-12T08:00:00Z","expired":false},
+  {"name":"spring course keeps the finishing year","item":{"deadline_text":"11-20 10:09","semester":"2025-2026-2"},"now":"2026-11-12T08:00:00Z","expired":false},
+  {"name":"old semester cannot move to current year","item":{"deadline_text":"11-20 10:09","semester":"2024-2025-2"},"now":"2026-11-12T08:00:00Z","expired":true},
+  {"name":"explicit year wins","item":{"deadline_text":"2099-01-02 10:09","semester":"2026-2027-1"},"now":"2026-11-12T08:00:00Z","expired":false},
+  {"name":"missing deadline stays unknown","item":{"deadline_text":"未显示截止时间","academic_year":2026},"now":"2026-11-12T08:00:00Z","expired":false,"unknown":true},
+  {"name":"invalid calendar date stays unknown","item":{"deadline_text":"2026-02-30 10:00"},"now":"2026-11-12T08:00:00Z","expired":false,"unknown":true},
+  {"name":"minute boundary has passed","item":{"deadline_text":"11-12 15:59","academic_year":2026},"now":"2026-11-12T08:00:00Z","expired":true},
+  {"name":"current minute stays open","item":{"deadline_text":"11-12 16:00","academic_year":2026},"now":"2026-11-12T08:00:30Z","expired":false},
+  {"name":"explicit timezone is honored","item":{"deadline_text":"2026-11-12T08:01:00Z"},"now":"2026-11-12T08:00:00Z","expired":false},
+  {"name":"range start year crosses into next year","item":{"deadline_text":"2025-12-31 00:00至01-01 23:59","academic_year":2026},"now":"2026-11-12T08:00:00Z","expired":true}
+]

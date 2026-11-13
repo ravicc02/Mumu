@@ -13,6 +13,10 @@ $env:PYTHONPATH = if ($oldPythonPath) {
 
 Push-Location $backend
 try {
+    node ..\scripts\version.mjs check
+    if ($LASTEXITCODE -ne 0) { throw "Application versions are not aligned" }
+    python ..\scripts\write_build_info.py
+    if ($LASTEXITCODE -ne 0) { throw "Diagnostic build metadata generation failed" }
     python ..\scripts\run_pyinstaller.py `
         --noconfirm `
         --clean `
@@ -34,6 +38,16 @@ try {
         --exclude-module sqlalchemy `
         --runtime-hook (Join-Path $PSScriptRoot "pyinstaller_runtime_hook.py") `
         --collect-submodules app `
+        --add-data "../VERSION;app" `
+        --add-data "app/services/learning/runtime.js;app/services/learning" `
+        --add-data "app/services/learning/ocs-study.js;app/services/learning" `
+        --add-data "app/services/learning/platform-runtime.js;app/services/learning" `
+        --add-data "app/services/platforms/catalog.json;app/services/platforms" `
+        --add-data "app/services/attendance/share.html;app/services/attendance" `
+        --add-data "app/services/attendance/jsQR.js;app/services/attendance" `
+        --add-data "app/services/attendance/JSQR-LICENSE;app/services/attendance" `
+        --add-data "app/services/learning/OCS-LICENSE;app/services/learning" `
+        --add-data "build/diagnostic-build.json;app/diagnostics" `
         --hidden-import "app.main" `
         --hidden-import "uvicorn.logging" `
         --hidden-import "uvicorn.loops.auto" `

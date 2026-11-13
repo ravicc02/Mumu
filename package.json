@@ -1,19 +1,35 @@
 {
   "name": "ai-quiz-assistant",
-  "version": "0.4.0",
+  "version": "0.5.0-rc.1",
   "private": true,
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ravicc02/ai-quiz-assistant.git"
+  },
   "type": "module",
-  "description": "Chrome side-panel quiz assistant with a local AI solver service.",
+  "description": "Local Windows workspace for learning tasks, live browsers and multi-account workflows.",
   "scripts": {
-    "start": "node server/server.mjs",
-    "dev": "node --watch server/server.mjs",
-    "test": "node --test",
+    "start": "npm run desktop:dev",
+    "dev": "npm run desktop:dev",
+    "test": "node --test scripts/test/*.test.mjs",
+    "audit:source": "node scripts/audit-source.mjs",
+    "test:desktop": "npm --prefix desktop test",
+    "version:check": "node scripts/version.mjs check",
+    "version:sync": "node scripts/version.mjs sync",
+    "version:set": "node scripts/version.mjs set",
+    "release:check": "node scripts/release.mjs check",
+    "release:notes": "node scripts/release.mjs notes",
+    "release:manifest": "node scripts/release.mjs manifest",
+    "release:verify": "node scripts/release.mjs verify",
+    "release:draft": "node scripts/github-release.mjs draft",
+    "release:publish": "node scripts/github-release.mjs publish",
     "test:backend": "powershell -Command \"$env:PYTHONPATH='backend'; python -m unittest discover -s backend/test -v\"",
     "desktop:dev": "npm --prefix desktop run dev",
     "desktop:web": "npm --prefix desktop run web",
     "desktop:build": "npm --prefix desktop run build:win"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   }
 }

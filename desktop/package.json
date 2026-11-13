@@ -1,6 +1,6 @@
 {
   "name": "ai-assignment-studio-desktop",
-  "version": "0.4.2",
+  "version": "0.5.0-rc.1",
   "description": "Local Windows assignment automation studio",
   "author": "AI Assignment Studio Contributors",
   "private": true,
@@ -9,13 +9,22 @@
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5174 && electron .\"",
     "web": "vite",
+    "test": "node --test test/*.test.mjs",
+    "prebuild:web": "node ../scripts/version.mjs check",
     "build:web": "vite build",
     "build:backend": "powershell -ExecutionPolicy Bypass -File ../scripts/build-backend.ps1",
-    "build:win": "vite build && npm run build:backend && electron-builder --win nsis",
+    "prebuild:win": "node ../scripts/release.mjs check",
+    "build:win": "vite build && npm run build:backend && electron-builder --win nsis --x64 --publish never",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@lucide/vue": "^1.72.0",
+    "cannon-es": "^0.20.0",
+    "jsqr": "^1.4.0",
+    "open-mascot": "file:../third_party/open-mascot",
+    "pathfinding": "0.4.18",
     "qrcode": "^1.5.4",
+    "three": "^0.187.0",
     "vue": "^3.5.13"
   },
   "devDependencies": {
@@ -49,6 +58,7 @@
       }
     ],
     "win": {
+      "artifactName": "Assignment-Studio-${version}-windows-${arch}-setup.${ext}",
       "icon": "build/icon.ico",
       "signAndEditExecutable": false,
       "target": [

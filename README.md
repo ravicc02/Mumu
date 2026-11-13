@@ -1,166 +1,114 @@
-# AI Assignment Studio
+<div align="center">
 
-本地 Windows 作业工作台。使用 Electron + Vue 管理多个学习通账号，通过 Playwright 无头采集当前仍可提交的未完成作业，再用 browser-use 驱动可操控 Chrome 完成答题并实时显示 Agent 日志。
+<img src="docs/assets/banner.svg" width="100%" alt="Assignment Studio — 多账号学习任务工作台">
 
-登录 Cookie、模型 Key、任务记录和截图都保存在本机，不上传到本项目仓库。
+[![CI](https://github.com/ravicc02/ai-quiz-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/ravicc02/ai-quiz-assistant/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ravicc02/ai-quiz-assistant?include_prereleases&label=release&color=4054d8)](https://github.com/ravicc02/ai-quiz-assistant/releases)
+![Windows x64](https://img.shields.io/badge/Windows-x64-1e293b?logo=windows)
 
-## 功能
+**作业 · 网课 · 签到 · 实时浏览器 · 3D 任务公司**
 
-- 多账号独立 Playwright Profile 和 `storage-state.json`
-- Agent 启动时显式注入 Cookie 与本地存储，并在交给模型前验证登录态
-- 学习通 UEditor 页面自动隐藏无关工具栏，减少 Agent 页面状态噪音
-- Chrome 启动不再使用不受支持的 `AutomationControlled` 命令行标记，并通过初始化脚本处理 WebDriver 标记
-- 学习通作业页使用结构化题型适配器：单选、多选、填空、判断、简答、共用选项、组合题和完形填空
-- 学习通新版/旧版课程表兼容采集
-- 按开课学年和学期筛选未完成、当前仍可提交的作业
-- 每次采集保存独立快照；课程部分失败时标记“部分采集”，不会伪装成全部成功
-- 作业多选和批量创建 Agent 任务
-- 每账号任务串行排队，避免多个 Agent 抢占同一个浏览器 Profile
-- 平台页四栏工作台：账号、作业、大尺寸实时浏览器、实时日志
-- 可操控 Chrome 窗口，Agent 执行时仍可人工查看和接管
-- Agent 未完成时进入“待介入”，保留浏览器和账号锁，人工处理后可结束介入
-- 任务状态：排队、运行、暂停、停止中、待介入、停止、执行完成、未完成、失败、中断
-- 独立记录“待人工核对 / 允许提交但未验证 / 已人工确认 / 未提交”等作业结果
-- 暂停、继续、停止、超时强制停止和重试；重试保留父子任务与尝试次数
-- WebSocket 实时日志逐条显示状态、动作详情和步骤数，当前 URL、截图和最终凭证同步更新
-- 完成、失败、停止、中断和待介入都会记录可读阶段、原因、最后页面、最近动作与处理建议
-- 结构化答题先一次性提取全部题目，再生成结构化答案并批量写入，最后核验隐藏答案字段和文本输入
-- 实时浏览器入口只切换同一个 Chrome 会话到前台，不暂停 Agent；运行时使用 Agent 步骤画面，暂停和待介入时使用 CDP 实时快照
-- 模型供应商、API 地址、Key、模型列表和思考强度配置
-- 主模型失败时使用配置中的第二模型作为真实 Fallback
-- 账号级自动检测，可设置 30 分钟到 24 小时的采集间隔
-- 微信 iLink Bot 扫码绑定和任务完成、未完成、失败通知
+[下载安装](https://github.com/ravicc02/ai-quiz-assistant/releases) · [使用文档](docs/README.md) · [更新记录](CHANGELOG.md) · [反馈问题](https://github.com/ravicc02/ai-quiz-assistant/issues/new/choose)
 
-## AI 配置
+</div>
 
-打开桌面应用左侧的“设置”，点击“配置模型”，填写：
+Assignment Studio 将多账号学习任务集中在本机管理：授权、采集、执行、人工介入和结果核验使用同一套任务记录。面向 Windows PC，账号授权和运行数据保留在本地，模型服务由使用者配置。
 
-- API 地址，例如 `https://sshzyu.com/v1`
-- API Key
-- 模型名称，例如 `deepseek-v4.1-flash`
-- 思考强度
+![任务公司界面预览](docs/assets/workspace.png)
 
-配置会保存到本地 SQLite。也可以先用项目根目录 `.env` 提供默认值，界面配置优先：
+<p align="center"><sub>产品界面示意，使用演示账号与任务数据。</sub></p>
 
-```dotenv
-OPENAI_BASE_URL=https://sshzyu.com/v1
-OPENAI_API_KEY=
-OPENAI_MODEL=deepseek-v4.1-flash
-OPENAI_FALLBACK_MODEL=
-AI_REASONING_EFFORT=high
-ANSWER_STUDIO_PORT=8877
-```
+## 工作区
 
-`.env` 已被 Git 忽略，不要把真实 Key 写进源码或提交到远端。
+| 入口 | 用途 |
+| --- | --- |
+| **平台** | 授权账号，自动同步名称、头像和稳定身份，按平台能力显示入口 |
+| **作业** | 采集未完成且当前可提交的作业；识别题目、填写、暂存、评测及结果核验 |
+| **网课** | 读取课程及任务点，跳过已完成内容，执行已支持的媒体和阅读流程 |
+| **签到** | 多账号批量处理，提供签到码、手势、二维码和位置输入，创建可撤销的批次分享链接 |
+| **任务公司** | 每个任务对应一个 Bot，按状态进入办公区、休息区和介入室；沐沐支持移动、跳跃和 F 交互 |
+| **设置** | 模型、思考强度、执行策略、自动检测、微信推送和维护日志 |
 
-对 `deepseek` 模型，桌面端会使用原生 function calling 约束 AgentOutput，并绕过 Windows WMI 平台探测阻塞。模型列表第一项是主模型，第二项是实际 Fallback；思考强度会随请求发送给模型。`deepseek-v4.1-flash` 建议使用 `high`，较低强度更容易出现空响应或工具调用格式错误。
+执行过程支持实时查看、暂停和人工介入。任务分别使用独立浏览器，关闭查看端不会停止后台执行。软件区分“已填写”“待审核”“结果未知”和“平台确认完成”。
 
-## 用户怎么用
+## 平台能力
 
-1. 进入“平台”，点击“添加”创建学习通账号。
-2. 点击账号右侧“...”，选择“刷新 Cookie”，在弹出的 Chrome 中完成登录。
-3. 回到“平台”，选择学年/学期后点击“采集”。
-4. 在作业列表勾选一个或多个当前可提交作业，点击“启动 Agent”或“批量启动 Agent”。
-5. 在“平台”右侧第三栏查看实时浏览器，第四栏查看步骤状态机和逐条执行日志。
-6. 运行中可暂停、继续或停止；失败或中断后可重试。
-7. Agent 未完成时任务进入“待介入”：点击“切到浏览器”继续手动操作，完成后点击“结束介入”释放账号锁。
-8. 在“执行凭证”中打开步骤截图、最终截图和 `result.json`。
-9. 自动提交后回到作业页人工核对，并在任务结果中点击“确认已提交”或“确认未提交”结案。
-10. 可在“设置”中为每个账号启用自动检测；应用运行期间按设定间隔刷新作业。
+| 平台 | 作业 | 网课 | 签到 |
+| --- | --- | --- | --- |
+| 学习通 | 结构化题型、暂存与提交核验 | 媒体、阅读和章节导航适配 | 批量处理与分享 |
+| 头歌 | 课堂实验、Java/JUnit 编辑器、自动评测及有限修复 | — | — |
+| 知到智慧树 | — | 本地适配器 | — |
+| 中国大学 MOOC | — | 本地适配器 | — |
+| 智慧职教 / 职教云 | — | 本地适配器 | — |
+| 雨课堂 | — | 本地适配器 | — |
 
-默认不点击最终提交。只有勾选“允许 Agent 最终提交”后，任务提示词才允许提交。建议保留人工核对。
+头歌 Java/JUnit 已完成一项真实四关实验的整体核验。虚拟机、云桌面及图形实操尚未接入。平台注册不等于所有学校和页面版本均已验收，具体范围见[平台能力](docs/platform-capabilities.md)和[验收记录](docs/educoder-code-execution-validation.md)。
 
-## 本地开发
+网课适配在项目内运行，不需要安装 OCS Desktop 或脚本管理器。复用范围和来源见[第三方说明](THIRD_PARTY_NOTICES.md)。
 
-```powershell
-cd E:\Desktop\workshop\ai-quiz-assistant
-python -m pip install -r backend/requirements.txt
+## 开始使用
 
-cd desktop
-npm install
-npm run dev
-```
+1. 在 [Releases](https://github.com/ravicc02/ai-quiz-assistant/releases) 下载 Windows x64 安装包；发行候选版本标记为 Pre-release。
+2. 点击左下角头像，在模型配置中填写接口地址、Key、模型和思考强度。
+3. 进入“平台”授权账号，再在对应业务中选择账号和采集范围。
+4. 选择任务执行；遇到待处理事项时通过原任务浏览器介入，处理后继续。
+5. 查看平台核验结果。学习通最终提交与头歌自动评测分别在作业设置中管理。
 
-需要本机安装 Chrome 或 Edge。Electron 会启动本地 FastAPI：`http://127.0.0.1:8877`。只预览前端时运行：
+安装前可核对附件中的 SHA256SUMS.txt。当前安装包尚未配置 Windows 代码签名；应用支持检查正式版本并打开发布页，不自动安装更新。
 
-```powershell
-cd desktop
-npm run web
-```
+### 从源码运行
 
-前端地址：`http://127.0.0.1:5174`。
+环境：Windows 10/11 x64、Node.js 24、Python 3.13、Chrome 或 Edge。
 
-## 数据目录
+~~~powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+npm --prefix desktop ci
+$env:ANSWER_STUDIO_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
+npm start
+~~~
 
-默认位置：
+网页预览分两个终端运行：
 
-```text
-%LOCALAPPDATA%\AIAssistantStudio
-```
+~~~powershell
+# 终端一：仓库根目录
+.\.venv\Scripts\python.exe backend\run_server.py --host 127.0.0.1 --port 8877
 
-包含 SQLite、账号 Profile、浏览器登录态、任务截图、结果 JSON 和日志。该目录不会提交 Git。
+# 终端二：仓库根目录
+npm run desktop:web
+~~~
 
-## API
+前端为 http://127.0.0.1:5174/，本地 API 为 http://127.0.0.1:8877/。开发和构建步骤见[贡献指南](CONTRIBUTING.md)。
 
-核心接口：
+## 数据与维护
 
-```text
-GET  /api/health
-GET  /api/accounts
-POST /api/accounts
-POST /api/accounts/{account_id}/login
-POST /api/accounts/{account_id}/refresh-session
-PATCH /api/accounts/{account_id}/collection-schedule
-GET  /api/accounts/{account_id}/preview
-POST /api/accounts/{account_id}/collect?academic_year=2026
-GET  /api/accounts/{account_id}/collection-runs
-GET  /api/collection-runs/{run_id}
-GET  /api/assignments?account_id=...&academic_year=2026&submittable=true
-POST /api/assignments/{assignment_id}/open
-POST /api/jobs
-POST /api/jobs/{job_id}/pause
-POST /api/jobs/{job_id}/resume
-POST /api/jobs/{job_id}/stop
-POST /api/jobs/{job_id}/focus-browser
-GET  /api/jobs/{job_id}/snapshot
-POST /api/jobs/{job_id}/finish-intervention
-POST /api/jobs/{job_id}/retry
-POST /api/jobs/{job_id}/submission-status
-WS   /ws/jobs/{job_id}
-```
+默认数据目录为 %LOCALAPPDATA%/AIAssistantStudio，保存授权、任务、SQLite 和截图。模型请求会将题目及必要上下文发送到使用者配置的模型服务。
 
-也可以使用外部定时脚本：
+~~~text
+logs/
+  main.log       今日详细日志
+  oldmain.log    历史日志归档
+~~~
 
-```powershell
-powershell -ExecutionPolicy Bypass `
-  -File scripts/collect-unfinished.ps1 `
-  -AcademicYear 2026 `
-  -OutputPath "$env:LOCALAPPDATA\AIAssistantStudio\last-collection.json"
-```
+遇到问题，从“设置 → 系统设置”打开日志目录，将脱敏后的 main.log 提供给维护者。公开 Issue 不提交 Cookie、Key、二维码凭据或授权文件，详见[安全与隐私](.github/SECURITY.md)。
 
-该脚本可交给 Windows 任务计划程序运行，本地 API 必须处于启动状态。退出码 `0` 表示全部成功，`1` 表示失败，`2` 表示至少一个账号只完成了部分课程采集。
+## 项目结构
 
-## 验证
+~~~text
+desktop/       Vue 界面、Electron 桌面进程、当前产品测试
+backend/       FastAPI、平台适配、任务执行及当前产品测试
+scripts/       版本、源文件审查、打包、冒烟及发布工具
+docs/          使用说明、架构、来源及验收记录
+third_party/   固定来源的复用代码及原始许可
+.github/       CI、Release、问题模板和依赖维护
+~~~
 
-```powershell
-cd backend
-python -m unittest discover -s test -v
+旧 Chrome 扩展、Node 原型和独立演示已移除，历史实现保留在 Git 历史中。测试和本地运行数据不进入安装包。
 
-cd ..\desktop
-npm run build:web
-```
+## 维护与发行
 
-## Windows 打包
+[工作区规范](AGENTS.md) · [文档导航](docs/README.md) · [发布流程](docs/releasing.md) · [更新日志](CHANGELOG.md)
 
-```powershell
-cd desktop
-npm run build:win
-```
+VERSION 是版本唯一来源。main 和 Pull Request 运行 CI；版本标签触发 Windows 打包、冒烟、附件校验及 Release 草稿。正式发布前重新下载校验，已发布版本禁止覆盖。
 
-构建流程会生成 Vue 前端、PyInstaller 后端和 electron-builder NSIS 安装包，输出在 `desktop/release/`。
-
-## 使用边界
-
-仅用于自己拥有或明确获授权的页面、课程和内部测试环境。自动答题或自动提交可能违反目标平台条款，使用前应确认授权并在提交前人工核对。
-
-仓库中的 `extension/` 和旧 Node 服务保留为早期 Chrome 扩展原型，当前主要开发方向是 `desktop/` + `backend/`。
+主项目尚未声明整体许可证，第三方代码保留各自的来源和许可。本项目不代表或隶属于所列教育平台，请在有权操作的账号和课程范围内使用。

@@ -192,6 +192,30 @@ EXTRACT_QUESTIONS_SCRIPT = r"""
     questions.push(question);
   });
 
+  units.forEach(unit => {
+    const root = [...document.querySelectorAll('[data-answer-studio-unit]')].find(node => node.getAttribute('data-answer-studio-unit') === unit.unit_id);
+    if (!root) return;
+    unit.file_inputs = root.querySelectorAll('input[type="file"]').length;
+    const hiddenId = root.getAttribute('data-answer-studio-hidden-id');
+    const hidden = hiddenId ? document.getElementById(hiddenId) : null;
+    const selected = element => element.getAttribute('aria-checked') === 'true' || element.classList.contains('check_answer') || element.classList.contains('check_answer_dx');
+    if (unit.kind === 'single' || unit.kind === 'multiple') {
+      unit.filled = Boolean(hidden?.value?.trim()) || [...root.querySelectorAll('[data-answer-studio-option]')].some(selected);
+    } else if (unit.kind === 'shared') {
+      unit.filled = unit.groups.length > 0 && [...root.querySelectorAll('.B-answerCon')].every(group => [...group.querySelectorAll('[data-answer-studio-option]')].some(selected));
+    } else {
+      unit.filled = unit.fields.length > 0 && unit.fields.every(field => {
+        const textarea = [...root.querySelectorAll('[data-answer-studio-field]')].find(node => Number(node.getAttribute('data-answer-studio-field')) === field.index);
+        let content = textarea?.value || '';
+        try {
+          const frame = field.iframe_id ? document.getElementById(field.iframe_id) : null;
+          const body = frame?.contentDocument?.body;
+          if (body) content = body.innerText || (body.querySelector('img,video,audio,a[href]') ? 'attachment' : '');
+        } catch { /* Keep the native textarea when a frame is cross-origin. */ }
+        return content.replace(/<[^>]*>/g, '').replace(/&nbsp;|\s|\u200b/g, '').length > 0;
+      });
+    }
+  });
   return JSON.stringify({
     title: document.title,
     url: location.href,
@@ -213,8 +237,11 @@ FILL_ANSWERS_SCRIPT = r"""
   );
   const results = [];
   const answeredQuestionIds = new Set();
+  const isSelected = option => option.getAttribute('aria-checked') === 'true'
+    || option.classList.contains('check_answer') || option.classList.contains('check_answer_dx');
   const setField = (textarea, iframeId, value) => {
     const text = clean(value);
+    const html = `<p>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')}</p>`;
     textarea.value = text;
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
     textarea.dispatchEvent(new Event("change", { bubbles: true }));
@@ -223,7 +250,7 @@ FILL_ANSWERS_SCRIPT = r"""
       try {
         const doc = iframe.contentDocument || iframe.contentWindow.document;
         if (doc?.body) {
-          doc.body.innerHTML = `<p>${text}</p>`;
+          doc.body.innerHTML = html;
           doc.body.dispatchEvent(new Event("input", { bubbles: true }));
           doc.body.dispatchEvent(new Event("change", { bubbles: true }));
         }
@@ -231,7 +258,7 @@ FILL_ANSWERS_SCRIPT = r"""
       try {
         const editor = window.UE?.getEditor?.(iframeId);
         if (editor) {
-          editor.setContent(`<p>${text}</p>`);
+          editor.setContent(html);
           editor.sync();
         }
       } catch (_) {}
@@ -241,6 +268,7 @@ FILL_ANSWERS_SCRIPT = r"""
 
   document.querySelectorAll("[data-answer-studio-unit]").forEach((root) => {
     const unitId = root.getAttribute("data-answer-studio-unit");
+    if (!byId.has(unitId)) return;
     const kind = root.getAttribute("data-answer-studio-kind");
     const values = byId.get(unitId) || [];
     const questionRoot = root.closest(".questionLi[id^='question']");
@@ -293,12 +321,13 @@ FILL_ANSWERS_SCRIPT = r"""
       const choices = new Set(values.map((value) => clean(value)));
       root.querySelectorAll("[data-answer-studio-option]").forEach((option) => {
         const key = option.getAttribute("data-answer-studio-option");
-        if (choices.has(key)) option.click();
+        const selected = isSelected(option);
+        if ((kind === 'multiple' && choices.has(key) !== selected) || (kind === 'single' && choices.has(key) && !selected)) option.click();
       });
       const checked = Array.from(
         root.querySelectorAll("[data-answer-studio-option]")
       )
-        .filter((option) => option.getAttribute("aria-checked") === "true")
+        .filter(isSelected)
         .map((option) => option.getAttribute("data-answer-studio-option"));
       const hiddenId = root.getAttribute("data-answer-studio-hidden-id") || "";
       const hidden = hiddenId ? document.getElementById(hiddenId) : null;
@@ -342,11 +371,30 @@ FILL_ANSWERS_SCRIPT = r"""
       hidden.dispatchEvent(new Event("change", { bubbles: true }));
     }
     result.hidden_value = hidden.value || "";
+    const root = [...document.querySelectorAll('[data-answer-studio-unit]')]
+      .find(node => node.getAttribute('data-answer-studio-unit') === result.unit_id);
+    if (root && ['single', 'multiple'].includes(result.kind)) {
+      result.checked = [...root.querySelectorAll('[data-answer-studio-option]')]
+        .filter(isSelected)
+        .map(option => option.getAttribute('data-answer-studio-option'));
+    }
   });
   answeredQuestionIds.forEach((questionId) => {
-    document
-      .getElementById(`answerSheet${questionId}`)
-      ?.classList.add("active");
+    const question = document.getElementById(`question${questionId}`);
+    if (!question) return;
+    const unitRoots = question.matches('[data-answer-studio-unit]') ? [question]
+      : [...question.querySelectorAll('[data-answer-studio-unit]')];
+    results.forEach(result => {
+      const unit = unitRoots.find(node => node.getAttribute('data-answer-studio-unit') === result.unit_id);
+      if (!unit) return;
+      const complete = result.kind === 'shared'
+        ? result.values.length === unit.querySelectorAll('.B-answerCon').length && result.values.every(value => clean(value))
+        : ['single','multiple'].includes(result.kind) ? Boolean(result.hidden_value) && result.checked.length > 0
+        : result.field_values.length > 0 && result.field_values.every(value => clean(value));
+      unit.setAttribute('data-answer-studio-filled', String(complete));
+    });
+    const complete = unitRoots.length > 0 && unitRoots.every(unit => unit.getAttribute('data-answer-studio-filled') === 'true');
+    document.getElementById(`answerSheet${questionId}`)?.classList.toggle('active', complete);
   });
   return JSON.stringify(results);
 })

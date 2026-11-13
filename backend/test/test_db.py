@@ -90,7 +90,10 @@ class DatabaseTests(unittest.TestCase):
         )
         with self.assertRaises(ActiveJobConflict):
             self.database.create_job(account["id"], assignment_id, False)
-        self.database.update_job(job["id"], status="completed", progress=100)
+        with self.assertRaises(ValueError):
+            self.database.update_job(job["id"], status="completed", progress=100)
+        self.database.transition_job(job["id"], "running")
+        self.database.update_job(job["id"], status="completed", submission_status="submitted_verified", progress=100)
         self.assertFalse(self.database.has_active_job(account["id"]))
         self.assertFalse(
             self.database.has_active_job_for_assignment(assignment_id)
@@ -121,11 +124,12 @@ class DatabaseTests(unittest.TestCase):
                 "result": "浏览器连接失败",
             }
         )
-        self.assertIn("任务失败", text)
+        self.assertIn("中断", text)
         self.assertIn("测试用户", text)
         self.assertIn("软件工程", text)
-        self.assertIn("自动提交：否", text)
-        self.assertIn("提交状态：未提交", text)
+        self.assertIn("浏览器连接失败", text)
+        self.assertEqual(len(text.splitlines()), 3)
+        self.assertNotIn("自动提交", text)
 
     def test_state_transition_validation_and_interruption_event(self) -> None:
         account = self.database.create_account("测试用户", "chaoxing", self.settings)
@@ -319,10 +323,12 @@ class DatabaseTests(unittest.TestCase):
             "running",
             started_at="2026-01-01T00:00:00+00:00",
         )
+        with self.assertRaises(ValueError):
+            self.database.transition_job(first["id"], "completed", submission_status="submitted_unverified")
         self.database.transition_job(
             first["id"],
             "completed",
-            submission_status="submitted_unverified",
+            submission_status="submitted_verified",
         )
         parent_id, attempt = self.database.next_attempt_for_assignment(assignment_id)
         self.assertEqual(parent_id, first["id"])
@@ -352,6 +358,7 @@ class DatabaseTests(unittest.TestCase):
             "已人工核对",
         )
         self.assertEqual(verified["submission_status"], "submitted_verified")
+        self.assertEqual(verified["status"], "completed")
         self.assertEqual(verified["verification_note"], "已人工核对")
         self.assertTrue(verified["verified_at"])
 
@@ -410,17 +417,15 @@ class DatabaseTests(unittest.TestCase):
         self.database.transition_job(
             job["id"],
             "needs_intervention",
-            submission_status="partial_pending_review",
+            submission_status="filled_pending_review",
+            browser_retained=1,
         )
         self.assertTrue(self.database.has_active_job(account["id"]))
         with self.assertRaises(ActiveJobConflict):
             self.database.create_job(account["id"], assignment_id, False)
-        with self.assertRaises(RuntimeError):
-            self.database.update_submission_status(
-                job["id"],
-                "filled_verified",
-            )
-        self.database.transition_job(job["id"], "stopped")
+        reviewed = self.database.update_submission_status(job["id"], "filled_verified")
+        self.assertEqual(reviewed["status"], "needs_intervention")
+        self.database.update_job(job["id"], browser_retained=0)
         self.assertFalse(self.database.has_active_job(account["id"]))
 
     def test_running_collection_is_failed_after_restart(self) -> None:

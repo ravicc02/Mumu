@@ -7,12 +7,35 @@ from urllib.parse import urljoin
 
 import httpx
 
-from ..db import Database
+from ..db import Database, utc_now
+from ..version import __version__
 
 
 BASE_URL = "https://ilinkai.weixin.qq.com"
 CLIENT_VERSION = str((2 << 16) | (4 << 8) | 10)
 PENDING_BINDINGS: dict[str, dict[str, Any]] = {}
+
+
+class WeixinRequestError(RuntimeError):
+    def __init__(self, operation, code, message, request_id=""):
+        self.operation,self.code,self.provider_message,self.request_id=operation,code,message,request_id
+        super().__init__(f"{operation}：{code}；{message}"+(f"；request_id={request_id}" if request_id else ""))
+
+
+def check_response(payload, operation):
+    if not isinstance(payload,dict): raise RuntimeError(f"{operation}：微信返回的数据格式错误")
+    code=payload.get("ret") or payload.get("errcode") or 0
+    if int(code)!=0:
+        message=str(payload.get("errmsg") or payload.get("err_msg") or payload.get("message") or "微信服务拒绝请求")
+        request_id=str(payload.get("request_id") or payload.get("requestid") or payload.get("trace_id") or "")
+        raise WeixinRequestError(operation,int(code),message,request_id)
+
+
+def record_delivery(database, result=None, error=None):
+    if result and result.get("weixin"):
+        database.set_setting("weixin_delivery",{"error":None,"last_success_at":utc_now()})
+    elif isinstance(error,WeixinRequestError):
+        database.set_setting("weixin_delivery",{"error":f"微信消息服务拒绝请求（错误码 {error.code}），请刷新会话","code":error.code,"last_failed_at":utc_now()})
 
 
 def _headers(token: str | None = None) -> dict[str, str]:
@@ -94,7 +117,7 @@ async def check_binding(
     }
     database.set_setting("weixin_binding", binding)
     PENDING_BINDINGS.pop(code, None)
-    return {"status": "confirmed", "binding": binding}
+    return {"status": "confirmed", "binding": {"configured":True,"ready":False}}
 
 
 async def refresh_context(database: Database) -> dict[str, Any]:
@@ -106,21 +129,28 @@ async def refresh_context(database: Database) -> dict[str, Any]:
             f"{binding.get('base', BASE_URL)}/ilink/bot/getupdates",
             headers=_headers(binding["token"]),
             json={
-                "get_updates_buf": "",
+                "get_updates_buf": binding.get("get_updates_buf", ""),
                 "base_info": {
                     "channel_version": "2.4.10",
-                    "bot_agent": "AIAssignmentStudio/0.4.2",
+                    "bot_agent": f"AIAssignmentStudio/{__version__}",
                 },
             },
         )
         response.raise_for_status()
         payload = response.json()
-    context_token = _find_context_token(payload)
+    try: check_response(payload,"微信会话刷新失败")
+    except WeixinRequestError as error:
+        record_delivery(database,error=error)
+        raise
+    cursor=payload.get("get_updates_buf")
+    if isinstance(cursor,str): binding["get_updates_buf"]=cursor
+    context_token = _find_context_token(payload,binding["user_id"])
     if context_token:
         binding["context_token"] = context_token
-        database.set_setting("weixin_binding", binding)
+        database.set_setting("weixin_delivery",{"error":None,"context_updated_at":utc_now()})
+    database.set_setting("weixin_binding", binding)
     return {
-        "ready": bool(binding.get("context_token")),
+        "ready": bool(binding.get("context_token")) and not (database.get_setting("weixin_delivery",{}) or {}).get("error"),
         "message": (
             "微信会话已就绪"
             if context_token
@@ -129,18 +159,20 @@ async def refresh_context(database: Database) -> dict[str, Any]:
     }
 
 
-def _find_context_token(value: Any) -> str:
+def _find_context_token(value: Any, user_id: str) -> str:
     if isinstance(value, dict):
+        sender=value.get("from_user_id")
         token = value.get("context_token")
-        if isinstance(token, str) and token:
+        if sender is not None and str(sender)!=user_id: return ""
+        if sender==user_id and isinstance(token, str) and token:
             return token
-        for child in value.values():
-            found = _find_context_token(child)
+        for child in reversed(list(value.values())):
+            found = _find_context_token(child,user_id)
             if found:
                 return found
     elif isinstance(value, list):
-        for child in value:
-            found = _find_context_token(child)
+        for child in reversed(value):
+            found = _find_context_token(child,user_id)
             if found:
                 return found
     return ""

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用与配置
+    url: https://github.com/ravicc02/ai-quiz-assistant/blob/main/docs/README.md
+    about: 先查看设置、平台能力和已知限制。
+  - name: 私密安全报告
+    url: https://github.com/ravicc02/ai-quiz-assistant/security/advisories/new
+    about: 凭据泄漏和越权问题请勿公开发布。

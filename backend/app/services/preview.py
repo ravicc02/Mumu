@@ -9,7 +9,9 @@ from typing import Any
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
 from ..db import Database
-from .browser import chrome_executable
+from .browser import chrome_executable, COURSE_BROWSER_ARGS, TaskBrowserProfile
+from .platforms.catalog import account_home
+from .platform_auth import restore_state
 
 
 class ProfilePreviewManager:
@@ -20,6 +22,7 @@ class ProfilePreviewManager:
         self._pages: dict[str, Page] = {}
         self._interactive_accounts: set[str] = set()
         self._lock = asyncio.Lock()
+        self._workspaces: dict[str, tuple[BrowserContext, TaskBrowserProfile]] = {}
 
     def _forget_locked(
         self,
@@ -61,6 +64,10 @@ class ProfilePreviewManager:
     ) -> None:
         async with self._lock:
             self._forget_locked(account_id, context=context)
+            owned = self._workspaces.get(account_id)
+            if owned and owned[0] is context:
+                self._workspaces.pop(account_id, None)
+                owned[1].close()
 
     async def _ensure_browser(self) -> Browser:
         if self._browser and self._browser.is_connected():
@@ -99,7 +106,7 @@ class ProfilePreviewManager:
                 reload = True
             if reload or page.url == "about:blank":
                 await page.goto(
-                    "https://i.chaoxing.com/base?ws=1",
+                    account_home(account),
                     wait_until="domcontentloaded",
                     timeout=60000,
                 )
@@ -118,83 +125,48 @@ class ProfilePreviewManager:
             }
 
     async def open_interactive(
-        self,
-        database: Database,
-        account_id: str,
-        target_url: str | None = None,
+        self, database: Database, account_id: str, target_url: str | None = None,
+        task_id: str | None = None,
     ) -> dict[str, Any]:
         async with self._lock:
             account = database.get_account(account_id)
-            destination = target_url or "https://i.chaoxing.com/base?ws=1"
-            existing_page = self._pages.get(account_id)
-            existing_context = self._contexts.get(account_id)
-            if (
-                account_id in self._interactive_accounts
-                and existing_context is not None
-                and existing_page is not None
-                and not existing_page.is_closed()
-            ):
+            key = f"{account_id}:assignment:{task_id}" if task_id else account_id
+            destination = target_url or account_home(account)
+            existing_page = self._pages.get(key)
+            if key in self._interactive_accounts and existing_page and not existing_page.is_closed():
                 if existing_page.url != destination:
-                    await existing_page.goto(
-                        destination,
-                        wait_until="domcontentloaded",
-                        timeout=60000,
-                    )
-                    await existing_page.wait_for_timeout(500)
+                    await existing_page.goto(destination, wait_until="domcontentloaded", timeout=60000)
                 await existing_page.bring_to_front()
-                return {
-                    "ok": True,
-                    "message": "已在当前账号浏览器中打开",
-                    "url": existing_page.url,
-                }
-            old_page = self._pages.pop(account_id, None)
-            if old_page and not old_page.is_closed():
-                await old_page.close()
-            old_context = self._contexts.pop(account_id, None)
-            if old_context:
-                await old_context.close()
-            self._interactive_accounts.discard(account_id)
+                return {"ok": True, "message": "已打开该作业的独立窗口" if task_id else "已打开账号浏览器", "url": existing_page.url}
+            old_context = self._contexts.pop(key, None)
+            if old_context: await old_context.close()
+            owned = self._workspaces.pop(key, None)
+            if owned: owned[1].close()
+            self._pages.pop(key, None)
+            self._interactive_accounts.discard(key)
             if self._playwright is None:
                 self._playwright = await async_playwright().start()
-            context = await self._playwright.chromium.launch_persistent_context(
-                account["profile_dir"],
-                headless=False,
-                executable_path=str(chrome_executable()),
-                viewport={"width": 1360, "height": 900},
-                args=["--start-maximized"],
-            )
-            await self._restore_cookies(context, account["storage_state_path"])
-            page = context.pages[0] if context.pages else await context.new_page()
-            context.on(
-                "close",
-                lambda _context: asyncio.create_task(
-                    self._handle_context_close(account_id, context)
-                ),
-            )
-            page.on(
-                "close",
-                lambda _page: asyncio.create_task(
-                    self._handle_page_close(account_id, context, page)
-                ),
-            )
-            await page.goto(
-                destination,
-                wait_until="domcontentloaded",
-                timeout=60000,
-            )
-            await page.wait_for_timeout(800)
-            self._contexts[account_id] = context
-            self._pages[account_id] = page
-            self._interactive_accounts.add(account_id)
-            return {
-                "ok": True,
-                "message": (
-                    "已在当前账号浏览器中打开"
-                    if target_url
-                    else "可操控浏览器已打开"
-                ),
-                "url": page.url,
-            }
+            workspace = TaskBrowserProfile(account, "manual", task_id or account_id)
+            context = None
+            try:
+                context = await self._playwright.chromium.launch_persistent_context(
+                    str(workspace.path), headless=False, executable_path=str(chrome_executable()),
+                    viewport={"width": 1360, "height": 900}, args=COURSE_BROWSER_ARGS + ["--start-maximized"],
+                )
+                await restore_state(context, account["storage_state_path"])
+                page = context.pages[0] if context.pages else await context.new_page()
+                await page.goto(destination, wait_until="domcontentloaded", timeout=60000)
+                self._contexts[key], self._pages[key] = context, page
+                self._workspaces[key] = (context, workspace)
+                self._interactive_accounts.add(key)
+                context.on("close", lambda *_: asyncio.create_task(self._handle_context_close(key, context)))
+                page.on("close", lambda *_: asyncio.create_task(self._handle_page_close(key, context, page)))
+                return {"ok": True, "message": "已打开该作业的独立窗口" if task_id else "已打开账号浏览器", "url": page.url}
+            except BaseException:
+                try:
+                    if context: await context.close()
+                finally: workspace.close()
+                raise
 
     async def _restore_cookies(self, context: BrowserContext, path: str) -> None:
         try:
@@ -207,13 +179,15 @@ class ProfilePreviewManager:
 
     async def invalidate(self, account_id: str) -> None:
         async with self._lock:
-            page = self._pages.pop(account_id, None)
-            if page and not page.is_closed():
-                await page.close()
-            context = self._contexts.pop(account_id, None)
-            if context:
-                await context.close()
-            self._interactive_accounts.discard(account_id)
+            keys = [key for key in set(self._contexts) | set(self._workspaces)
+                    if key == account_id or key.startswith(f"{account_id}:assignment:")]
+            for key in keys:
+                self._pages.pop(key, None)
+                context = self._contexts.pop(key, None)
+                if context: await context.close()
+                owned = self._workspaces.pop(key, None)
+                if owned: owned[1].close()
+                self._interactive_accounts.discard(key)
 
     async def is_interactive(self, account_id: str) -> bool:
         async with self._lock:
@@ -247,6 +221,9 @@ class ProfilePreviewManager:
                 pass
         self._contexts.clear()
         self._pages.clear()
+        for _, workspace in self._workspaces.values(): workspace.close()
+        self._workspaces.clear()
+        self._interactive_accounts.clear()
         if self._browser:
             await self._browser.close()
             self._browser = None

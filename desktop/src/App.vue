@@ -1,42 +1,131 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import QRCode from "qrcode";
+import {
+  Check, CheckCheck, Circle, CircleAlert, ClipboardList, ClipboardCheck,
+  Ellipsis, ExternalLink, FileText, Layers3,
+  LayoutDashboard, LoaderCircle, LogIn, Monitor, BookOpen,
+  Pause, Play, PlugZap, Plus, RefreshCw, RotateCcw, Save,
+  Settings2, Square, X, CircleHelp,
+  Search, ArrowUpRight, ChevronLeft, ChevronRight, ArrowDownUp,
+  Maximize2, Minimize2, PanelRightClose, PanelRightOpen
+} from "@lucide/vue";
 import { api } from "./api";
+import { buildWorkflowStages, canJobAction, mergeJobState, reconcileEvents } from "./lib/job-state";
+import PlatformLogo from "./components/PlatformLogo.vue";
+import ScreenshotViewer from "./components/ScreenshotViewer.vue";
+import LiveBrowser from "./components/LiveBrowser.vue";
+import { conciseMessage, presentEvent, taskIssue } from "./lib/task-presentation";
+import LearningWorkspace from "./components/LearningWorkspace.vue";
+import AttendanceWorkspace from "./components/AttendanceWorkspace.vue";
+import PlatformWorkspace from "./components/PlatformWorkspace.vue";
+import SettingsDialog from "./components/SettingsDialog.vue";
+import LocalProfileAvatar from "./components/LocalProfileAvatar.vue";
+import { loadLocalProfile, saveLocalProfile } from "./lib/local-profile";
+import { allowedProjectLink, checkPublishedRelease, loadUpdatePreference, saveUpdatePreference } from "./lib/app-info";
+import TaskMonitor from "./components/TaskMonitor.vue";
+import TaskTown from "./components/TaskTown.vue";
+import EducoderCourses from "./components/EducoderCourses.vue";
+import AccountAvatar from "./components/AccountAvatar.vue";
+import AccountAuthorization from "./components/AccountAuthorization.vue";
+import LearningTaskDetails from "./components/LearningTaskDetails.vue";
+import { createAccountAuthorization } from "./lib/account-authorization";
+import { assignmentBrowserTask, activeAssignmentBrowserTask } from "./lib/task-browser";
+import { assignmentReadiness, requiresMaterials } from "./lib/assignment-readiness";
+import { finalScreenshotSections } from "./lib/screenshots";
+import { createCollectionController } from "./lib/collection-controller";
+import { collectAccountBatch } from "./lib/collection-batch";
+import { assignmentDeadline, assignmentExpired } from "./lib/assignment-availability";
+import { buildTaskOverview } from "./lib/task-overview";
+import { accountsForBusiness, businessAccountId, supportsBusiness } from "./lib/platforms";
+import LeiTabs from "./components/leibox/LeiTabs.vue";
+import LeiResizeHandle from "./components/leibox/LeiResizeHandle.vue";
+const desktopAvailable = Boolean(window.desktopApi);
+const isolatedPreview = Boolean(import.meta.env?.VITE_API_BASE);
+
+function preference(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(`studio:${key}`)) ?? fallback; }
+  catch { return fallback; }
+}
+function remember(key, value) {
+  try { localStorage.setItem(`studio:${key}`, JSON.stringify(value)); }
+  catch { /* Storage can be unavailable in private browser sessions. */ }
+}
 
 const navItems = [
-  { id: "dashboard", label: "面板" },
-  { id: "platforms", label: "平台" },
-  { id: "connectors", label: "连接器" },
-  { id: "settings", label: "设置" }
+  { id: "dashboard", label: "面板", icon: LayoutDashboard },
+  { id: "platforms", label: "平台", icon: Layers3 },
+  { id: "assignments", label: "作业", icon: ClipboardList },
+  { id: "learning", label: "网课", icon: BookOpen },
+  { id: "attendance", label: "签到", icon: ClipboardCheck },
+  { id: "connectors", label: "连接器", icon: PlugZap }
 ];
 const connectors = [
-  { id: "weixin", name: "微信机器人", detail: "iLink Bot 扫码绑定", available: true },
-  { id: "feishu", name: "飞书机器人", detail: "Webhook / 应用消息", available: false },
-  { id: "dingtalk", name: "钉钉机器人", detail: "群机器人 Webhook", available: false },
-  { id: "telegram", name: "Telegram", detail: "Bot API", available: false },
-  { id: "slack", name: "Slack", detail: "Incoming Webhook", available: false },
-  { id: "email", name: "电子邮件", detail: "SMTP 完成通知", available: false }
+  { id: "weixin", name: "微信机器人", available: true }
 ];
 
 const activePage = ref("dashboard");
+const taskMonitor = ref(null);
+const townMonitor = ref(null);
+const selectedPlatformId = ref("chaoxing");
+const availabilityNow = ref(Date.now());
+const collectionBatchBusy = ref(false);
+const collectionBatchRows = ref([]);
+const assignmentQuery = ref("");
+const assignmentFilter = ref("all");
+const assignmentSort = ref("course");
+const listWidth = ref(Math.max(300, Math.min(520, Number(preference("list-width", 370)) || 370)));
+const logPanelOpen = ref(preference("log-open", true));
+const browserExpanded = ref(false);
+const captureMode = ref("task");
+const batchFailures = ref([]);
+let semesterAccountId = "";
 const accounts = ref([]);
 const assignments = ref([]);
 const semesters = ref([]);
 const jobs = ref([]);
+const learningRuns = ref([]);
+const taskSnapshotAt = ref(0);
+let jobsRefreshPromise = null;
+const learningCourseId = ref("");
 const events = ref([]);
 const artifacts = ref([]);
-const collectionRun = ref(null);
-const collectionRuns = ref([]);
+const accountCollections = ref({});
 const health = ref(null);
 const settingsInfo = ref(null);
+const settingsSection = ref("account");
+const settingsOpen = ref(false);
+const localProfile = ref(loadLocalProfile());
+const autoCheckUpdates = ref(loadUpdatePreference());
+const updateState = ref({status:"idle",message:""});
+let executionDefaultsLoaded = false;
 const platforms = ref([]);
-const selectedAccountId = ref("");
+const selectedAccountId = ref(preference("account", ""));
+const collectionController = createCollectionController({
+  fetchRuns: accountId => api.collectionRuns(accountId, 10),
+  changed: states => { accountCollections.value = states; }
+});
+const collectionRun = computed(() => accountCollections.value[selectedAccountId.value]?.run || null);
+const collecting = computed(() => Boolean(accountCollections.value[selectedAccountId.value]?.pending || collectionRun.value?.status === "running"));
 const selectedSemester = ref("");
 const selectedJobId = ref("");
-const accountName = ref("");
+const assignmentViewer = ref(null);
+const detailViewer = ref(null);
+const taskDetailsOpen = ref(false);
+const learningResultOpen = ref(false);
+const learningResultId = ref("");
+const taskDetailsLoading = ref(false);
+const deleteTaskTarget = ref(null);
+const deleteTaskBusy = ref(false);
+const deleteTaskError = ref("");
+const deletedTaskIds = ref([]);
+const jobActionPending = ref({});
+const loginAccountId = ref("");
+const authorizationOpen = ref(false);
+const authorizationState = ref({ status: "idle", platform: "chaoxing", accountId: "", account: null, message: "", error: "" });
+
 const notice = ref("");
 const busy = ref(false);
-const collecting = ref(false);
 const error = ref("");
 const screenshot = ref("");
 const profilePreview = ref("");
@@ -44,19 +133,21 @@ const profilePreviewUrl = ref("");
 const profilePreviewTitle = ref("");
 const previewLoading = ref(false);
 const autoSubmit = ref(false);
-const interactiveBrowser = ref(true);
+const interactiveBrowser = true;
 const selectedAssignmentIds = ref([]);
 const batchCreating = ref(false);
 const openingAssignmentId = ref("");
+const inspectingAssignmentId = ref("");
+const selectableAssignments = computed(() => filteredAssignments.value.filter(item => !requiresMaterials(item)));
 const socketConnected = ref(false);
 const launchConfirmOpen = ref(false);
 const pendingLaunch = ref({ kind: "", assignments: [] });
-const accountModalOpen = ref(false);
-const accountForm = ref({ name: "", platform: "chaoxing" });
+
+
 const accountMenuId = ref("");
-const renameModalOpen = ref(false);
-const renameAccountId = ref("");
-const renameValue = ref("");
+
+
+
 const deleteModalOpen = ref(false);
 const deleteAccountId = ref("");
 const deleteAccountName = ref("");
@@ -66,43 +157,50 @@ const weixinCode = ref("");
 const weixinStatus = ref("idle");
 const weixinMessage = ref("");
 const weixinVerifyCode = ref("");
-const modelModalOpen = ref(false);
-const modelForm = ref({
-  provider_name: "ssh",
-  base_url: "",
-  api_key: "",
-  models: [],
-  reasoning_effort: "high"
-});
-const modelCatalog = ref([]);
-const newModelName = ref("");
-const modelMessage = ref("");
+const weixinMode = ref("loading");
+const weixinConfig = ref(null);
+const weixinPreferencesBusy = ref(false);
+const weixinSessionBusy = ref(false);
 const verificationBusy = ref(false);
 let socket = null;
 let socketReconnectTimer = null;
 let socketGeneration = 0;
-let loginTimer = null;
+const authorizationFlow = createAccountAuthorization(api, {
+  changed: state => {
+    authorizationState.value = state;
+    loginAccountId.value = ["opening", "waiting", "verifying"].includes(state.status) ? state.accountId : "";
+  },
+  completed: (account, records, message) => {
+    accounts.value = records;
+    selectedAccountId.value = account.id;
+    notice.value = message;
+  },
+});
 let weixinTimer = null;
 let profilePreviewTimer = null;
 let agentSnapshotTimer = null;
 let agentSnapshotBusy = false;
-let collectionPollTimer = null;
+let weixinGeneration = 0;
+let weixinPollingGeneration = null;
 let connectionTimer = null;
 let connecting = false;
 let appUnmounted = false;
+let taskDetailsTrigger = null;
+let noticeTimer = null;
+let browserExpansionAnimation = null;
 
 const activeJobStatuses = new Set(["queued", "running", "paused", "stopping"]);
 const attentionJobStatuses = new Set(["needs_intervention"]);
 const busyJobStatuses = new Set([
-  ...activeJobStatuses,
-  ...attentionJobStatuses
+  ...activeJobStatuses
 ]);
-const snapshotJobStatuses = new Set(["paused", ...attentionJobStatuses]);
+const snapshotJobStatuses = new Set(["paused", "incomplete", ...attentionJobStatuses]);
 
 function canSnapshotActiveBrowser(job) {
   return Boolean(
     job
     && job.interactive
+    && job.browser_available
     && snapshotJobStatuses.has(job.status)
   );
 }
@@ -110,21 +208,34 @@ function canSnapshotActiveBrowser(job) {
 const selectedAccount = computed(() => (
   accounts.value.find((account) => account.id === selectedAccountId.value) || null
 ));
+const assignmentAccounts = computed(() => accountsForBusiness(accounts.value, "assignments"));
+const learningAccounts = computed(() => accountsForBusiness(accounts.value, "learning"));
 
-const unauthorizedAccount = computed(() => {
-  if (selectedAccount.value && selectedAccount.value.status !== "ready") {
-    return selectedAccount.value;
-  }
-  return accounts.value.find((account) => account.status !== "ready") || null;
+function ensureBusinessAccount() {
+  const business = activePage.value;
+  if (!["assignments", "learning"].includes(business)) return;
+  const next = businessAccountId(accounts.value, business, selectedAccountId.value, preference("account:" + business, ""));
+  if (next !== selectedAccountId.value) selectedAccountId.value = next;
+}
+
+const filteredAssignments = computed(() => {
+  const query = assignmentQuery.value.trim().toLocaleLowerCase();
+  return assignments.value.filter((assignment) => {
+    const job = latestJobForAssignment(assignment.id);
+    return !assignmentExpired(assignment, new Date(availabilityNow.value))
+      && (!selectedSemester.value || assignment.semester === selectedSemester.value)
+      && (!query || `${assignment.title} ${assignment.course_name}`.toLocaleLowerCase().includes(query))
+      && (assignmentFilter.value === "all"
+        || (assignmentFilter.value === "new" && !job)
+        || (assignmentFilter.value === "attention" && (requiresMaterials(assignment) || (job && ["needs_intervention", "incomplete", "interrupted", "failed"].includes(job.status)))));
+  }).sort((left, right) => assignmentSort.value === "title"
+    ? left.title.localeCompare(right.title, "zh-CN")
+    : left.course_name.localeCompare(right.course_name, "zh-CN"));
 });
 
-const filteredAssignments = computed(() => assignments.value.filter((assignment) => (
-  !selectedSemester.value || assignment.semester === selectedSemester.value
-)));
-
 const allFilteredSelected = computed(() => (
-  filteredAssignments.value.length > 0
-  && filteredAssignments.value.every((assignment) => (
+  selectableAssignments.value.length > 0
+  && selectableAssignments.value.every((assignment) => (
     selectedAssignmentIds.value.includes(assignment.id)
   ))
 ));
@@ -133,18 +244,41 @@ const selectedJob = computed(() => (
   jobs.value.find((job) => job.id === selectedJobId.value) || null
 ));
 
-const selectedAccountActiveJob = computed(() => (
-  jobs.value.find((job) => (
-    job.account_id === selectedAccountId.value
-    && busyJobStatuses.has(job.status)
-  )) || null
-));
-const selectedAccountLatestJob = computed(() => (
-  jobs.value.find((job) => job.account_id === selectedAccountId.value) || null
-));
-const platformLiveJob = computed(() => (
-  selectedAccountActiveJob.value || selectedAccountLatestJob.value
-));
+const recentAssignmentJobs = computed(() => buildTaskOverview(jobs.value, learningRuns.value));
+const batchCollectionById = computed(() => Object.fromEntries(collectionBatchRows.value.map(row => [row.id,row])));
+const batchCollectionDone = computed(() => collectionBatchRows.value.filter(row => !["queued","running"].includes(row.status)).length);
+
+
+const assignmentFilterItems = computed(() => [
+  { value: "all", label: "全部作业" },
+  { value: "new", label: "未执行" },
+  { value: "attention", label: "待处理" }
+]);
+const selectedCount = computed(() => selectedAssignmentIds.value.length);
+const browserShowsCapture = computed(() => Boolean(platformLiveJob.value && (selectedAccountActiveJob.value || captureMode.value === "task")));
+
+function accountPlatform(accountId) {
+  return accounts.value.find(account => account.id === accountId)?.platform || "chaoxing";
+}
+
+const selectedJobAttempts = computed(() => {
+  if (!selectedJob.value) return [];
+  return jobs.value.filter((job) => (
+    job.account_id === selectedJob.value.account_id
+    && job.assignment_id === selectedJob.value.assignment_id
+  )).sort((left, right) => (
+    new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+  ));
+});
+
+const platformLiveJob = computed(() => assignmentBrowserTask(jobs.value, selectedAccountId.value, selectedJobId.value));
+const selectedAccountActiveJob = computed(() => activeAssignmentBrowserTask(platformLiveJob.value));
+const accountTaskChoices = computed(() => recentAssignmentJobs.value.filter(job => job.task_kind === "assignment" && job.account_id === selectedAccountId.value));
+
+const selectedJobIssue = computed(() => taskIssue(selectedJob.value, selectedJobResult.value));
+const detailBrowserTab = ref("live");
+
+const screenshotSections = computed(() => finalScreenshotSections(events.value, artifacts.value));
 
 const groupedAssignments = computed(() => {
   const groups = new Map();
@@ -166,13 +300,12 @@ const visibleEvents = computed(() => {
   let stepNumber = 0;
   return events.value
     .filter((event) => (
-      event.kind !== "heartbeat"
-      && (event.kind !== "screenshot" || event.message)
+      !["heartbeat", "screenshot", "screenshot_segment"].includes(event.kind)
     ))
     .map((event) => {
       if (event.kind === "step") stepNumber += 1;
       return {
-        ...event,
+        ...presentEvent(event),
         step_number: event.kind === "step" ? stepNumber : null,
         state_label: logEventStateLabel(event.kind)
       };
@@ -180,18 +313,17 @@ const visibleEvents = computed(() => {
     .reverse();
 });
 
-const currentAgentState = computed(() => (
+const currentAgentState = computed(() => presentEvent(
   [...events.value]
     .reverse()
-    .find((event) => !["heartbeat", "screenshot"].includes(event.kind))
+    .find((event) => !["heartbeat", "screenshot", "notification", "notification_error"].includes(event.kind))
   || null
 ));
 
 const structuredFillCount = computed(() => (
-  Number(
-    events.value.find((event) => event.kind === "quiz_filled")?.data?.filled_count
-    || 0
-  )
+  Math.max(Number(selectedJob.value?.completed_units || 0), ...events.value
+    .filter(event => ["quiz_filled", "quiz_unit_filled"].includes(event.kind))
+    .map(event => Number(event.data?.filled_count || 0)))
 ));
 
 const completedStepCount = computed(() => (
@@ -207,76 +339,15 @@ const progressUnitLabel = computed(() => (
     : "动作步骤"
 ));
 
-const workflowStages = computed(() => {
-  if (!selectedJob.value) return [];
-  const kinds = new Set(events.value.map((event) => event.kind));
-  const status = selectedJob.value.status;
-  const running = activeJobStatuses.has(status);
-  const needsIntervention = status === "needs_intervention";
-  const completed = status === "completed";
-  const failedLike = ["failed", "stopped", "interrupted", "incomplete"].includes(status);
-  const browserDone = ["session_ready", "browser"].some((kind) => kinds.has(kind));
-  const agentDone = kinds.has("agent_ready") || kinds.has("quiz_extracted");
-  const hasStep = (
-    completedStepCount.value > 0
-    || kinds.has("quiz_filled")
-  );
-  const latestKind = currentAgentState.value?.kind || "";
-  const stages = [
-    {
-      id: "queued",
-      label: "任务排队",
-      detail: running || needsIntervention ? "当前账号浏览器已分配" : "已创建任务",
-      state: running || needsIntervention || browserDone ? "done" : "active"
-    },
-    {
-      id: "browser",
-      label: "登录与浏览器",
-      detail: browserDone ? "Cookie 已注入，浏览器已连接" : "准备学习通浏览器",
-      state: browserDone ? "done" : (kinds.has("browser_starting") ? "active" : "pending")
-    },
-    {
-      id: "agent",
-      label: "Agent 初始化",
-      detail: agentDone ? "模型和页面控制已就绪" : "等待 Agent 就绪",
-      state: agentDone ? "done" : (browserDone ? "active" : "pending")
-    },
-    {
-      id: "analyze",
-      label: "页面分析",
-      detail: latestKind === "thinking" ? "正在分析当前页面和下一步" : "读取题目与控件",
-      state: latestKind === "thinking"
-        ? "active"
-        : (hasStep || completed || needsIntervention ? "done" : (agentDone ? "active" : "pending"))
-    },
-    {
-      id: "execute",
-      label: "执行步骤",
-      detail: `已完成 ${completedStepCount.value} 个${progressUnitLabel.value}`,
-      state: needsIntervention
-        ? "attention"
-        : (completed
-          ? "done"
-          : (failedLike ? "error" : (running ? "active" : "pending")))
-    },
-    {
-      id: "result",
-      label: "结果确认",
-      detail: needsIntervention
-        ? "等待人工进入浏览器补充"
-        : (completed ? "填写完成，待人工核对" : (failedLike ? "任务已结束" : "等待执行结果")),
-      state: completed
-        ? "done"
-        : (needsIntervention ? "attention" : (failedLike ? "error" : "pending"))
-    }
-  ];
-  return stages;
-});
+const workflowStages = computed(() => buildWorkflowStages(selectedJob.value, events.value, {
+  completedCount: completedStepCount.value, unitLabel: progressUnitLabel.value
+}));
 
 const activeJobs = computed(() => (
-  jobs.value.filter((job) => busyJobStatuses.has(job.status))
+  jobs.value.filter((job) => busyJobStatuses.has(job.status) || job.browser_available)
 ));
-const activeJob = computed(() => activeJobs.value[0] || null);
+const activeJob = computed(() => activeJobs.value.find(job => ['running', 'paused', 'stopping'].includes(job.status))
+  || activeJobs.value.find(job => job.browser_available) || activeJobs.value[0] || null);
 
 const selectedJobResult = computed(() => {
   const resultEvent = [...events.value]
@@ -284,7 +355,7 @@ const selectedJobResult = computed(() => {
     .find((event) => (
       ["result_summary", "completed", "incomplete", "stopped"].includes(event.kind)
     ));
-  return resultEvent?.message || "";
+  return conciseMessage(resultEvent?.message);
 });
 
 const jobStatusLabels = {
@@ -293,11 +364,11 @@ const jobStatusLabels = {
   paused: "已暂停",
   stopping: "停止中",
   stopped: "已停止",
-  completed: "执行完成",
+  completed: "已完成",
   incomplete: "未完成",
   needs_intervention: "待介入",
-  failed: "执行失败",
-  interrupted: "已中断"
+  failed: "中断",
+  interrupted: "中断"
 };
 
 const submissionStatusLabels = {
@@ -336,7 +407,7 @@ function accountStatusLabel(status) {
 }
 
 function platformLabel(platform) {
-  return platformLabels[platform] || platform || "未知平台";
+  return platforms.value.find(item => item.name === platform)?.label || platformLabels[platform] || platform || "未知平台";
 }
 
 function formatLocalTime(value) {
@@ -356,37 +427,6 @@ function currentAcademicYear() {
   return today.getMonth() >= 7 ? today.getFullYear() : today.getFullYear() - 1;
 }
 
-function collectionStatusLabel(account) {
-  if (!account.auto_collect_enabled) {
-    if (account.last_collection_status === "success") {
-      return `上次采集成功 · ${account.last_collection_count || 0} 个可提交`;
-    }
-    if (account.last_collection_status === "error") {
-      return "上次采集失败";
-    }
-  if (account.last_collection_status === "partial") {
-    return `上次部分采集 · ${account.last_collection_count || 0} 个可提交`;
-  }
-  if (account.last_collection_status === "running") {
-    return "正在采集";
-  }
-    return "";
-  }
-  if (account.last_collection_status === "success") {
-    return `采集成功 · ${account.last_collection_count || 0} 个可提交`;
-  }
-  if (account.last_collection_status === "error") {
-    return "采集失败";
-  }
-  if (account.last_collection_status === "partial") {
-    return `部分采集 · ${account.last_collection_count || 0} 个可提交`;
-  }
-  if (account.last_collection_status === "running") {
-    return "正在采集";
-  }
-  return "已启用，等待下次检测";
-}
-
 function collectionRunLabel(run) {
   if (!run) return "";
   if (run.status === "running") {
@@ -400,10 +440,11 @@ function collectionRunLabel(run) {
   if (run.status === "failed") {
     return run.error || "采集失败";
   }
-  return `采集完成：${run.submittable_count || 0} 个可提交`;
+  return "采集完成 · 当前 " + assignments.value.filter(item => !assignmentExpired(item, new Date(availabilityNow.value))).length + " 个待处理";
 }
 
 function assignmentEmptyTitle() {
+  if (!selectedAccount.value) return "尚未选择账号";
   if (selectedAccount.value?.status !== "ready") {
     return "账号尚未授权";
   }
@@ -417,45 +458,22 @@ function assignmentEmptyTitle() {
     return "采集失败";
   }
   if (collectionRun.value.status === "partial") {
-    return "本轮未发现可提交作业";
+    return "本轮未发现待处理作业";
   }
-  return "暂无可提交作业";
+  return "暂无待处理作业";
 }
 
 function assignmentEmptyDescription() {
-  if (selectedAccount.value?.status !== "ready") {
-    return "通过账号右侧“...”菜单刷新 Cookie 完成授权。";
+  if (selectedAccount.value?.last_login_error) {
+    return selectedAccount.value.last_login_error;
   }
-  if (!collectionRun.value) {
-    return "点击“采集”读取当前学年仍可提交的作业。";
-  }
-  if (collectionRun.value.status === "running") {
-    return "采集完成后作业列表会自动更新。";
-  }
-  if (collectionRun.value.status === "failed") {
+  if (collectionRun.value?.status === "failed") {
     return collectionRun.value.error || "请检查登录状态和网络后重试。";
   }
-  if (collectionRun.value.status === "partial") {
+  if (collectionRun.value?.status === "partial") {
     return `有 ${collectionRun.value.failed_courses} 个课程采集失败，请展开上方失败详情。`;
   }
-  return "本轮采集没有发现仍可提交的未完成作业。";
-}
-
-function nextCollectionLabel(account) {
-  if (account.last_collection_status === "running") {
-    return "正在执行";
-  }
-  if (!account.auto_collect_enabled || !account.last_collection_at) {
-    return "";
-  }
-  const last = new Date(account.last_collection_at);
-  if (Number.isNaN(last.getTime())) return "";
-  const interval = Number(account.auto_collect_interval_minutes || 360);
-  const next = new Date(last.getTime() + interval * 60 * 1000);
-  if (next.getTime() <= Date.now()) {
-    return "下次采集：即将执行";
-  }
-  return `下次采集：${formatLocalTime(next.toISOString())}`;
+  return "";
 }
 
 function latestJobForAssignment(assignmentId) {
@@ -463,6 +481,7 @@ function latestJobForAssignment(assignmentId) {
 }
 
 function queuePosition(job) {
+  if (job?.queue_position) return job.queue_position;
   if (!job || job.status !== "queued") return 0;
   const queued = jobs.value
     .filter((item) => (
@@ -478,8 +497,8 @@ function queuePosition(job) {
 function assignmentJobLabel(assignmentId) {
   const job = latestJobForAssignment(assignmentId);
   if (!job) return "执行";
-  if (busyJobStatuses.has(job.status)) return "查看任务";
-  return "再次执行";
+  if (job.browser_available || ["needs_intervention", "completed"].includes(job.status) || !canJobAction(job, "retry")) return "查看任务";
+  return "重试";
 }
 
 function isActiveJob(job) {
@@ -492,16 +511,28 @@ function isNeedsIntervention(job) {
 
 function hasActiveJobForAccount(accountId) {
   return jobs.value.some((job) => (
-    job.account_id === accountId && busyJobStatuses.has(job.status)
+    job.account_id === accountId && (busyJobStatuses.has(job.status) || job.browser_available)
   ));
+}
+
+function accountOperationBusy(accountId) {
+  return hasActiveJobForAccount(accountId)
+    || Boolean(accounts.value.find(account => account.id === accountId)?.learning_run)
+    || Boolean(accountCollections.value[accountId]?.pending || accountCollections.value[accountId]?.run?.status === "running");
 }
 
 function artifactLabel(kind) {
   return {
     screenshot: "步骤截图",
     final_screenshot: "最终截图",
+    live_screenshot: "最近实时画面",
     result_json: "运行结果 JSON"
   }[kind] || kind;
+}
+
+function artifactTitle(artifact) {
+  const section = screenshotSections.value.find(item => item.id === artifact.id);
+  return section ? `截图第 ${section.index}/${section.count} 段` : artifactLabel(artifact.kind);
 }
 
 function shortText(value, limit = 42) {
@@ -530,9 +561,7 @@ function actionSummary(actions, details = []) {
         value && typeof value === "object" && !Array.isArray(value)
       )) || data;
       const label = labels[type] || type || "动作";
-      if (type.includes("Navigate") && nested.url) {
-        return `打开 ${shortText(nested.url, 56)}`;
-      }
+      if (type.includes("Navigate") && nested.url) return "打开任务页面";
       if (type.includes("Input") && nested.text) {
         return `输入「${shortText(nested.text)}」`;
       }
@@ -552,7 +581,7 @@ function actionSummary(actions, details = []) {
         return "结束任务";
       }
       const fallback = shortText(JSON.stringify(nested));
-      return fallback && fallback !== "{}" ? `${label} ${fallback}` : label;
+      return label;
     }).join("；");
   }
   if (!Array.isArray(actions) || actions.length === 0) return "";
@@ -578,13 +607,13 @@ function logEventStateLabel(kind) {
     resumed: "已继续",
     stopping: "停止中",
     stopped: "已停止",
-    completed: "已执行",
+    completed: "已完成",
     incomplete: "未完成",
     needs_intervention: "待介入",
-    failed: "失败",
+    failed: "中断",
     error: "异常",
     stalled: "疑似卡住",
-    interrupted: "已中断",
+    interrupted: "中断",
     notification: "通知",
     submission_verified: "已核验",
     submission_reviewed: "已人工核对",
@@ -593,49 +622,22 @@ function logEventStateLabel(kind) {
     quiz_navigating: "读取题型",
     quiz_extracted: "已识别",
     quiz_answers_ready: "答案就绪",
-    quiz_filled: "已填写"
+    quiz_filled: "已填写",
+    draft_saving: "暂存中",
+    draft_saved: "已暂存",
+    screenshot_segment: "分段截图",
+    quiz_unit_filled: "已填写",
+    browser_closed: "浏览器已关闭"
   }[kind] || "状态";
 }
 
-function deadlineState(deadlineText) {
-  if (!deadlineText) {
-    return { label: "截止时间未知", className: "unknown" };
-  }
-  const match = String(deadlineText).match(
-    /至\s*(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/
-  );
-  if (!match) {
-    return { label: "截止时间未知", className: "unknown" };
-  }
-  const [, month, day, hour, minute] = match;
-  const now = new Date();
-  let deadline = new Date(
-    now.getFullYear(),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute)
-  );
-  if (deadline.getTime() - now.getTime() > 180 * 24 * 60 * 60 * 1000) {
-    deadline = new Date(
-      now.getFullYear() - 1,
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-      Number(minute)
-    );
-  }
+function deadlineState(assignment) {
+  const now = new Date(availabilityNow.value);
+  const deadline = assignmentDeadline(assignment, now);
+  if (!deadline) return { label: "截止时间未知", className: "unknown" };
   const remaining = deadline.getTime() - now.getTime();
-  if (remaining < 0) {
-    return {
-      label: "已过期但仍可提交",
-      className: "overdue"
-    };
-  }
-  if (remaining < 48 * 60 * 60 * 1000) {
-    return { label: "即将截止", className: "soon" };
-  }
-  return { label: "可提交", className: "open" };
+  if (remaining < 0) return { label: "已过截止", className: "overdue" };
+  return remaining < 48 * 3600000 ? { label: "即将截止", className: "soon" } : { label: "作答期内", className: "open" };
 }
 
 const connectionLabel = computed(() => {
@@ -644,7 +646,7 @@ const connectionLabel = computed(() => {
 });
 
 function setError(value) {
-  error.value = value instanceof Error ? value.message : String(value || "");
+  error.value = conciseMessage(value instanceof Error ? value.message : String(value || ""));
 }
 
 async function loadHealth({ silent = false } = {}) {
@@ -668,25 +670,23 @@ async function loadPlatforms() {
   platforms.value = await api.platforms();
 }
 
-async function loadModelConfig() {
-  const config = await api.modelConfig();
-  modelForm.value = {
-    provider_name: config.provider_name || "custom",
-    base_url: config.base_url || "",
-    api_key: "",
-    models: [...(config.models || [])],
-    reasoning_effort: config.reasoning_effort || "high"
-  };
+async function loadExecutionDefaults() {
+  if (executionDefaultsLoaded) return;
+  const preferences = await api.preferences();
+  autoSubmit.value = preferences.assignments.auto_submit;
+  executionDefaultsLoaded = true;
 }
 
 async function loadAccounts() {
   accounts.value = await api.accounts();
-  if (!selectedAccountId.value && accounts.value.length > 0) {
-    selectedAccountId.value = accounts.value[0].id;
+  if (["assignments", "learning"].includes(activePage.value)) ensureBusinessAccount();
+  else if (!accounts.value.some(account => account.id === selectedAccountId.value)) {
+    selectedAccountId.value = accounts.value[0]?.id || "";
   }
 }
 
 async function refreshProfilePreview(reload = false) {
+  if (previewLoading.value) return;
   if (!selectedAccountId.value) {
     profilePreview.value = "";
     profilePreviewUrl.value = "";
@@ -695,29 +695,34 @@ async function refreshProfilePreview(reload = false) {
     return;
   }
   previewLoading.value = true;
+  const accountId = selectedAccountId.value;
   if (!profilePreview.value) {
     profilePreviewTitle.value = "正在加载当前账号页面...";
   }
   try {
-    const preview = await api.preview(selectedAccountId.value, reload);
+    const preview = await api.preview(accountId, reload);
+    if (accountId !== selectedAccountId.value) return;
     profilePreview.value = preview.image;
     profilePreviewUrl.value = preview.url;
     profilePreviewTitle.value = preview.title;
   } catch (previewError) {
+    if (accountId !== selectedAccountId.value) return;
     profilePreview.value = "";
     profilePreviewUrl.value = "";
     profilePreviewTitle.value = previewError.message;
   } finally {
-    previewLoading.value = false;
+    if (accountId === selectedAccountId.value) previewLoading.value = false;
   }
 }
 
 function startProfilePreview() {
   clearInterval(profilePreviewTimer);
   if (
-    activePage.value !== "platforms"
+    activePage.value !== "assignments"
     || !selectedAccountId.value
-    || platformLiveJob.value
+    || collecting.value
+    || selectedAccountActiveJob.value
+    || (captureMode.value === "task" && platformLiveJob.value)
   ) {
     return;
   }
@@ -726,45 +731,50 @@ function startProfilePreview() {
 }
 
 async function syncPlatformLiveJob() {
-  if (activePage.value !== "platforms" || !platformLiveJob.value) {
+  if (taskDetailsOpen.value || activePage.value !== "assignments" || !platformLiveJob.value) {
     return;
   }
-  if (selectedJobId.value !== platformLiveJob.value.id) {
+  if (selectedJobId.value !== platformLiveJob.value.id || (!events.value.length && !taskDetailsLoading.value)) {
     await selectJob(platformLiveJob.value.id);
   }
 }
 
 function openConnector(connector) {
   if (connector.id === "weixin") {
-    openWeixinBinding();
+    openWeixinConnector();
     return;
   }
   notice.value = `${connector.name} 连接器尚未开放。`;
 }
 
 async function loadAssignments() {
-  const academicYear = selectedSemester.value
-    ? Number(selectedSemester.value.slice(0, 4))
-    : undefined;
-  assignments.value = await api.assignments({
-    accountId: selectedAccountId.value || undefined,
-    academicYear,
-    submittable: true
-  });
+  if (!supportsBusiness(selectedAccount.value, "assignments")) { assignments.value = []; return; }
+  const accountId = selectedAccountId.value, semester = selectedSemester.value;
+  const result = await api.assignments({ accountId: accountId || undefined, submittable: true });
+  if (accountId !== selectedAccountId.value || semester !== selectedSemester.value) return;
+  assignments.value = result.filter(item => !assignmentExpired(item) && (!semester || item.semester === semester));
+  const ids = new Set(assignments.value.map(item => item.id));
+  selectedAssignmentIds.value = selectedAssignmentIds.value.filter(id => ids.has(id));
 }
 
-async function loadCollectionRuns() {
-  if (!selectedAccountId.value) {
-    collectionRuns.value = [];
-    collectionRun.value = null;
-    return;
-  }
-  collectionRuns.value = await api.collectionRuns(selectedAccountId.value, 10);
-  collectionRun.value = collectionRuns.value[0] || null;
+async function loadCollectionRuns(accountId = selectedAccountId.value) {
+  await collectionController.refresh(accountId);
 }
 
 async function loadSemesters() {
-  semesters.value = await api.semesters(selectedAccountId.value || undefined);
+  if (!supportsBusiness(selectedAccount.value, "assignments")) {
+    semesters.value = []; selectedSemester.value = ""; return;
+  }
+  const accountId = selectedAccountId.value;
+  const result = await api.semesters(accountId || undefined);
+  if (accountId !== selectedAccountId.value) return;
+  semesters.value = result;
+  if (semesterAccountId !== accountId) {
+    const saved = preference(`semester:${accountId}`, null);
+    selectedSemester.value = saved === "" || result.includes(saved) ? saved : (result[0] || "");
+    semesterAccountId = accountId;
+    return;
+  }
   if (!selectedSemester.value && semesters.value.length > 0) {
     selectedSemester.value = semesters.value[0];
   }
@@ -774,10 +784,17 @@ async function loadSemesters() {
 }
 
 async function loadJobs() {
-  jobs.value = await api.jobs();
-  if (!selectedJobId.value && jobs.value.length > 0) {
-    await selectJob(jobs.value[0].id);
-  }
+  if (jobsRefreshPromise) return jobsRefreshPromise;
+  jobsRefreshPromise = (async () => {
+    const [incoming, courses] = await Promise.all([api.jobs(), api.learningRuns()]);
+    if (appUnmounted) return;
+    const removed = new Set(deletedTaskIds.value);
+    jobs.value = incoming.filter(job => !removed.has(job.id)).map(job => mergeJobState(jobs.value.find(previous => previous.id === job.id), job));
+    learningRuns.value = courses.filter(run => !removed.has(run.id)).map(run => mergeJobState(learningRuns.value.find(previous => previous.id === run.id), run));
+    taskSnapshotAt.value = Date.now();
+    if (!selectedJobId.value && jobs.value.length > 0) await selectJob(jobs.value[0].id);
+  })().finally(() => { jobsRefreshPromise = null; });
+  return jobsRefreshPromise;
 }
 
 async function refreshWorkspace() {
@@ -786,7 +803,7 @@ async function refreshWorkspace() {
     loadJobs(),
     loadSettings(),
     loadPlatforms(),
-    loadModelConfig()
+    loadExecutionDefaults()
   ]);
   if (selectedAccountId.value) {
     await Promise.all([
@@ -814,53 +831,21 @@ async function connectBackend() {
   }
 }
 
-async function createAccount() {
-  if (!accountForm.value.name.trim()) return;
-  busy.value = true;
-  try {
-    const account = await api.createAccount(
-      accountForm.value.name.trim(),
-      accountForm.value.platform
-    );
-    await loadAccounts();
-    selectedAccountId.value = account.id;
-    accountModalOpen.value = false;
-    accountName.value = "";
-    notice.value = "账号已添加。点击账号右侧“...”→“刷新 Cookie”完成登录授权。";
-  } catch (createError) {
-    setError(createError);
-  } finally {
-    busy.value = false;
-  }
+async function confirmPlatformAuthorization(account) {
+  try { await api.confirmAuthorization(account.id); notice.value = "正在保存浏览器授权"; }
+  catch (failure) { setError(failure); }
 }
 
-async function startLogin() {
-  if (!selectedAccountId.value) return;
-  busy.value = true;
-  notice.value = "正在打开登录浏览器...";
-  try {
-    await api.login(selectedAccountId.value);
-    await loadAccounts();
-    clearInterval(loginTimer);
-    loginTimer = setInterval(async () => {
-      const status = await api.loginStatus(selectedAccountId.value);
-      notice.value = status.message || status.status;
-      if (["success", "error", "idle"].includes(status.status)) {
-        clearInterval(loginTimer);
-        loginTimer = null;
-        await loadAccounts();
-      }
-    }, 1500);
-  } catch (loginError) {
-    setError(loginError);
-  } finally {
-    busy.value = false;
-  }
+async function startLogin(accountId = selectedAccountId.value) {
+  authorizationOpen.value = true;
+  if (authorizationFlow.pending()) return;
+  const account = accounts.value.find(item => item.id === accountId);
+  if (account) await authorizationFlow.start(account.platform, account);
 }
 
 async function authorizeAccount(account) {
-  selectedAccountId.value = account.id;
-  await startLogin();
+  accountMenuId.value = "";
+  await startLogin(account.id);
 }
 
 async function refreshAccountCookie(account) {
@@ -873,7 +858,7 @@ async function refreshAccountCookie(account) {
     if (!result.ok) {
       await authorizeAccount(account);
     }
-    await refreshProfilePreview(true);
+    if (activePage.value === "assignments") await refreshProfilePreview(true);
   } catch (refreshError) {
     setError(refreshError);
   } finally {
@@ -881,8 +866,22 @@ async function refreshAccountCookie(account) {
   }
 }
 
-function toggleAccountMenu(accountId) {
+async function toggleAccountMenu(accountId) {
   accountMenuId.value = accountMenuId.value === accountId ? "" : accountId;
+  if (accountMenuId.value) {
+    await nextTick();
+    document.querySelector(".account-menu button:not(:disabled)")?.focus();
+  }
+}
+
+function navigateAccountMenu(event) {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const items = [...event.currentTarget.querySelectorAll("button:not(:disabled)")];
+  const current = items.indexOf(document.activeElement);
+  const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+    : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+  items[next]?.focus();
 }
 
 function closeAccountMenuOnOutsideClick(event) {
@@ -895,8 +894,13 @@ function closeAccountMenuOnOutsideClick(event) {
 
 function closeAccountMenuOnEscape(event) {
   if (event.key === "Escape") {
-    if (modelModalOpen.value) {
-      modelModalOpen.value = false;
+    if (settingsOpen.value) { settingsOpen.value = false; return; }
+    if (learningResultOpen.value) { learningResultOpen.value = false; return; }
+    if (authorizationOpen.value) { authorizationOpen.value = false; return; }
+    if (deleteTaskTarget.value) { if (!deleteTaskBusy.value) deleteTaskTarget.value = null; return; }
+    if (browserExpanded.value) { toggleBrowserExpansion(); return; }
+    if (taskDetailsOpen.value) {
+      taskDetailsOpen.value = false;
       return;
     }
     if (weixinModalOpen.value) {
@@ -907,19 +911,15 @@ function closeAccountMenuOnEscape(event) {
       deleteModalOpen.value = false;
       return;
     }
-    if (renameModalOpen.value) {
-      renameModalOpen.value = false;
-      return;
-    }
-    if (accountModalOpen.value) {
-      accountModalOpen.value = false;
-      return;
-    }
+
+
     if (launchConfirmOpen.value) {
       launchConfirmOpen.value = false;
       return;
     }
+    const openMenuId = accountMenuId.value;
     accountMenuId.value = "";
+    document.querySelector(`.account-item[data-account-id="${openMenuId}"] .account-more`)?.focus();
     return;
   }
   if (event.key === "Tab") {
@@ -939,25 +939,6 @@ function closeAccountMenuOnEscape(event) {
       event.preventDefault();
       first.focus();
     }
-  }
-}
-
-function openRenameAccount(account) {
-  accountMenuId.value = "";
-  renameAccountId.value = account.id;
-  renameValue.value = account.name;
-  renameModalOpen.value = true;
-}
-
-async function saveRenameAccount() {
-  if (!renameValue.value.trim()) return;
-  try {
-    await api.renameAccount(renameAccountId.value, renameValue.value.trim());
-    renameModalOpen.value = false;
-    await loadAccounts();
-    notice.value = "账号已重命名。";
-  } catch (renameError) {
-    setError(renameError);
   }
 }
 
@@ -983,55 +964,55 @@ async function confirmDeleteAccount() {
   }
 }
 
-async function collectAssignments() {
-  if (!selectedAccountId.value) return;
-  if (selectedAccount.value?.status !== "ready") {
-    notice.value = "当前账号尚未授权，正在打开学习通登录。";
-    await authorizeAccount(selectedAccount.value);
-    return;
-  }
-  collecting.value = true;
-  error.value = "";
-  collectionRun.value = {
-    status: "running",
-    progress: 1,
-    current_course: "",
-    total_courses: 0,
-    processed_courses: 0,
-    failed_courses: 0
-  };
-  clearInterval(collectionPollTimer);
-  collectionPollTimer = setInterval(async () => {
-    try {
-      await loadCollectionRuns();
-    } catch {
-      // The active request will surface the terminal collection error.
-    }
-  }, 1200);
+function collectionSkipReason(account) {
+  if (account.status !== "ready") return "账号尚未授权";
+  if (!platforms.value.find(item => item.name === account.platform)?.assignments) return "该平台不支持作业采集";
+  if (account.learning_run) return "网课任务占用中";
+  if (jobs.value.some(job => job.account_id === account.id && (job.browser_available || activeJobStatuses.has(job.status)))) return "作业任务占用中";
+  if (accountCollections.value[account.id]?.pending || accountCollections.value[account.id]?.run?.status === "running") return "该账号正在采集";
+  return "";
+}
+
+async function collectOneAccount(account, academicYear) {
+  if (!collectionController.begin(account.id)) throw new Error("该账号正在采集");
+  let finishedRun = null;
   try {
-    const academicYear = selectedSemester.value
-      ? Number(selectedSemester.value.slice(0, 4))
-      : currentAcademicYear();
-    const result = await api.collect(selectedAccountId.value, academicYear);
-    await Promise.all([
-      loadAccounts(),
-      loadSemesters(),
-      loadAssignments(),
-      loadCollectionRuns()
-    ]);
-    collectionRun.value = result.finished || collectionRun.value;
-    notice.value = result.status === "partial"
-      ? `部分采集完成：${result.submittable} 个可提交，${result.failed_courses} 个课程失败`
-      : `采集完成：${result.submittable} 个当前可提交作业`;
-    activePage.value = "platforms";
-  } catch (collectError) {
-    setError(collectError);
-    await loadCollectionRuns().catch(() => {});
+    const result = await api.collect(account.id, academicYear);
+    finishedRun = result.finished;
+    const current = await api.assignments({ accountId: account.id, submittable: true });
+    const count = current.filter(item => !assignmentExpired(item)).length;
+    await loadAccounts();
+    if (selectedAccountId.value === account.id) { await loadSemesters(); await loadAssignments(); }
+    return { ...result, submittable: count };
   } finally {
-    clearInterval(collectionPollTimer);
-    collectionPollTimer = null;
-    collecting.value = false;
+    collectionController.finish(account.id, finishedRun);
+    await loadCollectionRuns(account.id).catch(() => {});
   }
+}
+
+async function collectAssignments() {
+  const account = selectedAccount.value;
+  if (!account) return;
+  const reason = collectionSkipReason(account);
+  if (reason) { notice.value = reason; return; }
+  error.value = "";
+  try {
+    const result = await collectOneAccount(account, currentAcademicYear());
+    notice.value = account.name + "：采集完成，当前 " + result.submittable + " 个待处理" + (result.status === "partial" ? "，部分课程失败" : "");
+  } catch (failure) { setError(new Error(account.name + "：" + failure.message)); }
+}
+
+async function collectAllAccounts() {
+  if (collectionBatchBusy.value) return;
+  collectionBatchBusy.value = true; collectionBatchRows.value = []; error.value = "";
+  try {
+    const preferences = await api.preferences();
+    const result = await collectAccountBatch([...assignmentAccounts.value], { concurrency: preferences.system.collection_concurrency,
+      skip: collectionSkipReason, collect: account => collectOneAccount(account, currentAcademicYear()),
+      changed: rows => { if (!appUnmounted) collectionBatchRows.value = rows; } });
+    if (!appUnmounted) notice.value = "一键采集结束：" + result.filter(row => ["success", "partial"].includes(row.status)).length + " 个已采集，" + result.filter(row => row.status === "error").length + " 个失败，" + result.filter(row => row.status === "skipped").length + " 个跳过";
+  } catch (failure) { if (!appUnmounted) setError(failure); }
+  finally { collectionBatchBusy.value = false; }
 }
 
 async function createJob(assignment) {
@@ -1039,13 +1020,17 @@ async function createJob(assignment) {
   error.value = "";
   notice.value = `正在创建任务：${assignment.title}`;
   try {
+    if (assignmentExpired(assignment)) throw new Error("作业已超过截止时间，请重新采集确认。");
     const job = await api.createJob(
       assignment.id,
       autoSubmit.value,
-      interactiveBrowser.value
+      interactiveBrowser
     );
     jobs.value = [job, ...jobs.value];
-    await selectJob(job.id);
+    if (selectedAccountId.value === job.account_id) {
+      if (job.blocked_by_job_id) await openTaskDetails(job.id);
+      else await selectJob(job.id);
+    }
     notice.value = `Agent 任务已创建：${assignment.title}`;
   } catch (jobError) {
     setError(jobError);
@@ -1054,14 +1039,29 @@ async function createJob(assignment) {
   }
 }
 
+async function inspectAssignment(assignment) {
+  inspectingAssignmentId.value = assignment.id;
+  try {
+    const checked = await api.inspectAssignment(assignment.id);
+    assignments.value = assignments.value.map(item => item.id === checked.id ? checked : item);
+    notice.value = "作业要求与作答状态已更新";
+  } catch (inspectError) { setError(inspectError); }
+  finally { inspectingAssignmentId.value = ""; }
+}
+
 async function startAssignmentJob(assignment) {
+  if (requiresMaterials(assignment)) { await openAssignment(assignment); return; }
   const existingJob = latestJobForAssignment(assignment.id);
-  if (existingJob && busyJobStatuses.has(existingJob.status)) {
-    await selectJob(existingJob.id);
-    notice.value = "已在浏览器栏显示该作业的当前执行页面。";
+  if (existingJob && assignmentJobLabel(assignment.id) === "查看任务") {
+    await openTaskDetails(existingJob.id);
+    notice.value = "已打开该作业的任务状态。";
     return;
   }
-  if (autoSubmit.value) {
+  if (existingJob) {
+    await requestRetry(existingJob);
+    return;
+  }
+  if (autoSubmit.value && assignment.platform !== 'educoder') {
     pendingLaunch.value = { kind: "single", assignments: [assignment] };
     launchConfirmOpen.value = true;
     return;
@@ -1070,11 +1070,18 @@ async function startAssignmentJob(assignment) {
 }
 
 async function openAssignment(assignment) {
+  const existing = jobs.value.find(job => job.assignment_id === assignment.id && job.browser_available);
+  if (existing) {
+    await selectJob(existing.id);
+    await focusAgentBrowser(existing.id);
+    return;
+  }
   openingAssignmentId.value = assignment.id;
   error.value = "";
   notice.value = `正在打开：${assignment.title}`;
   try {
     const result = await api.openAssignment(assignment.id);
+    captureMode.value = "profile";
     notice.value = result.message;
     await refreshProfilePreview(false);
   } catch (openError) {
@@ -1098,17 +1105,16 @@ function toggleAssignmentSelection(assignmentId) {
 }
 
 function toggleSelectAllAssignments() {
+  const visibleIds = new Set(selectableAssignments.value.map(assignment => assignment.id));
   if (allFilteredSelected.value) {
-    selectedAssignmentIds.value = []
+    selectedAssignmentIds.value = selectedAssignmentIds.value.filter(id => !visibleIds.has(id));
     return
   }
-  selectedAssignmentIds.value = filteredAssignments.value.map(
-    (assignment) => assignment.id
-  )
+  selectedAssignmentIds.value = [...new Set([...selectedAssignmentIds.value, ...visibleIds])];
 }
 
 async function createBatchJobs() {
-  const candidates = filteredAssignments.value.filter((assignment) => (
+  const candidates = assignments.value.filter((assignment) => (
     selectedAssignmentIds.value.includes(assignment.id)
   ));
   if (candidates.length === 0) {
@@ -1116,16 +1122,21 @@ async function createBatchJobs() {
     return
   }
   const selected = candidates.filter((assignment) => (
-    !isActiveJob(latestJobForAssignment(assignment.id))
+    !assignmentExpired(assignment)
+    && !requiresMaterials(assignment)
+    && !isActiveJob(latestJobForAssignment(assignment.id))
+    && !latestJobForAssignment(assignment.id)?.browser_available
+    && !["needs_intervention", "completed"].includes(latestJobForAssignment(assignment.id)?.status)
+    && (!latestJobForAssignment(assignment.id) || canJobAction(latestJobForAssignment(assignment.id), "retry"))
   ));
   const skipped = candidates.length - selected.length;
   if (selected.length === 0) {
     notice.value = skipped > 0
-      ? `所选 ${skipped} 个作业已有运行中任务，请从作业行进入对应任务。`
+      ? `所选 ${skipped} 个作业需要先查看任务状态，请从作业行进入对应任务。`
       : "请先选择至少一个作业。";
     return;
   }
-  if (autoSubmit.value) {
+  if (autoSubmit.value && selected.some(assignment => assignment.platform !== 'educoder')) {
     pendingLaunch.value = { kind: "batch", assignments: selected };
     launchConfirmOpen.value = true;
     return;
@@ -1139,24 +1150,31 @@ async function executeBatchJobs(selected, skipped = 0) {
   error.value = ""
   const createdJobs = []
   const failures = []
+  const batchAccountId = selected[0]?.account_id || selectedAccountId.value;
+  const submit = autoSubmit.value;
+  const interactive = interactiveBrowser;
+  batchFailures.value = [];
   try {
     for (let index = 0; index < selected.length; index += 1) {
       const assignment = selected[index]
       notice.value = `正在创建批量任务 ${index + 1}/${selected.length}：${assignment.title}`
       try {
-        const job = await api.createJob(
-          assignment.id,
-          autoSubmit.value,
-          interactiveBrowser.value
-        )
+        if (assignmentExpired(assignment)) throw new Error("作业已超过截止时间，请重新采集确认。");
+        const existing = latestJobForAssignment(assignment.id);
+        const job = existing
+          ? await api.retryJob(existing.id, submit)
+          : await api.createJob(assignment.id, submit, interactive);
         createdJobs.push(job)
       } catch (batchError) {
-        failures.push(`${assignment.title}: ${batchError.message}`)
+        failures.push({ id: assignment.id, title: assignment.title, error: batchError.message });
       }
     }
     jobs.value = [...createdJobs, ...jobs.value]
-    selectedAssignmentIds.value = []
-    if (createdJobs.length > 0) {
+    if (selectedAccountId.value === batchAccountId) {
+      batchFailures.value = failures;
+      selectedAssignmentIds.value = failures.map(item => item.id);
+    }
+    if (createdJobs.length > 0 && selectedAccountId.value === batchAccountId) {
       await selectJob(createdJobs[0].id)
     }
     const skippedText = skipped ? `，跳过 ${skipped} 个已有任务` : "";
@@ -1175,6 +1193,10 @@ async function confirmAutoSubmitLaunch() {
   const pending = pendingLaunch.value;
   launchConfirmOpen.value = false;
   pendingLaunch.value = { kind: "", assignments: [] };
+  if (pending.kind === "retry") {
+    await controlSelectedJob("retry", { jobId: pending.jobId, autoSubmit: true });
+    return;
+  }
   if (pending.kind === "single" && pending.assignments[0]) {
     await createJob(pending.assignments[0]);
     return;
@@ -1184,124 +1206,118 @@ async function confirmAutoSubmitLaunch() {
   }
 }
 
-async function controlSelectedJob(action) {
-  if (!selectedJobId.value) return
-  const selectedId = selectedJobId.value
+function jobPending(job = selectedJob.value) {
+  return Boolean(job && jobActionPending.value[job.id]);
+}
+
+function applyJob(job) {
+  const previous = jobs.value.find(item => item.id === job.id);
+  const merged = mergeJobState(previous, job);
+  jobs.value = [merged, ...jobs.value.filter(item => item.id !== job.id)]
+    .sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
+}
+
+async function requestRetry(job) {
+  if (!job || jobPending(job)) return;
+  if (autoSubmit.value && job.platform !== 'educoder') {
+    pendingLaunch.value = { kind: "retry", jobId: job.id, assignments: [{ id: job.assignment_id, title: job.assignment_title }] };
+    launchConfirmOpen.value = true;
+    return;
+  }
+  await controlSelectedJob("retry", { jobId: job.id, autoSubmit: false });
+}
+
+async function controlSelectedJob(action, options = {}) {
+  const jobId = options.jobId || selectedJobId.value;
+  if (!jobId || jobActionPending.value[jobId]) return;
+  jobActionPending.value[jobId] = action;
+  notice.value = { pause: "正在暂停当前步骤...", resume: "正在恢复任务...", stop: "正在停止并释放浏览器...", retry: "正在关闭旧会话并创建重试任务...", continue: "正在接回人工处理后的浏览器..." }[action];
   try {
-    let job
+    const job = action === "retry"
+      ? await api.retryJob(jobId, Boolean(options.autoSubmit))
+      : await ({ pause: api.pauseJob, resume: api.resumeJob, stop: api.stopJob, continue: api.continueJob }[action])(jobId);
+    applyJob(job);
     if (action === "retry") {
-      job = await api.retryJob(selectedId)
-      jobs.value = [job, ...jobs.value]
-      await selectJob(job.id)
-      notice.value = "已重新创建任务"
+      if (selectedJobId.value === jobId) await selectJob(job.id);
+      notice.value = `已创建第 ${job.attempt} 次任务：${job.platform === 'educoder' ? (job.auto_submit ? '自动评测与修复' : '仅保存代码') : (job.auto_submit ? '允许最终提交' : '仅填写，待审核')}`;
     } else {
-      const method = {
-        pause: api.pauseJob,
-        resume: api.resumeJob,
-        stop: api.stopJob
-      }[action]
-      job = await method(selectedId)
-      jobs.value = jobs.value.map((item) => (
-        item.id === job.id ? { ...item, ...job } : item
-      ))
-      notice.value = {
-        pause: "任务已暂停",
-        resume: "任务已继续",
-        stop: "正在停止任务"
-      }[action]
+      notice.value = { pause: "已暂停，当前步骤结束后等待恢复", resume: "任务已恢复", stop: "正在停止任务，日志会返回退出结果", continue: "已接回原浏览器，继续处理剩余内容" }[action];
     }
   } catch (controlError) {
-    setError(controlError)
+    setError(controlError);
+    await loadJobs().catch(() => {});
+  } finally {
+    delete jobActionPending.value[jobId];
   }
 }
 
 async function verifySelectedSubmission(status) {
-  if (!selectedJobId.value || verificationBusy.value) return;
+  const jobId = selectedJobId.value;
+  if (!jobId || jobActionPending.value[jobId]) return;
+  jobActionPending.value[jobId] = "review";
   verificationBusy.value = true;
   try {
-    const job = await api.verifySubmission(selectedJobId.value, status);
-    jobs.value = jobs.value.map((item) => (
-      item.id === job.id ? { ...item, ...job } : item
-    ));
-    const [eventData, artifactData] = await Promise.all([
-      api.events(job.id),
-      api.artifacts(job.id)
-    ]);
-    events.value = eventData;
-    artifacts.value = artifactData;
+    const job = await api.verifySubmission(jobId, status);
+    applyJob(job);
+    const [eventData, artifactData] = await Promise.all([api.events(job.id), api.artifacts(job.id)]);
+    if (selectedJobId.value === jobId) {
+      events.value = reconcileEvents(eventData);
+      artifacts.value = artifactData;
+    }
+    await loadJobs();
     notice.value = status === "submitted_verified"
-      ? "已人工确认作业提交成功"
-      : "已更新人工核对结果";
-  } catch (verificationError) {
-    setError(verificationError);
-  } finally {
-    verificationBusy.value = false;
-  }
+      ? "已确认提交成功，任务已完成，账号队列可以继续"
+      : status === "filled_verified" ? "填写内容已审核，尚未确认提交。提交后可点击“我已提交”。" : "核对结果已更新，可以继续执行或重试";
+  } catch (verificationError) { setError(verificationError); }
+  finally { verificationBusy.value = false; delete jobActionPending.value[jobId]; }
 }
 
-async function focusAgentBrowser() {
-  if (!selectedJobId.value) return;
+
+async function focusAgentBrowser(jobId = selectedJobId.value) {
+  if (!jobId) return;
+  const job = jobs.value.find(item => item.id === jobId);
+  if (job?.platform === "educoder") {
+    if (taskDetailsOpen.value) { detailBrowserTab.value = "live"; await nextTick(); await detailViewer.value?.expand(); return; }
+    selectedAccountId.value = job.account_id;
+    activePage.value = "assignments";
+    await nextTick();
+    await selectJob(jobId); await nextTick();
+    await assignmentViewer.value?.expand(); return;
+  }
   try {
-    await api.focusJobBrowser(selectedJobId.value);
+    await api.focusJobBrowser(jobId);
     notice.value = "已打开实时浏览器；手动操作会同步到当前页面预览";
   } catch (focusError) {
     setError(focusError);
   }
 }
 
-async function refreshAgentSnapshot() {
-  const job = selectedAccountActiveJob.value;
-  if (
-    agentSnapshotBusy
-    || activePage.value !== "platforms"
-    || !job
-    || !canSnapshotActiveBrowser(job)
-  ) {
-    return;
-  }
-  agentSnapshotBusy = true;
-  try {
-    const snapshot = await api.jobSnapshot(job.id);
-    if (selectedAccountActiveJob.value?.id === job.id) {
-      screenshot.value = snapshot.image;
-    }
-  } catch {
-    // The browser may still be starting. The next health/socket event retries.
-  } finally {
-    agentSnapshotBusy = false;
-  }
-}
-
 function startAgentSnapshot() {
   clearInterval(agentSnapshotTimer);
   agentSnapshotTimer = null;
-  const job = selectedAccountActiveJob.value;
-  if (
-    activePage.value !== "platforms"
-    || !canSnapshotActiveBrowser(job)
-  ) {
-    return;
-  }
-  refreshAgentSnapshot();
-  agentSnapshotTimer = setInterval(refreshAgentSnapshot, 1500);
 }
 
 async function finishSelectedIntervention(jobId = selectedJobId.value) {
-  if (!jobId) return;
+  if (!jobId || jobActionPending.value[jobId]) return;
+  jobActionPending.value[jobId] = "close_browser";
+  notice.value = "正在关闭当前任务浏览器...";
   try {
     const job = await api.finishIntervention(jobId);
-    jobs.value = jobs.value.map((item) => (
-      item.id === job.id ? { ...item, ...job } : item
-    ));
-    notice.value = "已结束手动介入，可以继续人工核对提交结果";
+    applyJob(job);
+    notice.value = "浏览器已关闭，任务状态和审核记录已保留";
     const [eventData, artifactData] = await Promise.all([
       api.events(job.id),
       api.artifacts(job.id)
     ]);
-    events.value = eventData;
-    artifacts.value = artifactData;
+    if (selectedJobId.value === jobId) {
+      events.value = reconcileEvents(eventData);
+      artifacts.value = artifactData;
+    }
+    await loadJobs();
   } catch (interventionError) {
     setError(interventionError);
+  } finally {
+    delete jobActionPending.value[jobId];
   }
 }
 
@@ -1316,12 +1332,57 @@ async function openInteractiveBrowser() {
   }
 }
 
+async function openWorkspaceBrowser() {
+  if (selectedAccountActiveJob.value?.browser_available) return focusAgentBrowser(selectedAccountActiveJob.value.id);
+  if (browserShowsCapture.value && platformLiveJob.value) {
+    return openAssignment({ id: platformLiveJob.value.assignment_id, title: platformLiveJob.value.assignment_title });
+  }
+  await openInteractiveBrowser();
+  captureMode.value = "profile";
+}
+
+async function toggleBrowserExpansion() {
+  const panel = document.querySelector('.platform-browser-panel');
+  const from = panel?.getBoundingClientRect();
+  browserExpansionAnimation?.cancel();
+  browserExpanded.value = !browserExpanded.value;
+  await nextTick();
+  if (!panel || !from || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const to = panel.getBoundingClientRect();
+  if (!to.width || !to.height) return;
+  browserExpansionAnimation = panel.animate([
+    { transformOrigin: 'top left', transform: `translate(${from.left - to.left}px,${from.top - to.top}px) scale(${from.width / to.width},${from.height / to.height})`, opacity: .88 },
+    { transformOrigin: 'top left', transform: 'translate(0,0) scale(1,1)', opacity: 1 }
+  ], { duration: 460, easing: 'cubic-bezier(.16,1,.3,1)' });
+  await browserExpansionAnimation.finished.catch(() => {});
+}
+
+async function switchAccount(accountId) {
+  if (selectedAccountId.value === accountId) return;
+  if (taskDetailsOpen.value && jobPending()) {
+    notice.value = "当前任务操作尚未返回，请稍后切换账号";
+    return;
+  }
+  selectedAccountId.value = accountId;
+  await nextTick();
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const avatar = document.querySelector('.account-item.active .account-avatar');
+  const identity = document.querySelector('.board-account-name');
+  avatar?.animate([{ transform: 'scale(.8) rotate(-7deg)' }, { transform: 'scale(1.12) rotate(3deg)', offset: .6 }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.22,1,.36,1)' });
+  identity?.animate([{ opacity: 0, transform: 'translateX(-16px)' }, { opacity: 1, transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.16,1,.3,1)' });
+}
+
 async function openSelectedJobAssignment() {
-  if (!selectedJob.value) return;
-  await openAssignment({
-    id: selectedJob.value.assignment_id,
-    title: selectedJob.value.assignment_title
-  });
+  const job = selectedJob.value;
+  if (!job) return;
+  try {
+    await api.openAssignment(job.assignment_id);
+    notice.value = `已在 ${job.account_name} 的浏览器中打开作业，请核对实际提交状态`;
+    if (selectedAccountId.value === job.account_id) {
+      captureMode.value = "profile";
+      await refreshProfilePreview(false);
+    }
+  } catch (openError) { setError(openError); }
 }
 
 function closeJobSocket() {
@@ -1342,62 +1403,62 @@ function connectJobSocket(jobId) {
     socket.close();
     socket = null;
   }
-  const currentSocket = new WebSocket(api.wsUrl(jobId));
+  const afterId = Math.max(0, ...events.value.map(event => Number(event.id || 0)));
+  const currentSocket = new WebSocket(api.wsUrl(jobId, afterId));
   socket = currentSocket;
-  currentSocket.onopen = () => {
+  currentSocket.onopen = async () => {
     if (generation !== socketGeneration) {
       currentSocket.close();
       return;
     }
     socketConnected.value = true;
+    try {
+      const [job, artifactData] = await Promise.all([api.job(jobId), api.artifacts(jobId)]);
+      if (generation !== socketGeneration || selectedJobId.value !== jobId) return;
+      applyJob(job);
+      artifacts.value = artifactData;
+    } catch {
+      if (generation === socketGeneration) currentSocket.close();
+    }
   };
   currentSocket.onmessage = async (message) => {
     if (generation !== socketGeneration) return;
-    const event = JSON.parse(message.data);
-    const existingIndex = events.value.findIndex((item) => item.id === event.id);
-    if (existingIndex >= 0) {
-      events.value[existingIndex] = {
-        ...events.value[existingIndex],
-        ...event,
-        data: {
-          ...(events.value[existingIndex].data || {}),
-          ...(event.data || {})
-        }
-      };
-    } else {
-      events.value.push(event);
-    }
-    if (event.data?.image) screenshot.value = event.data.image;
-    if ([
-      "queued",
-      "status",
-      "paused",
-      "resumed",
-      "stopping",
-      "stopped",
-      "completed",
-      "incomplete",
-      "needs_intervention",
-      "error",
-      "interrupted",
-      "submission_verified",
-      "submission_reviewed"
-    ].includes(event.kind)) {
-      const updatedJob = await api.job(jobId);
-      jobs.value = [
-        updatedJob,
-        ...jobs.value.filter((job) => job.id !== updatedJob.id)
-      ];
-    }
-    if ([
-      "stopped",
-      "completed",
-      "incomplete",
-      "needs_intervention",
-      "error",
-      "interrupted"
-    ].includes(event.kind)) {
-      artifacts.value = await api.artifacts(jobId);
+    try {
+      const event = JSON.parse(message.data);
+      if (event.kind === "resync_required") {
+        await selectJob(jobId);
+        return;
+      }
+      const existingIndex = events.value.findIndex((item) => item.id === event.id);
+      if (existingIndex >= 0) {
+        events.value[existingIndex] = {
+          ...events.value[existingIndex],
+          ...event,
+          data: {
+            ...(events.value[existingIndex].data || {}),
+            ...(event.data || {})
+          }
+        };
+      } else {
+        events.value.push(event);
+      }
+      if (event.data?.image) screenshot.value = event.data.image;
+      if ([
+        "queued", "status", "paused", "resumed", "stopping", "stopped",
+        "completed", "incomplete", "needs_intervention", "error", "interrupted",
+        "submission_verified", "submission_reviewed", "browser_closed"
+      ].includes(event.kind)) {
+        const updatedJob = await api.job(jobId);
+        applyJob(updatedJob);
+      }
+      if ([
+        "stopped", "completed", "incomplete", "needs_intervention", "error", "interrupted", "final_screenshot"
+      ].includes(event.kind)) {
+        const result = await api.artifacts(jobId);
+        if (generation === socketGeneration && selectedJobId.value === jobId) artifacts.value = result;
+      }
+    } catch {
+      if (generation === socketGeneration) currentSocket.close();
     }
   };
   currentSocket.onclose = () => {
@@ -1418,6 +1479,7 @@ function connectJobSocket(jobId) {
 
 async function selectJob(jobId) {
   selectedJobId.value = jobId;
+  taskDetailsLoading.value = true;
   events.value = [];
   artifacts.value = [];
   screenshot.value = "";
@@ -1427,116 +1489,113 @@ async function selectJob(jobId) {
       api.events(jobId),
       api.artifacts(jobId)
     ]);
-    events.value = eventData;
+    if (selectedJobId.value !== jobId) return;
+    events.value = reconcileEvents(eventData);
     artifacts.value = artifactData;
     const latestImage = [...eventData].reverse().find((event) => event.data?.image);
     if (latestImage) screenshot.value = latestImage.data.image;
     if (!screenshot.value) {
       const latestScreenshot = [...artifactData].reverse().find((artifact) => (
-        ["screenshot", "final_screenshot"].includes(artifact.kind)
+        ["screenshot", "final_screenshot", "live_screenshot"].includes(artifact.kind)
       ));
       if (latestScreenshot) {
-        screenshot.value = `http://127.0.0.1:8877/api/artifacts/${latestScreenshot.id}`;
+        screenshot.value = api.artifactUrl(latestScreenshot.id);
       }
     }
   } catch (loadError) {
-    setError(loadError);
+    if (selectedJobId.value === jobId) setError(loadError);
+  } finally {
+    if (selectedJobId.value === jobId) taskDetailsLoading.value = false;
   }
 
-  connectJobSocket(jobId);
+  if (selectedJobId.value === jobId) connectJobSocket(jobId);
 }
 
-async function testNotification() {
+async function openTaskDetails(jobId) {
+  if (!taskDetailsOpen.value) taskDetailsTrigger = document.activeElement;
+  taskDetailsOpen.value = true;
+  await selectJob(jobId);
+}
+
+async function modelSettingsSaved() {
+  await Promise.all([loadHealth(), loadSettings()]);
+  notice.value = "模型配置已保存";
+}
+
+async function preferencesSaved({ preferences, section }) {
+  if (section === "assignments") {
+    autoSubmit.value = preferences.assignments.auto_submit;
+  }
+  try { await loadAccounts(); } catch (loadError) { setError(loadError); }
+}
+
+async function openWeixinConnector() {
+  const generation = ++weixinGeneration;
+  clearInterval(weixinTimer);
+  weixinTimer = null;
+  weixinModalOpen.value = true;
+  weixinMode.value = "loading";
+  weixinMessage.value = "";
+  weixinQr.value = "";
   try {
-    const result = await api.testNotification();
-    notice.value = result.configured
-      ? (result.ok ? "测试通知已发送" : "通知发送失败")
-      : "尚未配置通知连接器";
-  } catch (notificationError) {
-    setError(notificationError);
+    const config = await api.weixinConnector();
+    if (generation !== weixinGeneration) return;
+    weixinConfig.value = config;
+    if (config.configured) weixinMode.value = "settings";
+    else await openWeixinBinding();
+  } catch (configError) {
+    if (generation !== weixinGeneration) return;
+    weixinMode.value = "error";
+    weixinMessage.value = configError.message;
   }
 }
 
-async function openModelModal() {
-  await loadModelConfig();
-  modelCatalog.value = [];
-  modelMessage.value = "";
-  modelModalOpen.value = true;
-}
-
-async function updateCollectionSchedule(account, patch) {
+async function updateWeixinPreference(key, enabled) {
+  if (weixinPreferencesBusy.value || weixinSessionBusy.value || !weixinConfig.value) return;
+  const previous = { ...weixinConfig.value.preferences };
+  weixinConfig.value = { ...weixinConfig.value, preferences: { ...previous, [key]: enabled } };
+  weixinPreferencesBusy.value = true;
+  weixinMessage.value = "";
   try {
-    await api.updateCollectionSchedule(account.id, patch);
-    await loadAccounts();
-    notice.value = `已更新 ${account.name} 的自动检测设置。`;
-  } catch (scheduleError) {
-    setError(scheduleError);
-    await loadAccounts();
+    const preferences = await api.updateWeixinPreferences({ [key]: enabled });
+    weixinConfig.value = { ...weixinConfig.value, preferences };
+    notice.value = "微信推送设置已保存";
+  } catch (preferenceError) {
+    weixinConfig.value = { ...weixinConfig.value, preferences: previous };
+    weixinMessage.value = preferenceError.message;
+  } finally {
+    weixinPreferencesBusy.value = false;
   }
 }
 
-async function fetchModelList() {
-  modelMessage.value = "正在拉取模型列表...";
-  try {
-    const result = await api.fetchModels(modelForm.value);
-    modelCatalog.value = result.models || [];
-    modelMessage.value = `已获取 ${modelCatalog.value.length} 个模型`;
-  } catch (fetchError) {
-    modelMessage.value = fetchError.message;
-  }
-}
-
-function addModel(modelName) {
-  const name = String(modelName || "").trim();
-  if (name && !modelForm.value.models.includes(name)) {
-    modelForm.value.models.push(name);
-    newModelName.value = "";
-  }
-}
-
-function removeModel(index) {
-  modelForm.value.models.splice(index, 1);
-}
-
-async function saveModelSettings() {
-  modelMessage.value = "正在保存...";
-  try {
-    await api.saveModelConfig(modelForm.value);
-    modelModalOpen.value = false;
-    await Promise.all([loadHealth(), loadSettings()]);
-    notice.value = "模型配置已保存。";
-  } catch (saveError) {
-    modelMessage.value = saveError.message;
-  }
-}
-
-async function testModelConnection() {
-  modelMessage.value = "正在测试连接...";
-  try {
-    await api.testModel(modelForm.value);
-    modelMessage.value = "连接成功";
-  } catch (testError) {
-    modelMessage.value = testError.message;
-  }
+function openCollectionSettings() {
+  weixinModalOpen.value = false;
+  openSettings("assignments");
 }
 
 async function openWeixinBinding() {
+  const generation = ++weixinGeneration;
   weixinModalOpen.value = true;
+  weixinMode.value = "binding";
   weixinQr.value = "";
   weixinStatus.value = "loading";
   weixinMessage.value = "正在获取二维码...";
   clearInterval(weixinTimer);
   try {
     const result = await api.weixinQr();
+    if (generation !== weixinGeneration) return;
     weixinCode.value = result.code;
-    weixinQr.value = await QRCode.toDataURL(result.qr_text, {
+    const image = await QRCode.toDataURL(result.qr_text, {
       margin: 2,
       width: 280
     });
+    if (generation !== weixinGeneration) return;
+    weixinQr.value = image;
     weixinStatus.value = "wait";
     weixinMessage.value = "请使用微信扫码并确认授权";
     weixinTimer = setInterval(pollWeixinStatus, 2000);
   } catch (qrError) {
+    if (generation !== weixinGeneration) return;
     weixinStatus.value = "error";
     weixinMessage.value = qrError.message;
   }
@@ -1544,11 +1603,15 @@ async function openWeixinBinding() {
 
 async function pollWeixinStatus() {
   if (!weixinCode.value) return;
+  const generation = weixinGeneration;
+  if (weixinPollingGeneration === generation) return;
+  weixinPollingGeneration = generation;
   try {
     const result = await api.weixinStatus(
       weixinCode.value,
       weixinVerifyCode.value
     );
+    if (generation !== weixinGeneration) return;
     weixinStatus.value = result.status;
     if (result.status === "scaned") {
       weixinMessage.value = "已扫码，等待手机确认";
@@ -1557,45 +1620,202 @@ async function pollWeixinStatus() {
     } else if (result.status === "confirmed") {
       clearInterval(weixinTimer);
       weixinTimer = null;
-      weixinMessage.value = "绑定完成。请在微信中给机器人发一条消息，然后刷新会话。";
+      const config = await api.weixinConnector();
+      if (generation !== weixinGeneration) return;
+      weixinConfig.value = config;
+      weixinMode.value = "settings";
+      weixinQr.value = "";
+      weixinMessage.value = "";
       await loadSettings();
     }
   } catch (statusError) {
+    if (generation !== weixinGeneration) return;
     weixinMessage.value = statusError.message;
+  } finally {
+    if (weixinPollingGeneration === generation) weixinPollingGeneration = null;
   }
 }
 
 async function refreshWeixinSession() {
+  if (weixinSessionBusy.value || weixinPreferencesBusy.value) return;
+  weixinSessionBusy.value = true;
   try {
     const result = await api.weixinRefresh();
     weixinMessage.value = result.message;
+    weixinConfig.value = await api.weixinConnector();
     await loadSettings();
   } catch (refreshError) {
     weixinMessage.value = refreshError.message;
+  } finally {
+    weixinSessionBusy.value = false;
   }
 }
 
 async function openDataDirectory() {
   if (window.desktopApi?.openDataDirectory) {
     await window.desktopApi.openDataDirectory();
+    return true;
+  } else if (settingsInfo.value?.data_root) {
+    return await copyValue(settingsInfo.value.data_root, "数据目录路径已复制");
   }
+  return false;
 }
 
 async function openLogDirectory() {
   if (window.desktopApi?.openLogDirectory) {
     await window.desktopApi.openLogDirectory();
+    return true;
+  } else if (settingsInfo.value?.logs_root) {
+    return await copyValue(settingsInfo.value.logs_root, "日志目录路径已复制");
   }
+  return false;
+}
+
+function openSettings(section = "account") { settingsSection.value = section; settingsOpen.value = true; }
+function updateLocalProfile(value) { const saved = saveLocalProfile(value); localProfile.value = saved; return saved; }
+function updateAutoCheck(enabled) { saveUpdatePreference(enabled); autoCheckUpdates.value = Boolean(enabled); if(enabled) void checkForUpdates(); }
+async function checkForUpdates() {
+  if(updateState.value.status === "checking") return;
+  updateState.value = {status:"checking",message:""};
+  try { const result = await checkPublishedRelease(); if(!appUnmounted) updateState.value = result; }
+  catch(error) { if(!appUnmounted) updateState.value = {status:"error",checkedAt:new Date().toISOString(),message:["AbortError","TimeoutError"].includes(error.name)?"更新检查超时，请重试。":error instanceof TypeError?"无法连接版本服务，请稍后重试。":error instanceof SyntaxError?"发布信息无法解析，请到项目主页查看。":error.message}; }
+}
+async function openProjectLink(url) {
+  if(!allowedProjectLink(url)) throw new Error("项目链接无效。");
+  if(window.desktopApi) {
+    if(!window.desktopApi.openExternal) throw new Error("请重启桌面应用后打开项目链接。");
+    await window.desktopApi.openExternal(url);
+  } else { window.open(url,"_blank","noopener,noreferrer"); }
 }
 
 function goToPage(pageId) {
+  accountMenuId.value = "";
   activePage.value = pageId;
 }
+
+function addPlatformAccount(platform) {
+  authorizeNewAccount(platform);
+}
+
+async function authorizeNewAccount(platform) {
+  authorizationOpen.value = true;
+  if (!authorizationFlow.pending()) await authorizationFlow.start(platform);
+}
+
+function goToAssignments(accountId) {
+  if (accountId && !supportsBusiness(accounts.value.find(account => account.id === accountId), "assignments")) {
+    notice.value = "该平台尚未接入作业处理"; return;
+  }
+  accountMenuId.value = "";
+  if (accountId) selectedAccountId.value = accountId;
+  taskDetailsOpen.value = false;
+  activePage.value = "assignments";
+}
+
+function goToLearning(accountId) {
+  if (accountId && !supportsBusiness(accounts.value.find(account => account.id === accountId), "learning")) {
+    notice.value = "该平台尚未接入网课"; return false;
+  }
+  accountMenuId.value = "";
+  learningCourseId.value = "";
+  selectedAccountId.value = accountId;
+  activePage.value = "learning";
+  return true;
+}
+
+function openOverviewTask(task) {
+  if (task.task_kind !== "learning") { openTaskDetails(task.id); return; }
+  openLearningResult(task.id);
+}
+
+function openLearningResult(runId) {
+  learningResultId.value = runId;
+  learningResultOpen.value = true;
+}
+
+function openLearningWorkspace(task) {
+  if (!goToLearning(task.account_id)) return;
+  learningResultOpen.value = false;
+  learningCourseId.value = task.course_id;
+}
+
+function requestDeleteTask(task) {
+  deleteTaskError.value = "";
+  deleteTaskTarget.value = task;
+  nextTick(() => document.querySelector("#cancel-delete-task")?.focus());
+}
+
+async function confirmDeleteTask() {
+  const task = deleteTaskTarget.value;
+  if (!task || deleteTaskBusy.value) return;
+  deleteTaskBusy.value = true;
+  deleteTaskError.value = "";
+  try {
+    const result = await api.deleteTask(task);
+    const removed = new Set(result.deleted_ids);
+    deletedTaskIds.value = [...new Set([...deletedTaskIds.value, ...removed])];
+    jobs.value = jobs.value.filter(job => !removed.has(job.id));
+    learningRuns.value = learningRuns.value.filter(run => !removed.has(run.id));
+    if (task.task_kind !== "learning" && removed.has(selectedJobId.value)) {
+      taskDetailsOpen.value = false;
+      closeJobSocket();
+      selectedJobId.value = ""; events.value = []; artifacts.value = []; screenshot.value = "";
+    }
+    deleteTaskTarget.value = null;
+    notice.value = "任务已删除";
+    await loadJobs();
+  } catch (failure) { deleteTaskError.value = failure.message; }
+  finally { deleteTaskBusy.value = false; }
+}
+
+async function refreshTaskOverview() { await Promise.all([loadAccounts(), loadJobs()]); }
+
+async function copyValue(value, message = "已复制") {
+  try { await navigator.clipboard.writeText(value); notice.value = message; return true; }
+  catch { setError("无法访问剪贴板，请从页面选择并复制文本。"); return false; }
+}
+
+function goToAccount(accountId) {
+  taskDetailsOpen.value = false;
+  selectedAccountId.value = accountId;
+  selectedPlatformId.value = accounts.value.find(account => account.id === accountId)?.platform || "chaoxing";
+  activePage.value = "platforms";
+}
+
+
+watch(logPanelOpen, (value) => remember("log-open", value));
+watch(captureMode, () => startProfilePreview());
+watch(selectedJobId, () => { detailBrowserTab.value = "live"; });
+watch(collecting, () => startProfilePreview());
+watch(weixinModalOpen, open => {
+  if (!open) {
+    weixinGeneration += 1;
+    clearInterval(weixinTimer);
+    weixinTimer = null;
+  }
+});
+
+watch([activePage, accounts], ensureBusinessAccount, { flush: "sync" });
 
 watch(selectedAccountId, async () => {
   if (!selectedAccountId.value) return;
   selectedAssignmentIds.value = [];
+  remember("account", selectedAccountId.value);
+  if (["assignments", "learning"].includes(activePage.value)) remember("account:" + activePage.value, selectedAccountId.value);
+  assignmentQuery.value = "";
+  assignmentFilter.value = "all";
+  profilePreview.value = "";
+  profilePreviewUrl.value = "";
+  previewLoading.value = false;
+  screenshot.value = "";
+  events.value = [];
+  artifacts.value = [];
+  selectedJobId.value = "";
+  taskDetailsLoading.value = false;
+  closeJobSocket();
+  batchFailures.value = [];
+  await loadSemesters();
   await Promise.all([
-    loadSemesters(),
     loadAssignments(),
     loadCollectionRuns()
   ]);
@@ -1605,17 +1825,19 @@ watch(selectedAccountId, async () => {
 
 watch(selectedSemester, () => {
   selectedAssignmentIds.value = [];
+  if (selectedAccountId.value) remember(`semester:${selectedAccountId.value}`, selectedSemester.value);
   loadAssignments();
 });
 
 watch(activePage, async () => {
+  if (activePage.value !== "assignments") browserExpanded.value = false;
   await syncPlatformLiveJob();
   startProfilePreview();
   startAgentSnapshot();
 });
 
 watch(selectedAccountActiveJob, async (job) => {
-  if (activePage.value !== "platforms") return;
+  if (activePage.value !== "assignments") return;
   if (job) {
     clearInterval(profilePreviewTimer);
     profilePreviewTimer = null;
@@ -1628,22 +1850,25 @@ watch(selectedAccountActiveJob, async (job) => {
   startProfilePreview();
 });
 
-watch(accountModalOpen, async (isOpen) => {
-  if (!isOpen) return;
+watch(taskDetailsOpen, async (isOpen) => {
   await nextTick();
-  document.querySelector("#account-name-input")?.focus();
+  if (isOpen) {
+    document.querySelector("#task-details-close")?.focus();
+  } else {
+    if (taskDetailsTrigger?.isConnected) taskDetailsTrigger.focus();
+    await syncPlatformLiveJob();
+  }
 });
 
-watch(renameModalOpen, async (isOpen) => {
-  if (!isOpen) return;
+watch(deleteTaskTarget, async (task, previous) => {
+  if (task || !previous) return;
   await nextTick();
-  document.querySelector("#rename-account-input")?.focus();
+  (document.getElementById(`task-actions-${previous.id}`) || document.querySelector(".job-more-button") || document.querySelector(".dashboard-heading button"))?.focus();
 });
 
-watch(modelModalOpen, async (isOpen) => {
-  if (!isOpen) return;
-  await nextTick();
-  document.querySelector("#model-provider-input")?.focus();
+watch(notice, (message) => {
+  clearTimeout(noticeTimer);
+  if (message) noticeTimer = setTimeout(() => { notice.value = ""; }, 5000);
 });
 
 watch(launchConfirmOpen, async (isOpen) => {
@@ -1656,10 +1881,12 @@ watch(launchConfirmOpen, async (isOpen) => {
 
 onMounted(async () => {
   appUnmounted = false;
+  if(autoCheckUpdates.value) void checkForUpdates();
   document.addEventListener("click", closeAccountMenuOnOutsideClick);
   document.addEventListener("keydown", closeAccountMenuOnEscape);
   await connectBackend();
   connectionTimer = setInterval(async () => {
+    availabilityNow.value = Date.now();
     const wasOffline = !health.value;
     await loadHealth({ silent: true });
     if (wasOffline && health.value) {
@@ -1667,7 +1894,7 @@ onMounted(async () => {
     } else if (health.value) {
       try {
         await Promise.all([loadJobs(), loadAccounts()]);
-        if (activePage.value === "platforms" && selectedAccountId.value) {
+        if (activePage.value === "assignments" && selectedAccountId.value) {
           await loadCollectionRuns();
         }
       } catch {
@@ -1679,15 +1906,17 @@ onMounted(async () => {
 
 onUnmounted(() => {
   appUnmounted = true;
+  authorizationFlow.dispose();
   document.removeEventListener("click", closeAccountMenuOnOutsideClick);
   document.removeEventListener("keydown", closeAccountMenuOnEscape);
   closeJobSocket();
-  if (loginTimer) clearInterval(loginTimer);
   if (weixinTimer) clearInterval(weixinTimer);
   if (profilePreviewTimer) clearInterval(profilePreviewTimer);
   if (agentSnapshotTimer) clearInterval(agentSnapshotTimer);
-  if (collectionPollTimer) clearInterval(collectionPollTimer);
+  collectionController.dispose();
   if (connectionTimer) clearInterval(connectionTimer);
+  if (noticeTimer) clearTimeout(noticeTimer);
+  browserExpansionAnimation?.cancel();
 });
 </script>
 
@@ -1695,35 +1924,39 @@ onUnmounted(() => {
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <span class="brand-mark">AI</span>
+        <span class="brand-mark"><Layers3 :size="21" :stroke-width="1.6" /></span>
         <h1>Assignment Studio</h1>
       </div>
+      <div class="topbar-breadcrumb"><span>{{ isolatedPreview ? '隔离验证' : '工作区' }}</span><ChevronRight :size="13" /><strong>{{ navItems.find(item => item.id === activePage)?.label }}</strong></div>
       <div class="topbar-meta">
-        <span class="connection-pill" :class="{ online: health?.ai_configured }">
-          {{ connectionLabel }}
-        </span>
+        <TaskMonitor ref="taskMonitor" :hide-trigger="activePage === 'dashboard'" @summary="townMonitor = $event" :tasks="recentAssignmentJobs" :removed-ids="deletedTaskIds" :accounts="accounts" :ready="taskSnapshotAt > 0 && Boolean(settingsInfo?.data_root)" :online="Boolean(health?.ok)" :scope="settingsInfo?.data_root || ''" :updated-at="taskSnapshotAt" :creating="batchCreating" :refresh="loadJobs" @open-task="openOverviewTask" @open-dashboard="activePage = 'dashboard'" />
       </div>
     </header>
 
     <div v-if="error" class="error-strip" role="alert">
       <span>{{ error }}</span>
-      <button type="button" @click="error = ''">关闭</button>
+      <button class="icon-button" type="button" aria-label="关闭错误提示" title="关闭" @click="error = ''"><X :size="16" /></button>
     </div>
 
     <div class="app-body">
       <nav class="side-nav" aria-label="主导航">
+        <span class="nav-motion-track" :style="{ transform: `translateY(${navItems.findIndex(item => item.id === activePage) * 70}px)` }" aria-hidden="true"></span>
         <button
           v-for="item in navItems"
           :key="item.id"
           type="button"
           class="nav-item"
           :class="{ active: activePage === item.id }"
+          :aria-current="activePage === item.id ? 'page' : undefined"
+          :title="item.label"
           @click="goToPage(item.id)"
         >
+          <component :is="item.icon" :size="18" :stroke-width="1.75" aria-hidden="true" />
           <span>{{ item.label }}</span>
         </button>
         <div class="side-nav-footer">
-          <small>v0.4.2</small>
+          <button class="icon-button sidebar-about" type="button" title="帮助与关于" aria-label="帮助与关于" @click="openSettings('about')"><CircleHelp :size="19" :stroke-width="1.7" /></button>
+          <button class="sidebar-profile" :class="{active:settingsOpen}" type="button" :title="localProfile.nickname + ' · 设置'" aria-label="打开设置" :aria-expanded="settingsOpen" aria-controls="application-settings-dialog" @click="openSettings('account')"><LocalProfileAvatar :profile="localProfile" :size="36" /></button>
         </div>
       </nav>
 
@@ -1733,7 +1966,7 @@ onUnmounted(() => {
           class="global-job-strip"
           type="button"
           :class="activeJob.status"
-          @click="selectJob(activeJob.id); activePage = 'dashboard'"
+          @click="openTaskDetails(activeJob.id)"
         >
           <span class="global-job-kicker">当前任务</span>
           <strong>{{ activeJob.assignment_title }}</strong>
@@ -1749,406 +1982,110 @@ onUnmounted(() => {
           <span class="global-job-progress">{{ activeJob.progress }}%</span>
           <span class="global-job-action">返回任务</span>
         </button>
-        <div v-if="notice" class="notice-line" role="status" aria-live="polite">
-          {{ notice }}
-        </div>
+        <Transition name="notice">
+          <div v-if="notice" class="notice-line" role="status" aria-live="polite">
+            <Check :size="15" aria-hidden="true" />
+            <span>{{ notice }}</span>
+            <button class="icon-button" type="button" aria-label="关闭通知" title="关闭" @click="notice = ''"><X :size="14" /></button>
+          </div>
+        </Transition>
       </div>
 
-      <main v-if="activePage === 'dashboard'" class="dashboard-layout">
-        <section class="dashboard-main">
-          <div class="page-heading">
-            <span class="eyebrow">运行总览</span>
-            <h2>任务面板</h2>
-            <p>查看账号、任务和实时 Agent 执行情况。</p>
+      <Transition name="page" mode="out-in">
+      <main v-if="activePage === 'dashboard'" key="dashboard" class="dashboard-layout">
+<section class="dashboard-main town-dashboard">
+          <div class="page-heading dashboard-heading">
+            <div><h2>任务公司 <span class="heading-count">{{ recentAssignmentJobs.length }}</span></h2></div>
+            <button class="button dark" type="button" @click="goToAssignments()"><Plus :size="15" />执行作业</button>
           </div>
 
-          <div class="stat-grid">
-            <article class="stat-item">
-              <span>账号</span>
-              <strong>{{ accounts.length }}</strong>
-            </article>
-            <article class="stat-item">
-              <span>当前账号可提交</span>
-              <strong>{{ assignments.length }}</strong>
-            </article>
-            <article class="stat-item">
-              <span>Agent 任务</span>
-              <strong>{{ jobs.length }}</strong>
-            </article>
-          </div>
-
-          <div class="section-title">
-            <span>最近任务</span>
-            <span class="count">{{ jobs.length }}</span>
-          </div>
-          <div v-if="jobs.length === 0" class="empty-inline">还没有 Agent 任务。</div>
-          <button
-            v-for="job in jobs"
-            :key="job.id"
-            type="button"
-            class="job-card"
-            :class="{ active: job.id === selectedJobId }"
-            @click="selectJob(job.id)"
-          >
-            <span class="job-status" :class="job.status"></span>
-            <span>
-              <strong>{{ job.assignment_title }}</strong>
-              <small>
-                {{ job.account_name || "未知账号" }} · {{ job.course_name }} ·
-                第 {{ job.attempt || 1 }} 次 · {{ formatLocalTime(job.created_at) }}
-              </small>
-            </span>
-            <span class="job-card-meta">
-              <span class="job-card-status">
-                {{ jobStatusLabel(job.status) }}
-                <template v-if="job.status === 'queued'">
-                  · 第 {{ queuePosition(job) }} 位
-                </template>
-              </span>
-              <small>{{ submissionStatusLabel(job.submission_status) }}</small>
-            </span>
-          </button>
+          <TaskTown :monitor="townMonitor" :tasks="recentAssignmentJobs" :accounts="accounts" :ready="taskSnapshotAt > 0" :online="Boolean(health?.ok)" @open-monitor="taskMonitor?.open()" @details="openOverviewTask" @delete="requestDeleteTask" @create="goToAssignments()" />
         </section>
-
-        <aside class="agent-panel dashboard-agent-panel">
-          <div class="agent-heading">
-            <div>
-              <span class="eyebrow">
-                实时执行
-                <template v-if="selectedJob?.account_name">
-                  · {{ selectedJob.account_name }}
-                </template>
-              </span>
-              <h2>{{ selectedJob?.assignment_title || "Agent 监控" }}</h2>
-            </div>
-            <div class="agent-heading-meta">
-              <span
-                v-if="selectedJob && isActiveJob(selectedJob)"
-                class="socket-state"
-                :class="{ online: socketConnected }"
-              >
-                {{ socketConnected ? "实时连接" : "正在重连" }}
-              </span>
-              <span v-if="selectedJob" class="job-badge" :class="selectedJob.status">
-                {{ jobStatusLabel(selectedJob.status) }}
-              </span>
-            </div>
-          </div>
-          <div v-if="selectedJob" class="job-controls">
-            <button
-              v-if="(isActiveJob(selectedJob) || isNeedsIntervention(selectedJob)) && selectedJob.interactive"
-              class="button dark browser-entry-button"
-              type="button"
-              @click="focusAgentBrowser"
-            >
-              进入实时浏览器
-            </button>
-            <button
-              v-if="isNeedsIntervention(selectedJob)"
-              class="button dark"
-              type="button"
-              @click="finishSelectedIntervention()"
-            >
-              结束介入
-            </button>
-            <button
-              v-if="['queued','running'].includes(selectedJob.status)"
-              class="button light"
-              type="button"
-              @click="controlSelectedJob('pause')"
-            >
-              暂停
-            </button>
-            <button
-              v-if="selectedJob.status === 'paused'"
-              class="button dark"
-              type="button"
-              @click="controlSelectedJob('resume')"
-            >
-              继续
-            </button>
-            <button
-              v-if="['queued','running','paused'].includes(selectedJob.status)"
-              class="button light"
-              type="button"
-              @click="controlSelectedJob('stop')"
-            >
-              停止
-            </button>
-            <button
-              v-if="['failed','stopped','completed','incomplete','interrupted'].includes(selectedJob.status)"
-              class="button light"
-              type="button"
-              @click="controlSelectedJob('retry')"
-            >
-              重试
-            </button>
-          </div>
-          <div v-if="selectedJob" class="agent-content-grid">
-            <div class="agent-visual-column">
-          <div
-            v-if="selectedJob && !isActiveJob(selectedJob)"
-            class="job-result-card"
-            :class="selectedJob.status"
-          >
-            <div>
-              <span>任务结果</span>
-              <strong>{{ submissionStatusLabel(selectedJob.submission_status) }}</strong>
-              <small>
-                第 {{ selectedJob.attempt || 1 }} 次 ·
-                模式：{{ selectedJob.auto_submit ? "允许最终提交" : "仅填写" }} ·
-                {{ selectedJob.interactive ? "可操控浏览器" : "无头浏览器" }}
-              </small>
-              <small>
-                最近阶段：{{ currentAgentState?.message || "无可用执行日志" }} ·
-                {{ artifacts.length ? `${artifacts.length} 个执行凭证` : "暂无可核对产物" }}
-              </small>
-              <small v-if="selectedJob.verified_at">
-                人工核对：{{ formatLocalTime(selectedJob.verified_at) }}
-                <template v-if="selectedJob.verification_note">
-                  · {{ selectedJob.verification_note }}
-                </template>
-              </small>
-            </div>
-            <p v-if="isNeedsIntervention(selectedJob)" class="result-intervention">
-              <strong>需要人工介入：</strong>
-              {{ selectedJob.error || selectedJobResult || "Agent 未能确认任务已完整完成。" }}
-            </p>
-            <p v-else-if="selectedJob.error" class="result-error">{{ selectedJob.error }}</p>
-            <p v-else-if="selectedJobResult">{{ selectedJobResult }}</p>
-            <p v-else>本次任务没有生成文字摘要，请查看执行凭证。</p>
-            <div class="result-actions">
-              <button
-                v-if="!isNeedsIntervention(selectedJob)"
-                class="button light"
-                type="button"
-                @click="openSelectedJobAssignment"
-              >
-                打开作业核对
-              </button>
-              <button
-                v-if="!isNeedsIntervention(selectedJob) && ['filled_pending_review','partial_pending_review'].includes(selectedJob.submission_status)"
-                class="button dark"
-                type="button"
-                :disabled="verificationBusy"
-                @click="verifySelectedSubmission('filled_verified')"
-              >
-                确认已核对
-              </button>
-              <button
-                v-if="!isNeedsIntervention(selectedJob) && ['submitted_unverified','submission_unknown'].includes(selectedJob.submission_status)"
-                class="button dark"
-                type="button"
-                :disabled="verificationBusy"
-                @click="verifySelectedSubmission('submitted_verified')"
-              >
-                确认已提交
-              </button>
-              <button
-                v-if="!isNeedsIntervention(selectedJob) && ['submitted_unverified','submission_unknown','not_submitted'].includes(selectedJob.submission_status)"
-                class="button light"
-                type="button"
-                :disabled="verificationBusy"
-                @click="verifySelectedSubmission('not_submitted')"
-              >
-                确认未提交
-              </button>
-            </div>
-          </div>
-          <div v-if="selectedJob && isActiveJob(selectedJob)" class="progress-track">
-            <span
-              role="progressbar"
-              aria-label="Agent 任务进度"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              :aria-valuenow="selectedJob?.progress || 0"
-              :style="{ width: `${selectedJob?.progress || 0}%` }"
-            ></span>
-          </div>
-          <div
-            v-if="selectedJob && isActiveJob(selectedJob)"
-            class="agent-current-state"
-            aria-live="polite"
-          >
-            <strong>{{ currentAgentState?.message || "等待 Agent 日志" }}</strong>
-            <p v-if="actionSummary(currentAgentState?.data?.actions, currentAgentState?.data?.action_details)">
-              {{ actionSummary(currentAgentState.data.actions, currentAgentState.data.action_details) }}
-            </p>
-            <p v-if="currentAgentState?.data?.url">{{ currentAgentState.data.url }}</p>
-            <small v-if="currentAgentState">
-              {{ new Date(currentAgentState.created_at).toLocaleTimeString("zh-CN") }}
-            </small>
-          </div>
-          <div v-if="selectedJob && screenshot" class="agent-live-preview">
-            <div class="agent-live-preview-heading">
-              <span>Agent 最近页面</span>
-              <a :href="screenshot" target="_blank" rel="noreferrer">查看原图</a>
-            </div>
-            <img :src="screenshot" alt="Agent 最近页面截图">
-          </div>
-            </div>
-            <div class="agent-activity-column">
-          <div class="timeline">
-            <div v-for="event in visibleEvents" :key="event.id" class="timeline-item">
-              <span class="event-dot" :class="event.kind"></span>
-              <div>
-                <strong>{{ event.message || event.kind }}</strong>
-                <p v-if="actionSummary(event.data?.actions, event.data?.action_details)">
-                  {{ actionSummary(event.data.actions, event.data.action_details) }}
-                </p>
-                <p v-if="event.data?.thought">{{ event.data.thought }}</p>
-                <small>{{ new Date(event.created_at).toLocaleTimeString("zh-CN") }}</small>
-              </div>
-            </div>
-          </div>
-          <div v-if="artifacts.length" class="artifact-list">
-            <div class="section-title">
-              <span>执行凭证</span>
-              <span class="count">{{ artifacts.length }}</span>
-            </div>
-            <a
-              v-for="artifact in artifacts"
-              :key="artifact.id"
-              :href="`http://127.0.0.1:8877/api/artifacts/${artifact.id}`"
-              target="_blank"
-              rel="noreferrer"
-            >
-              {{ artifactLabel(artifact.kind) }}
-            </a>
-          </div>
-            </div>
+        <aside class="overview-rail">
+          <div class="section-title"><h3>平台账号</h3><span class="count">{{ accounts.length }}</span></div>
+          <button v-for="account in accounts" :key="account.id" class="overview-account" type="button" @click="goToAccount(account.id)">
+            <PlatformLogo :platform="account.platform" :size="36" /><span><strong>{{ account.name }}</strong><small><span class="account-dot" :class="account.status"></span>{{ accountStatusLabel(account.status) }}</small></span><ArrowUpRight :size="15" />
+          </button>
+          <button class="button ghost wide add-overview-account" type="button" @click="addPlatformAccount(selectedPlatformId)"><LogIn :size="15" />授权</button>
+          <div class="overview-section">
+            <div class="section-title"><h3>最近采集</h3></div>
+            <div v-for="account in accounts.filter(item => item.last_collection_at)" :key="account.id" class="collection-summary"><div><span>{{ account.name }}</span><strong>{{ account.last_collection_count || 0 }} <small>待处理</small></strong></div><time>{{ formatLocalTime(account.last_collection_at) }}</time></div>
+            <div v-if="!accounts.some(account => account.last_collection_at)" class="empty-inline">暂无采集记录</div>
           </div>
         </aside>
       </main>
 
-      <main v-else-if="activePage === 'platforms'" class="platform-layout">
-        <aside class="account-rail">
-          <div class="section-title">
-            <span>平台</span>
-            <span class="count">{{ platforms.length }}</span>
-          </div>
-          <div class="platform-list">
-            <button
-              v-for="platform in platforms"
-              :key="platform.name"
-              type="button"
-              class="platform-chip active"
-            >
-              <strong>{{ platform.label }}</strong>
-              <small>{{ platform.name }}</small>
-            </button>
-          </div>
-          <button class="button light wide" type="button" @click="accountModalOpen = true">
-            添加
-          </button>
+      <PlatformWorkspace v-else-if="activePage === 'platforms'" key="platforms" v-model="selectedPlatformId" :platforms="platforms" :accounts="accounts" :selected-account-id="selectedAccountId" :menu-id="accountMenuId" :login-account-id="loginAccountId" :is-busy="accountOperationBusy" @add="addPlatformAccount" @authorize="authorizeAccount" @confirm-authorization="confirmPlatformAuthorization" @refresh-cookie="refreshAccountCookie" @delete="openDeleteAccount" @menu="toggleAccountMenu" @menu-keydown="navigateAccountMenu" @assignments="goToAssignments" @learning="goToLearning" />
+      <AttendanceWorkspace v-else-if="activePage === 'attendance'" key="attendance" :accounts="accounts" @authorize="id => id ? goToAccount(id) : goToPage('platforms')"/>
+
+      <main v-else-if="activePage === 'assignments'" key="assignments" class="platform-layout" :class="{ 'logs-open': logPanelOpen }" :style="{ '--assignment-width': `${listWidth}px` }">
+        <aside class="account-rail assignment-account-rail">
           <div class="section-title account-title">
             <span>账号</span>
-            <span class="count">{{ accounts.length }}</span>
+            <span class="count">{{ assignmentAccounts.length }}</span>
           </div>
-          <div v-if="unauthorizedAccount" class="account-onboarding">
-            <div>
-              <strong>完成账号登录授权</strong>
-              <p>
-                {{ unauthorizedAccount.last_login_error
-                  || "授权后才能采集作业和执行 Agent。" }}
-              </p>
-            </div>
-            <button
-              class="button dark"
-              type="button"
-              @click="authorizeAccount(unauthorizedAccount)"
-            >
-              开始授权
-            </button>
-          </div>
+          <button class="button light wide collect-all-accounts" type="button" :disabled="collectionBatchBusy || !assignmentAccounts.length" @click="collectAllAccounts"><RefreshCw :size="14" :class="{spinning: collectionBatchBusy}" />{{ collectionBatchBusy ? '采集中 ' + batchCollectionDone + '/' + collectionBatchRows.length : '一键采集' }}</button>
           <div
-            v-for="account in accounts"
+            v-for="account in assignmentAccounts"
             :key="account.id"
             class="account-item"
+            :data-account-id="account.id"
             :class="{ active: account.id === selectedAccountId }"
           >
             <button
               class="account-select"
               type="button"
-              @click="selectedAccountId = account.id"
+              @click="switchAccount(account.id)"
             >
-              <span class="account-dot" :class="account.status"></span>
+              <AccountAvatar :account="account"><span class="account-dot" :class="account.status"></span></AccountAvatar>
               <span>
                 <strong>{{ account.name }}</strong>
                 <small>
                   {{ platformLabel(account.platform) }} ·
-                  {{ accountStatusLabel(account.status) }}
+                  {{ account.learning_run ? '网课执行中' : accountCollections[account.id]?.pending || accountCollections[account.id]?.run?.status === 'running' || account.last_collection_status === 'running' ? '采集中' : accountStatusLabel(account.status) }}
                 </small>
+                <small v-if="batchCollectionById[account.id]" class="account-collection-state" :class="batchCollectionById[account.id].status" :title="batchCollectionById[account.id].message">{{ conciseMessage(batchCollectionById[account.id].message) }}</small>
               </span>
             </button>
-            <div class="account-menu-wrap">
-              <button
-                class="account-more"
-                type="button"
-                aria-label="账号操作"
-                @click.stop="toggleAccountMenu(account.id)"
-              >
-                ...
-              </button>
-              <div v-if="accountMenuId === account.id" class="account-menu">
-                <button
-                  type="button"
-                  :disabled="hasActiveJobForAccount(account.id)"
-                  @click.stop="refreshAccountCookie(account)"
-                >
-                  刷新 Cookie
-                </button>
-                <button type="button" @click.stop="openRenameAccount(account)">
-                  重命名
-                </button>
-                <button
-                  class="danger"
-                  type="button"
-                  :disabled="hasActiveJobForAccount(account.id)"
-                  @click.stop="openDeleteAccount(account)"
-                >
-                  删除
-                </button>
-              </div>
-            </div>
           </div>
+          <button class="button ghost wide account-manage-link" type="button" @click="goToAccount(selectedAccountId)"><Layers3 :size="14" />管理平台账号<ArrowUpRight :size="13" /></button>
+          <p v-if="!assignmentAccounts.length" class="empty-inline">暂无支持作业的账号</p>
         </aside>
 
         <section class="assignment-board">
           <div class="board-heading">
             <div>
-              <span class="eyebrow">当前账号</span>
-              <h2>{{ selectedAccount?.name || "尚未选择账号" }}</h2>
+              <h2>作业 <span class="heading-count">{{ filteredAssignments.length }}</span></h2>
+              <span v-if="selectedAccount" class="board-account-name"><PlatformLogo :platform="selectedAccount.platform" :size="15" />{{ selectedAccount.name }}</span>
             </div>
             <div class="filters">
-              <label>
+              <label v-if="selectedAccount?.platform !== 'educoder'" class="semester-filter">
                 <span>学期</span>
-                <select v-model="selectedSemester">
+                <select v-model="selectedSemester" aria-label="学期">
                   <option value="">全部学期</option>
                   <option v-for="semester in semesters" :key="semester" :value="semester">
                     {{ semester }}
                   </option>
                 </select>
               </label>
-              <label class="submit-toggle">
-                <input v-model="autoSubmit" type="checkbox">
-                <span title="允许 Agent 点击最终提交">允许最终提交</span>
-              </label>
-              <label class="submit-toggle">
-                <input v-model="interactiveBrowser" type="checkbox">
-                <span>可操控浏览器</span>
-              </label>
+              <button class="icon-button" type="button" title="作业配置" aria-label="打开作业配置" @click="openSettings('assignments')"><Settings2 :size="16" /></button>
               <button
                 class="button dark"
                 type="button"
-                :disabled="collecting || !selectedAccount || Boolean(selectedAccountActiveJob)"
+                :disabled="collecting || !selectedAccount || Boolean(selectedAccountActiveJob) || Boolean(selectedAccount?.learning_run)"
                 @click="collectAssignments"
               >
+                <RefreshCw :size="14" :class="{ spinning: collecting }" aria-hidden="true" />
                 {{ selectedAccountActiveJob
                   ? "任务运行中"
                   : (collecting ? "采集中..." : "采集") }}
               </button>
             </div>
+          </div>
+          <EducoderCourses v-if="selectedAccount?.platform === 'educoder'" :key="selectedAccount.id" :account="selectedAccount" @changed="loadAssignments" />
+          <div class="assignment-tools">
+            <label class="search-field"><Search :size="14" /><input v-model="assignmentQuery" aria-label="搜索作业" placeholder="搜索作业、课程"><button v-if="assignmentQuery" type="button" class="icon-button" aria-label="清除作业搜索" @click="assignmentQuery = ''"><X :size="13" /></button></label>
+            <div class="assignment-filter-row"><LeiTabs v-model="assignmentFilter" :items="assignmentFilterItems" label="作业筛选" /><label class="sort-control"><ArrowDownUp :size="13" /><select v-model="assignmentSort" aria-label="作业排序"><option value="course">按课程</option><option value="title">按名称</option></select></label></div>
           </div>
           <div
             v-if="collectionRun"
@@ -2175,7 +2112,7 @@ onUnmounted(() => {
                 aria-valuemin="0"
                 aria-valuemax="100"
                 :aria-valuenow="collectionRun.progress || 0"
-                :style="{ width: `${collectionRun.progress || 0}%` }"
+                :style="{ transform: `scaleX(${(collectionRun.progress || 0) / 100})` }"
               ></span>
             </div>
             <details
@@ -2191,28 +2128,47 @@ onUnmounted(() => {
               </p>
             </details>
           </div>
-          <div v-if="filteredAssignments.length" class="selection-toolbar">
+          <div v-if="filteredAssignments.length || selectedCount" class="selection-toolbar">
             <label>
               <input
                 type="checkbox"
                 :checked="allFilteredSelected"
+                  :disabled="!selectableAssignments.length"
                 @change="toggleSelectAllAssignments"
               >
               <span>全选</span>
             </label>
-            <span>已选择 {{ selectedAssignmentIds.length }} 个</span>
+            <span>{{ selectedCount ? `已选 ${selectedCount}` : `${filteredAssignments.length} 个作业` }}</span>
+            <button v-if="selectedCount" type="button" class="text-button" @click="selectedAssignmentIds = []">清除</button>
             <button
               class="button dark"
               type="button"
               :disabled="batchCreating || selectedAssignmentIds.length === 0"
               @click="createBatchJobs"
             >
-              {{ batchCreating ? "批量创建中..." : "批量执行" }}
+              <Play :size="14" aria-hidden="true" />{{ batchCreating ? "批量创建中..." : "批量执行" }}
             </button>
           </div>
+          <details v-if="batchFailures.length" class="batch-failures"><summary><CircleAlert :size="14" />{{ batchFailures.length }} 个任务创建失败</summary><p v-for="failure in batchFailures" :key="failure.id"><strong>{{ failure.title }}</strong>{{ failure.error }}</p></details>
           <div v-if="groupedAssignments.length === 0" class="empty-state">
-            <h3>{{ assignmentEmptyTitle() }}</h3>
-            <p>{{ assignmentEmptyDescription() }}</p>
+            <ClipboardList :size="28" :stroke-width="1.4" aria-hidden="true" />
+            <h3>{{ assignmentQuery || assignmentFilter !== 'all' ? '没有匹配的作业' : assignmentEmptyTitle() }}</h3>
+            <button v-if="assignmentQuery || assignmentFilter !== 'all'" type="button" class="button light" @click="assignmentQuery = ''; assignmentFilter = 'all'">清除筛选</button>
+            <p v-if="assignmentEmptyDescription()">{{ assignmentEmptyDescription() }}</p>
+            <button
+              v-if="selectedAccount && selectedAccount.status !== 'ready'"
+              class="button light"
+              type="button"
+              @click="goToAccount(selectedAccount.id)"
+            ><LogIn :size="14" aria-hidden="true" />前往授权</button>
+            <button v-else-if="!selectedAccount" class="button light" type="button" @click="activePage = 'platforms'"><Plus :size="14" />添加平台账号</button>
+            <button
+              v-else-if="selectedAccount && !collecting"
+              class="button light"
+              type="button"
+              :disabled="Boolean(selectedAccountActiveJob)"
+              @click="collectAssignments"
+            ><RefreshCw :size="14" aria-hidden="true" />采集作业</button>
           </div>
           <section
             v-for="group in groupedAssignments"
@@ -2233,6 +2189,7 @@ onUnmounted(() => {
                 <input
                   type="checkbox"
                   :checked="selectedAssignmentIds.includes(assignment.id)"
+                  :disabled="requiresMaterials(assignment)"
                   @change="toggleAssignmentSelection(assignment.id)"
                 >
               </label>
@@ -2242,12 +2199,12 @@ onUnmounted(() => {
                   {{ assignment.deadline_text }}
                   <span
                     class="deadline-state"
-                    :class="deadlineState(assignment.deadline_text).className"
+                    :class="deadlineState(assignment).className"
                   >
-                    {{ deadlineState(assignment.deadline_text).label }}
+                    {{ deadlineState(assignment).label }}
                   </span>
                 </p>
-                <p v-else>未显示截止时间</p>
+                <span v-if="!latestJobForAssignment(assignment.id) || requiresMaterials(assignment)" class="assignment-readiness" :class="assignmentReadiness(assignment).className"><span>{{ assignmentReadiness(assignment).label }}</span><small v-if="assignmentReadiness(assignment).detail">{{ assignmentReadiness(assignment).detail }}</small></span>
                 <span
                   v-if="latestJobForAssignment(assignment.id)"
                   class="assignment-job-state"
@@ -2261,12 +2218,15 @@ onUnmounted(() => {
                 </span>
               </div>
               <div class="assignment-actions">
+                <button v-if="!assignment.assessment?.checked_at" class="icon-button" type="button" title="检查作答状态与材料要求" :aria-label="'检查要求：' + assignment.title" :disabled="inspectingAssignmentId === assignment.id" @click="inspectAssignment(assignment)"><RefreshCw :size="13" :class="{ spinning: inspectingAssignmentId === assignment.id }" /></button>
                 <button
+                  v-if="!requiresMaterials(assignment)"
                   class="assignment-view"
                   type="button"
                   :disabled="openingAssignmentId === assignment.id"
                   @click="openAssignment(assignment)"
                 >
+                  <ExternalLink :size="13" aria-hidden="true" />
                   {{ openingAssignmentId === assignment.id ? "打开中" : "查看" }}
                 </button>
                 <button
@@ -2275,80 +2235,61 @@ onUnmounted(() => {
                   :disabled="busy"
                   @click="startAssignmentJob(assignment)"
                 >
-                  {{ assignmentJobLabel(assignment.id) }}
+                  <component :is="requiresMaterials(assignment) ? FileText : assignmentJobLabel(assignment.id) === '重试' ? RotateCcw : assignmentJobLabel(assignment.id) === '查看任务' ? ClipboardList : Play" :size="13" aria-hidden="true" />
+                  {{ requiresMaterials(assignment) ? '查看要求' : assignmentJobLabel(assignment.id) }}
                 </button>
               </div>
             </article>
           </section>
         </section>
+        <LeiResizeHandle v-model="listWidth" :min="300" :max="520" @commit="remember('list-width', listWidth)" />
         <aside
           class="profile-preview-panel platform-browser-panel"
           :class="{
-            'live-task-panel': Boolean(platformLiveJob),
-            'active-browser-panel': Boolean(selectedAccountActiveJob)
+            'live-task-panel': browserShowsCapture,
+            'active-browser-panel': Boolean(selectedAccountActiveJob),
+            expanded: browserExpanded
           }"
         >
           <div class="profile-preview-heading">
             <div>
-              <span class="eyebrow">
-                {{ selectedAccountActiveJob
-                  ? (isNeedsIntervention(selectedAccountActiveJob) ? "等待人工介入" : "实时执行")
-                  : (platformLiveJob ? "最近任务" : "当前 Profile") }}
-              </span>
-              <h2>
-                {{ platformLiveJob?.assignment_title
-                  || selectedAccount?.name
-                  || "浏览器预览" }}
-              </h2>
-              <small v-if="platformLiveJob" class="platform-task-meta">
-                {{ selectedAccount?.name }} · 第 {{ platformLiveJob.attempt || 1 }} 次
-              </small>
+              <span class="panel-label"><PlatformLogo :platform="selectedAccount?.platform || 'chaoxing'" :size="20" />{{ selectedAccount?.name || '浏览器' }}<span class="browser-mode-label">{{ selectedAccountActiveJob ? '实时会话' : browserShowsCapture ? '任务画面' : '当前会话' }}</span></span>
+              <h2>{{ browserShowsCapture ? platformLiveJob?.assignment_title : (profilePreviewTitle || '浏览器') }}</h2>
             </div>
             <div class="preview-actions">
+              <button class="button dark browser-entry-button" type="button" :disabled="!selectedAccount || selectedAccount.status !== 'ready' || Boolean(selectedAccountActiveJob && !canJobAction(selectedAccountActiveJob, 'open_browser') && !canJobAction(selectedAccountActiveJob, 'view_browser'))" @click="openWorkspaceBrowser"><ExternalLink :size="14" />进入浏览器</button>
+              <button v-if="canJobAction(selectedAccountActiveJob, 'pause')" :disabled="jobPending(selectedAccountActiveJob)" class="icon-button" type="button" title="暂停任务" aria-label="暂停任务" @click="controlSelectedJob('pause', { jobId: selectedAccountActiveJob.id })"><Pause :size="15" /></button>
+              <button v-if="canJobAction(selectedAccountActiveJob, 'resume')" :disabled="jobPending(selectedAccountActiveJob)" class="icon-button" type="button" title="继续任务" aria-label="继续任务" @click="controlSelectedJob('resume', { jobId: selectedAccountActiveJob.id })"><Play :size="15" /></button>
+              <button v-if="canJobAction(selectedAccountActiveJob, 'stop')" :disabled="jobPending(selectedAccountActiveJob)" class="icon-button danger" type="button" title="停止任务" aria-label="停止任务" @click="controlSelectedJob('stop', { jobId: selectedAccountActiveJob.id })"><Square :size="14" /></button>
+              <button v-if="canJobAction(selectedAccountActiveJob, 'continue')" class="button dark" :disabled="jobPending(selectedAccountActiveJob)" type="button" @click="controlSelectedJob('continue', { jobId: selectedAccountActiveJob.id })"><Play :size="14" />人工处理后继续</button>
               <button
-                v-if="selectedAccountActiveJob && selectedAccountActiveJob.interactive"
-                class="button dark browser-entry-button"
-                type="button"
-                @click="focusAgentBrowser"
-              >
-                进入实时浏览器
-              </button>
-              <button
-                v-if="selectedAccountActiveJob && isNeedsIntervention(selectedAccountActiveJob)"
+                v-if="canJobAction(selectedAccountActiveJob, 'close_browser')"
                 class="button dark"
                 type="button"
                 @click="finishSelectedIntervention(selectedAccountActiveJob.id)"
+                :disabled="jobPending(selectedAccountActiveJob)"
               >
-                结束介入
+                <CheckCheck :size="14" aria-hidden="true" />关闭浏览器
               </button>
               <button
                 v-if="platformLiveJob"
-                class="button light"
+                class="icon-button"
                 type="button"
-                @click="selectJob(platformLiveJob.id); activePage = 'dashboard'"
+                title="任务详情"
+                aria-label="任务详情"
+                @click="openTaskDetails(platformLiveJob.id)"
               >
-                任务详情
+                <ClipboardList :size="15" aria-hidden="true" />
               </button>
-              <button
-                v-else
-                class="button light"
-                type="button"
-                @click="openInteractiveBrowser"
-              >
-                打开可操控浏览器
-              </button>
-              <button
-                v-if="!platformLiveJob"
-                class="button ghost"
-                type="button"
-                @click="refreshProfilePreview(true)"
-              >
-                刷新
-              </button>
+              <button class="icon-button" type="button" :aria-pressed="logPanelOpen" title="切换执行日志" aria-label="切换执行日志" @click="logPanelOpen = !logPanelOpen"><PanelRightClose v-if="logPanelOpen" :size="16" /><PanelRightOpen v-else :size="16" /></button>
+              <button class="icon-button" type="button" :aria-pressed="browserExpanded" :title="browserExpanded ? '收起浏览器画面' : '展开浏览器画面'" :aria-label="browserExpanded ? '收起浏览器画面' : '展开浏览器画面'" @click="toggleBrowserExpansion"><Minimize2 v-if="browserExpanded" :size="16" /><Maximize2 v-else :size="16" /></button>
             </div>
           </div>
 
-          <template v-if="platformLiveJob">
+          <div v-if="platformLiveJob && !platformLiveJob.browser_available && !selectedAccountActiveJob" class="browser-view-switch"><LeiTabs v-model="captureMode" :items="[{value: 'task', label: '最终结果'}, {value: 'profile', label: '当前会话'}]" label="浏览器画面来源" /></div>
+          <label v-if="accountTaskChoices.length > 1" class="task-browser-selector"><span>作业窗口</span><select :value="platformLiveJob?.id || ''" aria-label="选择作业任务窗口" @change="selectJob($event.target.value); captureMode = 'task'"><option v-for="task in accountTaskChoices" :key="task.id" :value="task.id">{{ task.assignment_title }} · {{ jobStatusLabel(task.status) }}</option></select></label>
+          <LiveBrowser v-if="platformLiveJob?.browser_available" ref="assignmentViewer" :native-browser="platformLiveJob.platform !== 'educoder'" :run-id="platformLiveJob.id" kind="assignment" @open-browser="focusAgentBrowser(platformLiveJob.id)" />
+          <template v-else-if="browserShowsCapture">
             <div class="platform-job-summary">
               <span class="job-badge" :class="platformLiveJob.status">
                 {{ jobStatusLabel(platformLiveJob.status) }}
@@ -2361,25 +2302,21 @@ onUnmounted(() => {
               <p v-if="actionSummary(currentAgentState?.data?.actions, currentAgentState?.data?.action_details)">
                 {{ actionSummary(currentAgentState.data.actions, currentAgentState.data.action_details) }}
               </p>
-              <p v-if="currentAgentState?.data?.url" class="platform-agent-url">
-                {{ currentAgentState.data.url }}
-              </p>
+
             </div>
-            <button
+            <div
               class="platform-live-image"
-              type="button"
-              :disabled="!(selectedAccountActiveJob && selectedAccountActiveJob.interactive)"
-              :title="selectedAccountActiveJob?.interactive ? '进入与 Agent 同步的实时浏览器' : '任务没有可操控页面'"
-              @click="focusAgentBrowser"
+              tabindex="0"
+              role="region"
+              :aria-label="selectedAccountActiveJob ? '实时任务画面' : '已保存的任务画面'"
+              :title="selectedAccountActiveJob?.browser_available ? '双击进入实时浏览器' : '已保存的任务画面，可滚动查看'"
+              @dblclick="selectedAccountActiveJob?.browser_available && openWorkspaceBrowser()"
             >
-              <img v-if="screenshot" :src="screenshot" alt="Agent 当前操作页面">
+              <ScreenshotViewer v-if="screenshot" :image="screenshot" :segments="screenshotSections" />
               <div v-else class="profile-preview-empty">
-                {{ selectedAccountActiveJob ? "等待 Agent 首帧画面..." : "没有可显示的页面截图" }}
+                {{ taskDetailsLoading ? "正在加载任务画面..." : selectedAccountActiveJob ? "等待 Agent 首帧画面..." : "没有可显示的页面截图" }}
               </div>
-            </button>
-            <p v-if="selectedAccountActiveJob" class="platform-sync-note">
-              与 Agent 共用同一个 Chrome 会话。打开浏览器不会暂停任务，手动操作会同步到此预览。
-            </p>
+            </div>
           </template>
 
           <template v-else>
@@ -2397,25 +2334,31 @@ onUnmounted(() => {
             </div>
           </template>
         </aside>
-        <aside class="platform-log-panel">
+        <aside v-if="logPanelOpen" class="platform-log-panel">
           <div class="platform-log-heading">
             <div>
-              <span class="eyebrow">执行日志</span>
-              <h2>步骤状态</h2>
+              <h2><FileText :size="16" aria-hidden="true" />执行日志</h2>
             </div>
             <span class="count" :title="`已完成 ${completedStepCount} 个动作步骤`">
               {{ completedStepCount }}
             </span>
+            <button class="icon-button" type="button" title="收起执行日志" aria-label="收起执行日志" @click="logPanelOpen = false"><X :size="15" /></button>
           </div>
           <template v-if="platformLiveJob">
-            <div class="workflow-stages">
+            <div v-if="taskDetailsLoading" class="empty-inline" role="status">正在读取任务状态...</div>
+            <div v-else class="workflow-stages">
               <div
                 v-for="stage in workflowStages"
                 :key="stage.id"
                 class="workflow-stage"
                 :class="stage.state"
               >
-                <span class="workflow-stage-dot"></span>
+                <span class="workflow-stage-dot">
+                  <Check v-if="stage.state === 'done'" :size="12" aria-hidden="true" />
+                  <LoaderCircle v-else-if="stage.state === 'active'" :size="13" class="spinning" aria-hidden="true" />
+                  <CircleAlert v-else-if="['error', 'attention'].includes(stage.state)" :size="13" aria-hidden="true" />
+                  <Circle v-else :size="10" aria-hidden="true" />
+                </span>
                 <div>
                   <strong>{{ stage.label }}</strong>
                   <small>{{ stage.detail }}</small>
@@ -2423,7 +2366,7 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="platform-log-stream">
-              <TransitionGroup name="log-pop" tag="div">
+              <TransitionGroup name="log-pop" tag="div" appear>
                 <article
                   v-for="event in visibleEvents.slice(0, 20)"
                   :key="`platform-${event.id}`"
@@ -2438,7 +2381,7 @@ onUnmounted(() => {
                         {{ event.state_label }}
                       </span>
                     </div>
-                    <strong>{{ eventMessagePreview(event.message || event.kind) }}</strong>
+                    <strong>{{ event.message || event.kind }}</strong>
                     <p v-if="actionSummary(event.data?.actions, event.data?.action_details)">
                       {{ actionSummary(event.data.actions, event.data.action_details) }}
                     </p>
@@ -2447,46 +2390,47 @@ onUnmounted(() => {
                 </article>
               </TransitionGroup>
               <div v-if="visibleEvents.length === 0" class="empty-inline">
-                暂无执行日志
+                {{ taskDetailsLoading ? '正在读取执行日志...' : '暂无执行日志' }}
               </div>
             </div>
             <div v-if="artifacts.length" class="platform-log-artifacts">
+              <button v-if="screenshot" class="text-button" type="button" @click="openTaskDetails(selectedJobId)">查看截图<template v-if="screenshotSections.length"> · {{ screenshotSections.length }} 段</template></button>
               <a
-                v-for="artifact in artifacts.slice(-5)"
+                v-for="artifact in artifacts.filter(item => !['screenshot', 'final_screenshot', 'live_screenshot'].includes(item.kind)).slice(-3)"
                 :key="artifact.id"
-                :href="`http://127.0.0.1:8877/api/artifacts/${artifact.id}`"
+                :href="api.artifactUrl(artifact.id)"
                 target="_blank"
                 rel="noreferrer"
               >
-                {{ artifactLabel(artifact.kind) }}
+                {{ artifactTitle(artifact) }}
               </a>
             </div>
           </template>
           <div v-else class="platform-log-empty">
-            执行作业后，这里会实时显示步骤状态和操作日志。
+            暂无执行记录
           </div>
         </aside>
       </main>
 
-      <main v-else-if="activePage === 'connectors'" class="settings-page">
+      <LearningWorkspace v-else-if="activePage === 'learning'" key="learning" :accounts="learningAccounts" :initial-course-id="learningCourseId" v-model:account-id="selectedAccountId" @refresh="refreshTaskOverview" @result="openLearningResult" @platforms="activePage = 'platforms'" />
+
+      <main v-else-if="activePage === 'connectors'" key="connectors" class="settings-page">
         <div class="page-heading">
-          <span class="eyebrow">消息平台</span>
           <h2>连接器</h2>
-          <p>选择一个机器人或消息平台进行配置。</p>
         </div>
         <div class="connector-grid">
           <button
-            v-for="connector in connectors"
+            v-for="connector in connectors.filter(item => item.available)"
             :key="connector.id"
             type="button"
             class="connector-card"
             :class="{ available: connector.available }"
+            :disabled="!connector.available"
             @click="openConnector(connector)"
           >
-            <span class="connector-mark">{{ connector.name.slice(0, 1) }}</span>
+            <PlatformLogo :platform="connector.id" :size="44" />
             <span>
               <strong>{{ connector.name }}</strong>
-              <small>{{ connector.detail }}</small>
             </span>
             <span
               v-if="connector.id === 'weixin'"
@@ -2495,395 +2439,410 @@ onUnmounted(() => {
             >
               {{ settingsInfo?.weixin_ready ? "会话就绪" : settingsInfo?.weixin_configured ? "已绑定" : "配置" }}
             </span>
-            <span v-else class="status-tag">即将支持</span>
+            <span v-else class="status-tag">未接入</span>
           </button>
         </div>
       </main>
 
-      <main v-else class="settings-page">
-        <div class="page-heading">
-          <h2>设置</h2>
-          <p>所有数据、日志和执行凭证均保存在本机。</p>
-        </div>
-        <section class="settings-row">
-          <div>
-            <strong>模型</strong>
-            <p>
-              {{ settingsInfo?.provider_name || "custom" }} ·
-              {{ (settingsInfo?.models || []).join(" → ") || "未读取" }} ·
-              思考 {{ settingsInfo?.reasoning_effort || "high" }}
-            </p>
-          </div>
-          <div class="settings-actions">
-            <button class="button light" type="button" @click="openModelModal">配置模型</button>
-          </div>
-        </section>
-        <section class="schedule-settings">
-          <div class="settings-row schedule-heading">
+      </Transition>
+    </div>
+
+    <SettingsDialog :open="settingsOpen" v-model:section="settingsSection" :accounts="accounts" :info="settingsInfo" :profile="localProfile" :save-profile="updateLocalProfile" :update="updateState" :auto-check="autoCheckUpdates" :check-updates="checkForUpdates" :set-auto-check="updateAutoCheck" :open-external="openProjectLink" :open-data="openDataDirectory" :open-logs="openLogDirectory" @close="settingsOpen=false" @saved="preferencesSaved" @model-saved="modelSettingsSaved" @platforms="settingsOpen=false;activePage='platforms'" />
+    <LearningTaskDetails :open="learningResultOpen" :run-id="learningResultId" @close="learningResultOpen = false" @workspace="openLearningWorkspace" />
+
+    <Transition name="dialog">
+      <div
+        v-if="taskDetailsOpen && selectedJob"
+        class="modal-backdrop"
+        @click.self="taskDetailsOpen = false"
+      >
+        <section
+          class="modal-card task-details-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="task-details-title"
+          :aria-busy="taskDetailsLoading"
+          tabindex="-1"
+        >
+          <div class="agent-heading task-details-heading">
             <div>
-              <strong>自动检测</strong>
-              <p>应用运行期间，按账号间隔采集当前仍可提交的作业。</p>
+              <h2 id="task-details-title">{{ selectedJob.assignment_title }}</h2>
             </div>
-          </div>
-          <div v-if="accounts.length === 0" class="schedule-empty">
-            添加并授权账号后可以启用自动检测。
-          </div>
-          <article
-            v-for="account in accounts"
-            :key="account.id"
-            class="schedule-account-row"
-          >
-            <div class="schedule-account-copy">
-              <strong>{{ account.name }}</strong>
-              <small>
-                {{ platformLabel(account.platform) }} ·
-                {{ accountStatusLabel(account.status) }}
-              </small>
-            </div>
-            <label class="schedule-toggle">
-              <input
-                type="checkbox"
-                :checked="Boolean(account.auto_collect_enabled)"
-                :disabled="account.status !== 'ready'"
-                @change="updateCollectionSchedule(account, {
-                  enabled: $event.target.checked
-                })"
+            <div class="agent-heading-meta">
+              <span
+                v-if="selectedJob && isActiveJob(selectedJob)"
+                class="socket-state"
+                :class="{ online: socketConnected }"
               >
-              <span>启用</span>
-            </label>
-            <label
-              class="schedule-interval"
-              :class="{ disabled: !account.auto_collect_enabled || account.status !== 'ready' }"
-            >
-              <span>间隔</span>
+                {{ socketConnected ? "实时连接" : "正在重连" }}
+              </span>
+              <span v-if="selectedJob" class="job-badge" :class="selectedJob.status">
+                {{ jobStatusLabel(selectedJob.status) }}
+              </span>
+              <button
+                id="task-details-close"
+                class="modal-close"
+                type="button"
+                aria-label="关闭"
+                title="关闭"
+                @click="taskDetailsOpen = false"
+              >
+                <X :size="17" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+          <div class="task-details-toolbar">
+            <span>{{ selectedJob.account_name }} · {{ selectedJob.course_name }}</span>
+            <label class="task-attempt-picker">
+              执行记录
               <select
-                :value="account.auto_collect_interval_minutes || 360"
-                :disabled="account.status !== 'ready' || !account.auto_collect_enabled"
-                @change="updateCollectionSchedule(account, {
-                  interval_minutes: Number($event.target.value)
-                })"
+                aria-label="执行记录"
+                :value="selectedJobId"
+                @change="selectJob($event.target.value)"
               >
-                <option :value="30">30 分钟</option>
-                <option :value="60">1 小时</option>
-                <option :value="180">3 小时</option>
-                <option :value="360">6 小时</option>
-                <option :value="720">12 小时</option>
-                <option :value="1440">24 小时</option>
+                <option v-for="job in selectedJobAttempts" :key="job.id" :value="job.id">
+                  第 {{ job.attempt || 1 }} 次 · {{ jobStatusLabel(job.status) }} ·
+                  {{ formatLocalTime(job.created_at) }}{{ job.id === selectedJobAttempts[0]?.id ? '（最新）' : '' }}
+                </option>
               </select>
             </label>
-            <div
-              v-if="account.auto_collect_enabled || account.last_collection_at"
-              class="schedule-result"
-              :class="account.last_collection_status"
+          </div>
+          <div v-if="selectedJob" class="job-controls">
+            <button
+              v-if="canJobAction(selectedJob, 'open_browser') || canJobAction(selectedJob, 'view_browser')"
+              class="button dark browser-entry-button"
+              type="button"
+              @click="focusAgentBrowser()"
             >
-              <strong>{{ collectionStatusLabel(account) }}</strong>
-              <small v-if="nextCollectionLabel(account)">
-                {{ nextCollectionLabel(account) }}
-              </small>
-              <small v-else-if="account.last_collection_at">
-                {{ formatLocalTime(account.last_collection_at) }}
-              </small>
-              <small
-                v-if="account.last_collection_error"
-                class="schedule-error"
+              <Monitor :size="14" aria-hidden="true" />进入实时浏览器
+            </button>
+            <button
+              v-if="canJobAction(selectedJob, 'close_browser')"
+              class="button dark"
+              type="button"
+              @click="finishSelectedIntervention()"
+              :disabled="jobPending()"
+            >
+              <CheckCheck :size="14" aria-hidden="true" />关闭浏览器
+            </button>
+            <button
+              v-if="canJobAction(selectedJob, 'pause')"
+              class="button light"
+              type="button"
+              @click="controlSelectedJob('pause')"
+              :disabled="jobPending()"
+            >
+              <Pause :size="14" aria-hidden="true" />暂停
+            </button>
+            <button
+              v-if="canJobAction(selectedJob, 'resume')"
+              class="button dark"
+              type="button"
+              @click="controlSelectedJob('resume')"
+              :disabled="jobPending()"
+            >
+              <Play :size="14" aria-hidden="true" />继续
+            </button>
+            <button
+              v-if="canJobAction(selectedJob, 'stop')"
+              class="button light"
+              type="button"
+              @click="controlSelectedJob('stop')"
+              :disabled="jobPending()"
+            >
+              <Square :size="14" aria-hidden="true" />停止
+            </button>
+            <button
+              v-if="canJobAction(selectedJob, 'retry')"
+              class="button light"
+              type="button"
+              @click="requestRetry(selectedJob)"
+              :disabled="jobPending()"
+            >
+              <RotateCcw :size="14" aria-hidden="true" />重试
+            </button>
+              <button v-if="canJobAction(selectedJob, 'continue')" class="button dark" type="button" :disabled="jobPending()" @click="controlSelectedJob('continue')"><Play :size="14" />人工处理后继续</button>
+          </div>
+          <div v-if="jobPending()" class="job-action-feedback" role="status"><LoaderCircle :size="14" class="spinning" />正在处理当前操作，请等待状态返回...</div>
+          <div v-if="selectedJob.waiting_reason" class="job-queue-blocker"><CircleAlert :size="16" /><span>{{ selectedJob.waiting_reason }}</span><button v-if="selectedJob.blocked_by_job_id" type="button" class="text-button" @click="openTaskDetails(selectedJob.blocked_by_job_id)">查看占用任务</button></div>
+          <div v-if="taskDetailsLoading" class="empty-inline" role="status">正在加载任务状态…</div>
+          <div v-else class="agent-content-grid">
+            <div class="agent-visual-column">
+              <div
+                v-if="selectedJob && !isActiveJob(selectedJob)"
+                class="job-result-card"
+                :class="selectedJob.status"
               >
-                {{ account.last_collection_error }}
-              </small>
+                <div>
+                  <span>任务结果</span>
+                  <strong>{{ submissionStatusLabel(selectedJob.submission_status) }}</strong>
+
+
+                  <small v-if="selectedJob.verified_at">
+                    人工核对：{{ formatLocalTime(selectedJob.verified_at) }}
+                    <template v-if="selectedJob.verification_note">
+                      · {{ selectedJob.verification_note }}
+                    </template>
+                  </small>
             </div>
-          </article>
-        </section>
-        <section class="settings-row">
-          <div>
-            <strong>数据目录</strong>
-            <p class="path-text">{{ settingsInfo?.data_root || "未读取" }}</p>
+            <p v-if="isNeedsIntervention(selectedJob)" class="result-intervention">
+              {{ selectedJobIssue }}
+            </p>
+            <p v-else-if="selectedJobIssue" :class="{ 'result-error': selectedJob.error }">{{ selectedJobIssue }}</p>
+            <p v-else>暂无执行摘要</p>
+            <div class="result-actions">
+              <button
+                v-if="canJobAction(selectedJob, 'open_assignment')"
+                class="button light"
+                type="button"
+                @click="openSelectedJobAssignment"
+              >
+                <ExternalLink :size="14" aria-hidden="true" />打开作业核对
+              </button>
+              <button
+                v-if="canJobAction(selectedJob, 'confirm_filled')"
+                class="button dark"
+                type="button"
+                :disabled="jobPending()"
+                @click="verifySelectedSubmission('filled_verified')"
+              >
+                <CheckCheck :size="14" aria-hidden="true" />确认已核对
+              </button>
+              <button
+                v-if="canJobAction(selectedJob, 'confirm_submitted')"
+                class="button dark"
+                type="button"
+                :disabled="jobPending()"
+                @click="verifySelectedSubmission('submitted_verified')"
+              >
+                我已提交
+              </button>
+              <button
+                v-if="canJobAction(selectedJob, 'confirm_not_submitted')"
+                class="button light"
+                type="button"
+                :disabled="jobPending()"
+                @click="verifySelectedSubmission('not_submitted')"
+              >
+                确认未提交
+              </button>
+            </div>
           </div>
-          <button class="button light" type="button" @click="openDataDirectory">打开</button>
-        </section>
-        <section class="settings-row">
-          <div>
-            <strong>日志目录</strong>
-            <p class="path-text">{{ settingsInfo?.logs_root || "未读取" }}</p>
+          <div v-if="selectedJob && isActiveJob(selectedJob)" class="progress-track">
+            <span
+              role="progressbar"
+              aria-label="Agent 任务进度"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuenow="selectedJob?.progress || 0"
+              :style="{ transform: `scaleX(${(selectedJob?.progress || 0) / 100})` }"
+            ></span>
           </div>
-          <button class="button light" type="button" @click="openLogDirectory">
-            打开
-          </button>
-        </section>
-      </main>
-    </div>
-
-    <div
-      v-if="launchConfirmOpen"
-      class="modal-backdrop"
-      @mousedown.self="launchConfirmOpen = false"
-    >
-      <div
-        class="modal-card modal-narrow"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="launch-confirm-title"
-        tabindex="-1"
-      >
-        <div class="modal-heading">
-          <div>
-            <span class="eyebrow">高风险操作</span>
-            <h2 id="launch-confirm-title">确认允许最终提交</h2>
-          </div>
-          <button class="modal-close" type="button" @click="launchConfirmOpen = false">
-            关闭
-          </button>
-        </div>
-        <p class="modal-message">
-          即将执行 {{ pendingLaunch.assignments.length }} 个 Agent 任务，并允许 Agent 点击最终提交。
-          任务结束后系统只会标记为“允许提交，结果未验证”，仍需回到作业页面人工确认。
-        </p>
-        <div class="confirm-job-list">
-          <span
-            v-for="assignment in pendingLaunch.assignments.slice(0, 4)"
-            :key="assignment.id"
+          <div
+            v-if="selectedJob && isActiveJob(selectedJob)"
+            class="agent-current-state"
+            aria-live="polite"
           >
-            {{ assignment.title }}
-          </span>
-          <span v-if="pendingLaunch.assignments.length > 4">
-            另有 {{ pendingLaunch.assignments.length - 4 }} 个作业
-          </span>
-        </div>
-        <div class="modal-actions">
-          <button class="button light" type="button" @click="launchConfirmOpen = false">
-            取消
-          </button>
-          <button class="button danger-button" type="button" @click="confirmAutoSubmitLaunch">
-            确认执行并允许提交
-          </button>
-        </div>
-      </div>
-    </div>
+            <strong>{{ currentAgentState?.message || "等待 Agent 日志" }}</strong>
+            <p v-if="actionSummary(currentAgentState?.data?.actions, currentAgentState?.data?.action_details)">
+              {{ actionSummary(currentAgentState.data.actions, currentAgentState.data.action_details) }}
+            </p>
 
-    <div
-      v-if="accountModalOpen"
-      class="modal-backdrop"
-      @mousedown.self="accountModalOpen = false"
-    >
-      <div
-        class="modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="account-modal-title"
-        tabindex="-1"
-      >
-        <div class="modal-heading">
-          <div>
-            <span class="eyebrow">平台账号</span>
-            <h2 id="account-modal-title">添加平台账号</h2>
+            <small v-if="currentAgentState">
+              {{ new Date(currentAgentState.created_at).toLocaleTimeString("zh-CN") }}
+            </small>
           </div>
-          <button class="modal-close" type="button" @click="accountModalOpen = false">关闭</button>
-        </div>
-        <label class="field-label">
-          <span>名称</span>
-          <input
-            id="account-name-input"
-            v-model="accountForm.name"
-            placeholder="例如：我的学习通"
-          >
-        </label>
-        <label class="field-label">
-          <span>平台</span>
-          <select v-model="accountForm.platform">
-            <option v-for="platform in platforms" :key="platform.name" :value="platform.name">
-              {{ platform.label }}
-            </option>
-          </select>
-        </label>
-        <div class="modal-actions">
-          <button class="button light" type="button" @click="accountModalOpen = false">取消</button>
-          <button class="button dark" type="button" :disabled="busy" @click="createAccount">
-            添加
-          </button>
-        </div>
-      </div>
-    </div>
+          <section v-if="selectedJob" class="agent-live-preview">
+            <div class="agent-live-preview-heading">
+              <LeiTabs v-if="selectedJob.browser_available && screenshot" v-model="detailBrowserTab" :items="[{value: 'live', label: '实时浏览器'}, {value: 'result', label: '最终结果'}]" label="任务浏览器视图" />
+              <span v-else>{{ selectedJob.browser_available ? '实时浏览器' : '最终结果' }}</span>
+            </div>
+            <div class="agent-browser-surface">
+              <LiveBrowser v-if="selectedJob.browser_available && detailBrowserTab === 'live'" ref="detailViewer" :native-browser="selectedJob.platform !== 'educoder'" :run-id="selectedJob.id" kind="assignment" @open-browser="focusAgentBrowser()" />
+              <ScreenshotViewer v-else-if="screenshot" :image="screenshot" :segments="screenshotSections" />
+              <div v-else class="profile-preview-empty">{{ isActiveJob(selectedJob) ? '正在连接任务浏览器…' : '没有保存的执行截图' }}</div>
+            </div>
+          </section>
+            </div>
+            <div class="agent-activity-column">
+              <div class="timeline" role="log" aria-live="polite" aria-relevant="additions text">
+                <div v-for="event in visibleEvents" :key="event.id" class="timeline-item">
+                  <span class="event-dot" :class="event.kind"></span>
+                  <div>
+                    <strong>{{ event.message || event.kind }}</strong>
+                    <p v-if="actionSummary(event.data?.actions, event.data?.action_details)">
+                      {{ actionSummary(event.data.actions, event.data.action_details) }}
+                    </p>
 
-    <div
-      v-if="weixinModalOpen"
-      class="modal-backdrop"
-      @mousedown.self="weixinModalOpen = false"
-    >
-      <div
-        class="modal-card modal-narrow"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="weixin-modal-title"
-        tabindex="-1"
-      >
-        <div class="modal-heading">
-          <div>
-            <span class="eyebrow">iLink Bot</span>
-            <h2 id="weixin-modal-title">绑定微信机器人</h2>
+                    <small>{{ new Date(event.created_at).toLocaleTimeString("zh-CN") }}</small>
+                  </div>
+            </div>
           </div>
-          <button class="modal-close" type="button" @click="weixinModalOpen = false">关闭</button>
-        </div>
-        <div class="qr-box">
-          <img v-if="weixinQr" :src="weixinQr" alt="微信机器人绑定二维码">
-          <span v-else>正在获取二维码...</span>
-        </div>
-        <p class="modal-message">{{ weixinMessage }}</p>
-        <div v-if="weixinStatus === 'need_verifycode'" class="inline-form">
-          <input v-model="weixinVerifyCode" inputmode="numeric" placeholder="手机验证码">
-          <button class="button dark" type="button" @click="pollWeixinStatus">提交</button>
-        </div>
-        <div v-if="weixinStatus === 'confirmed'" class="modal-actions">
-          <button class="button light" type="button" @click="refreshWeixinSession">刷新会话</button>
-          <button class="button dark" type="button" @click="weixinModalOpen = false">完成</button>
-        </div>
-      </div>
-    </div>
-
-    <div
-      v-if="modelModalOpen"
-      class="modal-backdrop"
-      @mousedown.self="modelModalOpen = false"
-    >
-      <div
-        class="modal-card modal-wide"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="model-modal-title"
-        tabindex="-1"
-      >
-        <div class="modal-heading">
-          <div>
-            <span class="eyebrow">AI Provider</span>
-            <h2 id="model-modal-title">模型配置</h2>
-          </div>
-          <button class="modal-close" type="button" @click="modelModalOpen = false">关闭</button>
-        </div>
-        <div class="model-grid">
-          <label class="field-label">
-            <span>供应商名称</span>
-            <input
-              id="model-provider-input"
-              v-model="modelForm.provider_name"
-              placeholder="ssh"
+          <div v-if="artifacts.length" class="artifact-list">
+            <div class="section-title">
+              <span>执行凭证</span>
+              <span class="count">{{ artifacts.length }}</span>
+            </div>
+            <a
+              v-for="artifact in artifacts"
+              :key="artifact.id"
+              :href="api.artifactUrl(artifact.id)"
+              target="_blank"
+              rel="noreferrer"
             >
-          </label>
-          <label class="field-label">
-            <span>API 地址</span>
-            <input v-model="modelForm.base_url" placeholder="https://sshzyu.com/v1">
-          </label>
-        </div>
-        <label class="field-label">
-          <span>API 密钥</span>
-          <input v-model="modelForm.api_key" type="password" placeholder="留空则保留原密钥">
-        </label>
-        <label class="field-label">
-          <span>思考强度</span>
-          <select v-model="modelForm.reasoning_effort">
-            <option value="none">无</option>
-            <option value="minimal">最少</option>
-            <option value="low">低</option>
-            <option value="medium">中</option>
-            <option value="high">高</option>
-            <option value="xhigh">极高</option>
-          </select>
-        </label>
-        <div class="model-priority">
-          <div class="section-title">
-            <span>模型优先级</span>
-            <span class="count">{{ modelForm.models.length }}</span>
+              {{ artifactTitle(artifact) }}
+            </a>
           </div>
-          <div v-for="(model, index) in modelForm.models" :key="model" class="model-row">
-            <span class="model-rank">{{ index === 0 ? "主模型" : `备用 ${index}` }}</span>
-            <strong>{{ model }}</strong>
-            <button class="text-button danger" type="button" @click="removeModel(index)">删除</button>
+            </div>
           </div>
-          <div class="inline-form">
-            <input
-              v-model="newModelName"
-              placeholder="输入或选择模型名"
-              @keyup.enter="addModel(newModelName)"
+        </section>
+      </div>
+    </Transition>
+
+    <Transition name="dialog">
+      <div
+        v-if="launchConfirmOpen"
+        class="modal-backdrop"
+        @mousedown.self="launchConfirmOpen = false"
+      >
+        <div
+          class="modal-card modal-narrow"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="launch-confirm-title"
+          tabindex="-1"
+        >
+          <div class="modal-heading">
+            <div>
+              <h2 id="launch-confirm-title">确认允许最终提交</h2>
+            </div>
+            <button class="modal-close" type="button" aria-label="关闭" title="关闭" @click="launchConfirmOpen = false">
+              <X :size="17" aria-hidden="true" />
+            </button>
+          </div>
+          <p class="modal-message">
+            将执行 {{ pendingLaunch.assignments.length }} 个作业并允许最终提交。
+            仅在页面核验到提交成功后标记“已完成”；无法确认时保留待核对结果。
+          </p>
+          <div class="confirm-job-list">
+            <span
+              v-for="assignment in pendingLaunch.assignments.slice(0, 4)"
+              :key="assignment.id"
             >
-            <button class="button light" type="button" @click="addModel(newModelName)">添加</button>
+              {{ assignment.title }}
+            </span>
+            <span v-if="pendingLaunch.assignments.length > 4">
+              另有 {{ pendingLaunch.assignments.length - 4 }} 个作业
+            </span>
           </div>
-          <button class="button light wide" type="button" @click="fetchModelList">从服务商拉取模型列表</button>
-          <select
-            v-if="modelCatalog.length"
-            class="model-catalog"
-            @change="addModel($event.target.value)"
-          >
-            <option value="">从模型列表添加</option>
-            <option v-for="model in modelCatalog" :key="model" :value="model">{{ model }}</option>
-          </select>
-        </div>
-        <p class="modal-message">{{ modelMessage }}</p>
-        <div class="modal-actions split">
-          <button class="button light" type="button" @click="testModelConnection">测试连接</button>
-          <button class="button dark" type="button" @click="saveModelSettings">保存配置</button>
+          <div class="modal-actions">
+            <button class="button light" type="button" @click="launchConfirmOpen = false">
+              取消
+            </button>
+            <button class="button danger-button" type="button" @click="confirmAutoSubmitLaunch">
+              确认执行并允许提交
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
-    <div
-      v-if="renameModalOpen"
-      class="modal-backdrop"
-      @mousedown.self="renameModalOpen = false"
-    >
-      <div
-        class="modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="rename-modal-title"
-        tabindex="-1"
-      >
-        <div class="modal-heading">
-          <div>
-            <span class="eyebrow">账号名称</span>
-            <h2 id="rename-modal-title">重命名账号</h2>
-          </div>
-          <button class="modal-close" type="button" @click="renameModalOpen = false">关闭</button>
-        </div>
-        <label class="field-label">
-          <span>名称</span>
-          <input
-            id="rename-account-input"
-            v-model="renameValue"
-            @keyup.enter="saveRenameAccount"
-          >
-        </label>
-        <div class="modal-actions">
-          <button class="button light" type="button" @click="renameModalOpen = false">取消</button>
-          <button class="button dark" type="button" @click="saveRenameAccount">保存</button>
-        </div>
-      </div>
-    </div>
 
-    <div
-      v-if="deleteModalOpen"
-      class="modal-backdrop"
-      @mousedown.self="deleteModalOpen = false"
-    >
+
+    <Transition name="dialog">
       <div
-        class="modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="delete-modal-title"
-        tabindex="-1"
+        v-if="weixinModalOpen"
+        class="modal-backdrop"
+        @mousedown.self="weixinModalOpen = false"
       >
-        <div class="modal-heading">
-          <div>
-            <span class="eyebrow">删除账号</span>
-            <h2 id="delete-modal-title">确认删除 {{ deleteAccountName }}</h2>
+        <div
+          class="modal-card modal-narrow"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="weixin-modal-title"
+          tabindex="-1"
+        >
+          <div class="modal-heading">
+            <div>
+              <h2 id="weixin-modal-title"><PlatformLogo platform="weixin" :size="28" />微信机器人</h2>
+            </div>
+            <button class="modal-close" type="button" aria-label="关闭" title="关闭" @click="weixinModalOpen = false"><X :size="17" aria-hidden="true" /></button>
           </div>
-          <button class="modal-close" type="button" @click="deleteModalOpen = false">关闭</button>
-        </div>
-        <p class="modal-message">
-          将同时删除该账号的本地 Cookie、浏览器 Profile、作业记录和 Agent 任务。
-        </p>
-        <div class="modal-actions">
-          <button class="button light" type="button" @click="deleteModalOpen = false">取消</button>
-          <button class="button danger-button" type="button" @click="confirmDeleteAccount">
-            确认删除
-          </button>
+          <div v-if="weixinMode === 'loading'" class="weixin-loading" role="status"><LoaderCircle class="spinning" :size="20" />正在读取连接器</div>
+          <template v-else-if="weixinMode === 'settings' && weixinConfig">
+            <div class="weixin-binding-status"><span class="connection-dot" :class="{ online: weixinConfig.ready }"></span>{{ weixinConfig.ready ? '会话就绪' : '已绑定，等待刷新会话' }}<button class="text-button" type="button" :disabled="weixinSessionBusy || weixinPreferencesBusy" @click="refreshWeixinSession"><RefreshCw :size="13" :class="{ spinning: weixinSessionBusy }" />刷新会话</button></div>
+            <div class="weixin-preference-row">
+              <label><span>新作业提醒</span><input class="switch-input" type="checkbox" role="switch" aria-label="新作业提醒" :checked="weixinConfig.preferences.new_assignments_enabled" :disabled="weixinPreferencesBusy || weixinSessionBusy" @change="updateWeixinPreference('new_assignments_enabled', $event.target.checked)"></label>
+              <button class="text-button" type="button" @click="openCollectionSettings">检测设置<ArrowUpRight :size="13" /></button>
+            </div>
+            <div class="weixin-preference-row"><label><span>任务结果</span><input class="switch-input" type="checkbox" role="switch" aria-label="任务结果" :checked="weixinConfig.preferences.completion_enabled" :disabled="weixinPreferencesBusy || weixinSessionBusy" @change="updateWeixinPreference('completion_enabled', $event.target.checked)"></label></div>
+            <details v-if="weixinConfig.examples" class="weixin-message-preview"><summary>消息预览</summary><pre>{{ weixinConfig.examples.new_assignment }}</pre><pre>{{ weixinConfig.examples.completion }}</pre></details>
+            <p v-if="weixinConfig.preferences.new_assignments_enabled && weixinConfig.pending_new_assignments" class="modal-message" role="status">{{ weixinConfig.pending_new_assignments }} 个新增作业待推送。{{ weixinConfig.last_delivery_error || '下次定时采集时重试。' }}</p>
+            <p v-if="!weixinConfig.ready" class="modal-message">在微信中向机器人发送一条消息，再刷新会话。</p>
+            <div class="modal-actions split"><button class="text-button" type="button" :disabled="weixinSessionBusy || weixinPreferencesBusy" @click="openWeixinBinding">重新绑定</button><button class="button dark" type="button" @click="weixinModalOpen = false">完成</button></div>
+          </template>
+          <div v-if="weixinMode === 'binding'" class="qr-box">
+            <img v-if="weixinQr" :src="weixinQr" alt="微信机器人绑定二维码">
+            <span v-else>正在获取二维码...</span>
+          </div>
+          <p class="modal-message">{{ weixinMessage }}</p>
+          <div v-if="weixinMode === 'binding' && weixinStatus === 'need_verifycode'" class="inline-form">
+            <input v-model="weixinVerifyCode" inputmode="numeric" placeholder="手机验证码">
+            <button class="button dark" type="button" @click="pollWeixinStatus">提交</button>
+          </div>
+          <div v-if="weixinMode === 'error' || (weixinMode === 'binding' && weixinStatus === 'error')" class="modal-actions"><button class="button light" type="button" @click="openWeixinConnector"><RefreshCw :size="14" />重试</button></div>
         </div>
       </div>
-    </div>
+    </Transition>
+
+
+
+
+
+    <AccountAuthorization :open="authorizationOpen" :state="authorizationState" :platform-label="platformLabel(authorizationState.platform)" @close="authorizationOpen = false" @retry="authorizationFlow.retry()" />
+
+    <Transition name="dialog">
+      <div v-if="deleteTaskTarget" class="modal-backdrop" @mousedown.self="!deleteTaskBusy && (deleteTaskTarget = null)">
+        <section class="modal-card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="delete-task-title" :aria-busy="deleteTaskBusy" tabindex="-1">
+          <div class="modal-heading"><h2 id="delete-task-title">删除任务</h2><button class="modal-close" type="button" aria-label="关闭" title="关闭" :disabled="deleteTaskBusy" @click="deleteTaskTarget = null"><X :size="17" /></button></div>
+          <strong class="delete-task-name">{{ deleteTaskTarget.assignment_title }}</strong>
+          <p class="modal-message">将移除 {{ deleteTaskTarget.account_name }} 的这项任务及全部执行记录，保留维护日志。平台上的作业、课程和已保存进度不受影响。</p>
+          <p v-if="deleteTaskError" class="validation-error" role="alert">{{ deleteTaskError }}</p>
+          <div class="modal-actions"><button id="cancel-delete-task" class="button light" type="button" :disabled="deleteTaskBusy" @click="deleteTaskTarget = null">取消</button><button class="button danger-button" type="button" :disabled="deleteTaskBusy" @click="confirmDeleteTask"><LoaderCircle v-if="deleteTaskBusy" :size="14" class="spin" />{{ deleteTaskBusy ? '删除中…' : '删除任务' }}</button></div>
+        </section>
+      </div>
+    </Transition>
+
+    <Transition name="dialog">
+      <div
+        v-if="deleteModalOpen"
+        class="modal-backdrop"
+        @mousedown.self="deleteModalOpen = false"
+      >
+        <div
+          class="modal-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-modal-title"
+          tabindex="-1"
+        >
+          <div class="modal-heading">
+            <div>
+              <h2 id="delete-modal-title">确认删除 {{ deleteAccountName }}</h2>
+            </div>
+            <button class="modal-close" type="button" aria-label="关闭" title="关闭" @click="deleteModalOpen = false"><X :size="17" aria-hidden="true" /></button>
+          </div>
+          <p class="modal-message">
+            将同时删除该账号的本地 Cookie、浏览器 Profile、作业记录和 Agent 任务。
+          </p>
+          <div class="modal-actions">
+            <button class="button light" type="button" @click="deleteModalOpen = false">取消</button>
+            <button class="button danger-button" type="button" @click="confirmDeleteAccount">
+              确认删除
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>

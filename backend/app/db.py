@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .config import Settings
+from .diagnostics import DiagnosticStore
+from .preferences import load_preferences
 
 
 ACTIVE_JOB_STATUSES = {
@@ -16,7 +18,6 @@ ACTIVE_JOB_STATUSES = {
     "running",
     "paused",
     "stopping",
-    "needs_intervention",
 }
 JOB_TRANSITIONS = {
     "queued": {"running", "paused", "stopping", "stopped", "failed", "interrupted"},
@@ -35,9 +36,9 @@ JOB_TRANSITIONS = {
     "stopping": {"stopped", "failed", "interrupted"},
     "stopped": set(),
     "completed": set(),
-    "incomplete": set(),
+    "incomplete": {"running"},
     "failed": set(),
-    "needs_intervention": {"stopped", "failed", "interrupted"},
+    "needs_intervention": {"running", "stopped", "failed", "interrupted", "completed", "incomplete"},
     "interrupted": set(),
 }
 
@@ -50,8 +51,21 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def assignment_record(row) -> dict:
+    result = dict(row)
+    try:
+        assessment = json.loads(result.pop("assessment_json", "{}") or "{}")
+    except (ValueError, TypeError):
+        assessment = {}
+    result["assessment"] = assessment if isinstance(assessment, dict) else {}
+    return result
+
+
 class Database:
     def __init__(self, settings: Settings):
+        self.settings = settings
+        self.diagnostics = DiagnosticStore(settings)
+        self.diagnostics.retention_provider = lambda: load_preferences(self).system
         self.path = settings.database_path
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -189,15 +203,6 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_collection_runs_account
                   ON collection_runs(account_id, started_at);
                 DROP INDEX IF EXISTS idx_jobs_active_assignment;
-                CREATE UNIQUE INDEX idx_jobs_active_assignment
-                  ON jobs(assignment_id)
-                  WHERE status IN (
-                    'queued',
-                    'running',
-                    'paused',
-                    'stopping',
-                    'needs_intervention'
-                  );
                 """
             )
             job_columns = {
@@ -208,6 +213,25 @@ class Database:
                 connection.execute(
                     "ALTER TABLE jobs ADD COLUMN interactive INTEGER NOT NULL DEFAULT 1"
                 )
+            if "browser_retained" not in job_columns:
+                connection.execute(
+                    "ALTER TABLE jobs ADD COLUMN browser_retained INTEGER NOT NULL DEFAULT 0"
+                )
+            for column, definition in {
+                "phase": "TEXT NOT NULL DEFAULT 'queued'",
+                "completed_units": "INTEGER NOT NULL DEFAULT 0",
+                "total_units": "INTEGER NOT NULL DEFAULT 0",
+                "deleted_at": "TEXT",
+            }.items():
+                if column not in job_columns:
+                    connection.execute(f"ALTER TABLE jobs ADD COLUMN {column} {definition}")
+            connection.execute(
+                """
+                CREATE UNIQUE INDEX idx_jobs_active_assignment ON jobs(assignment_id)
+                WHERE status IN ('queued', 'running', 'paused', 'stopping')
+                  OR browser_retained = 1
+                """
+            )
             if "parent_job_id" not in job_columns:
                 connection.execute(
                     "ALTER TABLE jobs ADD COLUMN parent_job_id TEXT"
@@ -262,6 +286,32 @@ class Database:
                 WHERE submission_status = 'not_started'
                 """
             )
+            connection.execute("UPDATE jobs SET status = 'interrupted' WHERE status = 'failed'")
+            connection.execute(
+                """
+                UPDATE jobs SET status = 'needs_intervention',
+                  error = '填写内容已审核，尚未确认提交。'
+                WHERE submission_status = 'filled_verified'
+                  AND status NOT IN ('queued', 'running', 'paused', 'stopping')
+                """
+            )
+            connection.execute(
+                """
+                UPDATE jobs SET status = CASE
+                  WHEN submission_status IN ('filled_pending_review', 'filled_verified')
+                    THEN 'needs_intervention'
+                  ELSE 'incomplete'
+                END
+                WHERE status = 'completed' AND submission_status != 'submitted_verified'
+                """
+            )
+            connection.execute(
+                """
+                UPDATE jobs SET status = 'incomplete'
+                WHERE status = 'needs_intervention'
+                  AND submission_status IN ('partial_pending_review', 'not_submitted', 'submission_unknown')
+                """
+            )
             missing_interruptions = connection.execute(
                 """
                 SELECT jobs.id, jobs.error, jobs.finished_at, jobs.updated_at
@@ -303,6 +353,34 @@ class Database:
                     "PRAGMA table_info(accounts)"
                 ).fetchall()
             }
+            for name, definition in {
+                "auto_collect_interval_seconds": "INTEGER NOT NULL DEFAULT 21600",
+                "auto_collect_interval_value": "REAL NOT NULL DEFAULT 6",
+                "auto_collect_interval_unit": "TEXT NOT NULL DEFAULT 'h'",
+                "auto_execute_enabled": "INTEGER NOT NULL DEFAULT 0",
+                "automation_baseline_ready": "INTEGER NOT NULL DEFAULT 0",
+                "platform_user_id": "TEXT",
+                "avatar_url": "TEXT",
+                "avatar_mime": "TEXT",
+                "identity_verified_at": "TEXT",
+            }.items():
+                if name not in account_columns:
+                    connection.execute(f"ALTER TABLE accounts ADD COLUMN {name} {definition}")
+            if "auto_collect_interval_seconds" not in account_columns:
+                connection.execute("UPDATE accounts SET auto_collect_interval_seconds = auto_collect_interval_minutes * 60, "
+                                   "auto_collect_interval_value = auto_collect_interval_minutes, auto_collect_interval_unit = 'min'")
+            connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_account_platform_identity ON accounts(platform,platform_user_id) WHERE platform_user_id IS NOT NULL AND platform_user_id != ''")
+            connection.execute("""CREATE TABLE IF NOT EXISTS automatic_assignments (
+                assignment_id TEXT PRIMARY KEY REFERENCES assignments(id) ON DELETE CASCADE,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                state TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', job_id TEXT,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            )""")
+            job_columns = {row["name"] for row in connection.execute("PRAGMA table_info(jobs)")}
+            if "trigger" not in job_columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN trigger TEXT NOT NULL DEFAULT 'manual'")
+            if "entry_url" not in account_columns:
+                connection.execute("ALTER TABLE accounts ADD COLUMN entry_url TEXT")
             if "last_login_error" not in account_columns:
                 connection.execute(
                     "ALTER TABLE accounts ADD COLUMN last_login_error TEXT"
@@ -350,6 +428,8 @@ class Database:
                     "ALTER TABLE assignments ADD COLUMN "
                     "active INTEGER NOT NULL DEFAULT 1"
                 )
+            if "assessment_json" not in assignment_columns:
+                connection.execute("ALTER TABLE assignments ADD COLUMN assessment_json TEXT NOT NULL DEFAULT '{}'")
             if "last_seen_run_id" not in assignment_columns:
                 connection.execute(
                     "ALTER TABLE assignments ADD COLUMN last_seen_run_id TEXT"
@@ -432,6 +512,31 @@ class Database:
         with self.connect() as connection:
             connection.execute(f"UPDATE accounts SET {columns} WHERE id = ?", values)
 
+    @staticmethod
+    def _account_has_history(connection, account_id: str) -> bool:
+        tables = connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        for table in tables:
+            quoted = '"' + table["name"].replace('"', '""') + '"'
+            for foreign_key in connection.execute(f"PRAGMA foreign_key_list({quoted})"):
+                if foreign_key["table"] != "accounts":
+                    continue
+                column = '"' + foreign_key["from"].replace('"', '""') + '"'
+                if connection.execute(f"SELECT 1 FROM {quoted} WHERE {column} = ? LIMIT 1", (account_id,)).fetchone():
+                    return True
+        return False
+
+    def account_has_history(self, account_id: str) -> bool:
+        with self.connect() as connection:
+            return self._account_has_history(connection, account_id)
+
+    def discard_pending_account(self, account_id: str) -> None:
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            account = connection.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+            if not account or account["platform_user_id"] or account["identity_verified_at"] or self._account_has_history(connection, account_id):
+                raise RuntimeError("该记录已有身份或业务数据，不能作为临时授权记录移除。")
+            connection.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+
     def delete_account(self, account_id: str) -> None:
         with self.connect() as connection:
             connection.execute(
@@ -455,6 +560,8 @@ class Database:
         settings: Settings,
         run_id: str | None = None,
     ) -> str:
+        from .services.assignment_availability import assignment_expired
+        assignment = {**assignment, "submittable": bool(assignment.get("submittable")) and not assignment_expired(assignment)}
         assignment_id = uuid.uuid4().hex
         with self.connect() as connection:
             existing = connection.execute(
@@ -525,7 +632,16 @@ class Database:
                         utc_now(),
                     ),
                 )
+            if "assessment" in assignment:
+                connection.execute("UPDATE assignments SET assessment_json = ? WHERE id = ?",
+                    (json.dumps(assignment["assessment"], ensure_ascii=False), assignment_id))
         return assignment_id
+
+    def update_assignment_assessment(self, assignment_id: str, assessment: dict) -> None:
+        with self.connect() as connection:
+            changed = connection.execute("UPDATE assignments SET assessment_json = ? WHERE id = ?",
+                (json.dumps(assessment, ensure_ascii=False), assignment_id)).rowcount
+            if not changed: raise KeyError("作业不存在")
 
     def list_assignments(
         self,
@@ -560,7 +676,9 @@ class Database:
                 """,
                 values,
             ).fetchall()
-        return [dict(row) for row in rows]
+        from .services.assignment_availability import assignment_expired
+        records = [assignment_record(row) for row in rows]
+        return [item for item in records if not assignment_expired(item)] if submittable_only else records
 
     def finalize_assignment_snapshot(
         self,
@@ -568,6 +686,7 @@ class Database:
         academic_year: int,
         run_id: str,
         failed_course_ids: set[str] | None = None,
+        course_ids: list[str] | None = None,
     ) -> None:
         failed = {
             str(course_id)
@@ -580,6 +699,10 @@ class Database:
             "(last_seen_run_id IS NULL OR last_seen_run_id != ?)",
         ]
         values: list[Any] = [account_id, academic_year, run_id]
+        if course_ids is not None:
+            if not course_ids: return
+            clauses.append("course_id IN (" + ",".join("?" for _ in course_ids) + ")")
+            values.extend(course_ids)
         if failed:
             placeholders = ", ".join("?" for _ in failed)
             clauses.append(f"COALESCE(course_id, '') NOT IN ({placeholders})")
@@ -757,7 +880,7 @@ class Database:
             ).fetchone()
         if not row:
             raise KeyError("作业不存在")
-        return dict(row)
+        return assignment_record(row)
 
     def create_job(
         self,
@@ -767,18 +890,27 @@ class Database:
         interactive: bool = True,
         parent_job_id: str | None = None,
         attempt: int = 1,
+        trigger: str = "manual",
     ) -> dict[str, Any]:
         job_id = uuid.uuid4().hex
         created_at = utc_now()
         try:
             with self.connect() as connection:
+                if trigger == "scheduled":
+                    changed = connection.execute(
+                        "UPDATE automatic_assignments SET state = 'queued', job_id = ?, updated_at = ? "
+                        "WHERE assignment_id = ? AND state = 'pending'",
+                        (job_id, created_at, assignment_id),
+                    ).rowcount
+                    if not changed:
+                        raise ActiveJobConflict("自动任务已入队或已取消")
                 connection.execute(
                     """
                     INSERT INTO jobs(
                       id, account_id, assignment_id, parent_job_id, attempt,
                       status, submission_status, auto_submit, interactive,
-                      created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 'queued', 'not_started', ?, ?, ?, ?)
+                      created_at, updated_at, trigger
+                    ) VALUES (?, ?, ?, ?, ?, 'queued', 'not_started', ?, ?, ?, ?, ?)
                     """,
                     (
                         job_id,
@@ -790,6 +922,7 @@ class Database:
                         int(interactive),
                         created_at,
                         created_at,
+                        trigger,
                     ),
                 )
         except sqlite3.IntegrityError as error:
@@ -798,15 +931,18 @@ class Database:
                     "该作业已有排队或运行中的任务"
                 ) from error
             raise
-        return self.get_job(job_id)
+        job = self.get_job(job_id)
+        self.diagnostics.start("assignment", job_id, job, self.get_account(account_id))
+        return job
 
     def get_job(self, job_id: str) -> dict[str, Any]:
         with self.connect() as connection:
             row = connection.execute(
                 """
                 SELECT jobs.*, assignments.title AS assignment_title,
-                  assignments.course_name, assignments.task_url,
-                  accounts.name AS account_name
+                  assignments.course_name, assignments.task_url, assignments.platform,
+                  accounts.name AS account_name, accounts.status AS account_status,
+                  assignments.submittable AS assignment_submittable
                 FROM jobs
                 JOIN assignments ON assignments.id = jobs.assignment_id
                 JOIN accounts ON accounts.id = jobs.account_id
@@ -818,20 +954,42 @@ class Database:
             raise KeyError("任务不存在")
         return dict(row)
 
-    def list_jobs(self) -> list[dict[str, Any]]:
+    def list_jobs(self, *, include_deleted: bool = True) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute(
                 """
                 SELECT jobs.*, assignments.title AS assignment_title,
-                  assignments.course_name, assignments.task_url,
-                  accounts.name AS account_name
+                  assignments.course_name, assignments.task_url, assignments.platform,
+                  accounts.name AS account_name, accounts.status AS account_status,
+                  assignments.submittable AS assignment_submittable
                 FROM jobs
                 JOIN assignments ON assignments.id = jobs.assignment_id
                 JOIN accounts ON accounts.id = jobs.account_id
-                ORDER BY jobs.created_at DESC
-                """
+                WHERE (? OR jobs.deleted_at IS NULL)
+                ORDER BY julianday(jobs.created_at) DESC, jobs.rowid DESC
+                """,
+                (include_deleted,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def delete_job_task(self, job_id: str) -> dict[str, Any]:
+        # Keep evidence and submission guards while removing every displayed attempt.
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            job = connection.execute("SELECT account_id, assignment_id FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if not job:
+                raise KeyError("任务不存在")
+            attempts = connection.execute(
+                "SELECT id,status,browser_retained FROM jobs WHERE account_id=? AND assignment_id=?",
+                (job["account_id"], job["assignment_id"]),
+            ).fetchall()
+            if any(row["status"] in ACTIVE_JOB_STATUSES or row["browser_retained"] for row in attempts):
+                raise ActiveJobConflict("请先停止任务并关闭任务浏览器，再删除任务。")
+            connection.execute(
+                "UPDATE jobs SET deleted_at=? WHERE account_id=? AND assignment_id=? AND deleted_at IS NULL",
+                (utc_now(), job["account_id"], job["assignment_id"]),
+            )
+        return {"deleted_ids": [row["id"] for row in attempts], "task_kind": "assignment"}
 
     def next_attempt_for_assignment(
         self,
@@ -843,7 +1001,7 @@ class Database:
                 SELECT id, attempt
                 FROM jobs
                 WHERE assignment_id = ?
-                ORDER BY created_at DESC
+                ORDER BY attempt DESC, julianday(created_at) DESC
                 LIMIT 1
                 """,
                 (assignment_id,),
@@ -922,22 +1080,48 @@ class Database:
         if status not in allowed:
             raise ValueError("不支持的提交结果")
         with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT status FROM jobs WHERE id = ?",
+                "SELECT status, assignment_id FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
             if not row:
                 raise KeyError("任务不存在")
             if row["status"] in ACTIVE_JOB_STATUSES:
                 raise RuntimeError("任务仍在执行，不能人工确认结果")
+            if row["status"] == "completed" and status != "submitted_verified":
+                raise RuntimeError("该任务已确认提交，不能修改为未提交或重新填写")
+            other = connection.execute(
+                """SELECT id FROM jobs WHERE assignment_id = ? AND id != ?
+                   AND (status IN ('queued','running','paused','stopping') OR browser_retained = 1)
+                   LIMIT 1""", (row["assignment_id"], job_id),
+            ).fetchone()
+            if other:
+                raise RuntimeError("该作业已有新任务，请先处理当前任务后再核对历史结果")
+            job_status = {
+                "submitted_verified": "completed",
+                "filled_verified": "needs_intervention",
+                "filled_pending_review": "needs_intervention",
+                "partial_pending_review": "incomplete",
+                "not_submitted": "incomplete",
+                "submission_unknown": "interrupted",
+            }[status]
             connection.execute(
                 """
                 UPDATE jobs
-                SET submission_status = ?, verification_note = ?,
-                    verified_at = ?, updated_at = ?
+                SET submission_status = ?, verification_note = ?, status = ?,
+                    verified_at = ?, updated_at = ?,
+                    progress = CASE WHEN ? = 'completed' THEN 100 ELSE progress END,
+                    error = CASE
+                      WHEN ? = 'completed' THEN NULL
+                      WHEN ? = 'needs_intervention' THEN '已填写并等待人工审核，尚未确认提交。'
+                      ELSE error END
+                    , finished_at = CASE WHEN ? = 'completed' THEN COALESCE(finished_at, ?) ELSE finished_at END
+                    , phase = CASE WHEN ? = 'completed' THEN 'complete' WHEN ? = 'needs_intervention' THEN 'review' ELSE ? END
                 WHERE id = ?
                 """,
-                (status, note, utc_now(), utc_now(), job_id),
+                (status, note, job_status, utc_now(), utc_now(), job_status, job_status, job_status,
+                 job_status, utc_now(), job_status, job_status, job_status, job_id),
             )
         return self.get_job(job_id)
 
@@ -947,13 +1131,12 @@ class Database:
                 """
                 SELECT 1 FROM jobs
                 WHERE account_id = ?
-                  AND status IN (
+                  AND (status IN (
                     'queued',
                     'running',
                     'paused',
-                    'stopping',
-                    'needs_intervention'
-                  )
+                    'stopping'
+                  ) OR browser_retained = 1)
                 LIMIT 1
                 """,
                 (account_id,),
@@ -966,13 +1149,12 @@ class Database:
                 """
                 SELECT 1 FROM jobs
                 WHERE assignment_id = ?
-                  AND status IN (
+                  AND (status IN (
                     'queued',
                     'running',
                     'paused',
-                    'stopping',
-                    'needs_intervention'
-                  )
+                    'stopping'
+                  ) OR browser_retained = 1)
                 LIMIT 1
                 """,
                 (assignment_id,),
@@ -982,6 +1164,14 @@ class Database:
     def mark_interrupted_jobs(self) -> None:
         finished_at = utc_now()
         with self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE jobs SET browser_retained = 0,
+                  finished_at = COALESCE(finished_at, ?)
+                WHERE status IN ('needs_intervention', 'incomplete')
+                """,
+                (finished_at,),
+            )
             rows = connection.execute(
                 """
                 SELECT id, status FROM jobs
@@ -989,8 +1179,7 @@ class Database:
                   'queued',
                   'running',
                   'paused',
-                  'stopping',
-                  'needs_intervention'
+                  'stopping'
                 )
                 """
             ).fetchall()
@@ -999,6 +1188,8 @@ class Database:
                     """
                     UPDATE jobs
                     SET status = 'interrupted',
+                        phase = 'interrupted',
+                        browser_retained = 0,
                         submission_status = CASE
                           WHEN submission_status = 'not_started' THEN 'not_submitted'
                           ELSE submission_status
@@ -1026,24 +1217,45 @@ class Database:
                     ),
                 )
 
+        for row in rows:
+            trace = self.diagnostics.trace("assignment", row["id"])
+            if trace.available:
+                trace.record("task.recovered", "Service restarted; previous browser session ended", {"previous_status": row["status"]}, state="interrupted", phase="interrupted")
+                trace.summary(self.get_job(row["id"]))
+        for job in self.list_jobs():
+            trace = self.diagnostics.trace("assignment", job["id"])
+            if trace.available and trace.manifest.get("browser_retained") and not job.get("browser_retained"): trace.summary(job)
+
     def update_job(self, job_id: str, **fields: Any) -> None:
         if not fields:
             return
+        if "status" in fields:
+            return self.transition_job(job_id, fields.pop("status"), **fields)
         fields.setdefault("updated_at", utc_now())
         columns = ", ".join(f"{key} = ?" for key in fields)
         values = [*fields.values(), job_id]
         with self.connect() as connection:
             connection.execute(f"UPDATE jobs SET {columns} WHERE id = ?", values)
+        if "browser_retained" in fields:
+            trace = self.diagnostics.trace("assignment", job_id)
+            if trace.available: trace.summary(self.get_job(job_id))
 
     def transition_job(self, job_id: str, status: str, **fields: Any) -> None:
+        trace = self.diagnostics.trace("assignment", job_id)
+        if trace.available and fields.get("error"): fields["error"] = trace.scrubber.text(fields["error"])
         with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT status FROM jobs WHERE id = ?",
+                "SELECT status, submission_status FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
             if not row:
                 raise KeyError("任务不存在")
             current = row["status"]
+            if status == "completed" and fields.get("submission_status", row["submission_status"]) != "submitted_verified":
+                raise ValueError("只有确认作业完成且提交成功后，才能标记已完成")
+            if status == "needs_intervention" and fields.get("submission_status", row["submission_status"]) not in {"filled_pending_review", "filled_verified"}:
+                raise ValueError("只有全部填写完成后，才能进入待介入审核")
             if status != current and status not in JOB_TRANSITIONS.get(current, set()):
                 raise ValueError(f"任务状态不能从 {current} 转换为 {status}")
             fields["status"] = status
@@ -1054,6 +1266,10 @@ class Database:
                 f"UPDATE jobs SET {columns} WHERE id = ?",
                 values,
             )
+        trace = self.diagnostics.trace("assignment", job_id)
+        if trace.available:
+            if status != current: trace.record("task.transition", data={"from": current, "to": status}, state=status, phase=fields.get("phase"))
+            trace.summary(self.get_job(job_id))
 
     def add_event(
         self,
@@ -1062,6 +1278,9 @@ class Database:
         message: str = "",
         data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        trace = self.diagnostics.trace("assignment", job_id)
+        if trace.available:
+            message, data = trace.prepare_event(message, data)
         created_at = utc_now()
         with self.connect() as connection:
             cursor = connection.execute(
@@ -1078,6 +1297,11 @@ class Database:
                 ),
             )
             event_id = cursor.lastrowid
+        trace = self.diagnostics.trace("assignment", job_id)
+        if trace.available:
+            task = self.get_job(job_id)
+            trace.record("assignment." + kind, message, data, state=task["status"], phase=task.get("phase"), source_event_id=event_id)
+            trace.summary(task)
         return {
             "id": event_id,
             "job_id": job_id,
@@ -1087,11 +1311,11 @@ class Database:
             "created_at": created_at,
         }
 
-    def list_events(self, job_id: str) -> list[dict[str, Any]]:
+    def list_events(self, job_id: str, after_id: int = 0) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM job_events WHERE job_id = ? ORDER BY id",
-                (job_id,),
+                "SELECT * FROM job_events WHERE job_id = ? AND id > ? ORDER BY id",
+                (job_id, after_id),
             ).fetchall()
         return [
             {

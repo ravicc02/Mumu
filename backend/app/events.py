@@ -10,7 +10,7 @@ class EventHub:
         self._subscribers: dict[str, set[asyncio.Queue[dict[str, Any]]]] = defaultdict(set)
 
     def subscribe(self, job_id: str) -> asyncio.Queue[dict[str, Any]]:
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=256)
         self._subscribers[job_id].add(queue)
         return queue
 
@@ -28,7 +28,11 @@ class EventHub:
 
     async def publish(self, job_id: str, event: dict[str, Any]) -> None:
         for queue in list(self._subscribers.get(job_id, set())):
-            await queue.put(event)
+            if queue.full():
+                while not queue.empty():
+                    queue.get_nowait()
+                queue.put_nowait({"kind": "resync_required", "job_id": job_id})
+            queue.put_nowait(event)
 
 
 event_hub = EventHub()

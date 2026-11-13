@@ -1,0 +1,98 @@
+/* PC company workspace. Scene controls remain outside task and browser actions. */
+.dashboard-main.town-dashboard { display: grid; grid-template-rows: auto minmax(380px, 1fr); gap: 0; overflow: auto; padding: 20px 22px 0; }
+.town-dashboard .dashboard-heading { margin-bottom: 9px; }
+.town-dashboard .dashboard-heading h2 { font-size: 21px; }
+.task-town { display: flex; flex-direction: column; min-width: 0; min-height: 380px; margin-inline: -22px; }
+.town-toolbar { min-height: 57px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 18px; background: var(--surface); }
+.town-filters { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.town-search { display: flex; align-items: center; gap: 8px; height: 33px; min-width: 130px; width: 230px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); padding: 0 9px; background: var(--surface); }
+.town-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-wash); }
+.town-search input { border: 0; outline: 0; min-width: 0; width: 100%; padding: 0; height: 30px; font-size: 11px; background: transparent; color: var(--ink); }
+.town-search > svg { flex: none; }
+.town-search .icon-button { width: 22px; height: 24px; min-width: 22px; }
+.town-filters select { width: 106px; min-width: 80px; height: 33px; font-size: 11px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); padding: 0 6px; color: var(--ink); }
+.town-tools { display: flex; align-items: center; gap: 2px; flex: none; }
+.town-tools .icon-button { width: 29px; height: 30px; min-width: 29px; }
+.town-tools .icon-button.is-on { color: var(--accent); background: var(--accent-wash); }
+.town-connection { display: flex; align-items: center; gap: 5px; color: #28735e; font-size: 10px; margin-right: 9px; white-space: nowrap; }
+.town-connection i { width: 5px; height: 5px; border-radius: 50%; background: #3ba381; }
+.town-connection.offline { color: #b74845; }
+.town-connection.offline i { background: #c45650; }
+.town-stage { position: relative; flex: 1; min-height: 340px; overflow: hidden; isolation: isolate; background: #edf4f4; }
+.town-canvas { display: block; width: 100%; height: 100%; position: absolute; inset: 0; outline: 0; touch-action: none; cursor: grab; }
+.town-canvas:active { cursor: grabbing; }
+.town-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.town-stage.is-roaming .town-canvas { cursor: crosshair; }
+.town-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.town-district { position: absolute; top: 0; left: 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 11px; min-height: 28px; visibility: hidden; pointer-events: auto; border: 1px solid #f5faf8; border-radius: 20px; background: #fbfdfbf0; color: #354b53; box-shadow: 0 3px 9px #29483b12; white-space: nowrap; font-size: 11px; font-weight: 600; cursor: pointer; }
+.town-district > i { width: 6px; height: 6px; border-radius: 2px; background: var(--district-color); }
+.town-district > b { font-weight: 500; color: #738287; padding-left: 2px; font-size: 10px; }
+.town-district:hover { border-color: var(--district-color); }
+.town-district:focus-visible { outline: 2px solid var(--district-color); outline-offset: 3px; }
+.town-bot-marker { width: 48px; height: 56px; position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: auto; border: 0; padding: 0; background: transparent; border-radius: 50%; cursor: pointer; z-index: 2; }
+.town-bot-marker:focus { outline: none; }
+.town-mascot-marker { position: absolute; top: 0; left: 0; width: 44px; height: 50px; border: 0; background: transparent; cursor: pointer; pointer-events: auto; z-index: 1500; visibility: hidden; border-radius: 50%; }
+.town-interact { position: absolute; left: 0; top: 0; visibility: hidden; z-index: 1800; width: 30px; height: 32px; display: grid; place-items: center; padding: 0; border: 1px solid #ffffff; border-bottom: 3px solid #b9cacc; border-radius: 6px; color: #254652; background: #fbffff; box-shadow: 0 4px 10px #244a5529; pointer-events: auto; cursor: pointer; }
+.town-interact::after { content: ''; position: absolute; bottom: -7px; left: 10px; border: 4px solid transparent; border-top-color: #b9cacc; border-bottom: 0; }
+.town-interact kbd { font-family: inherit; font-size: 15px; font-weight: 700; line-height: 1; }
+.town-interact:hover { background: #e8f6f6; color: #146778; }
+.town-interact:focus-visible { outline: 2px solid #368aa2; outline-offset: 3px; }
+.town-mascot-marker:focus-visible { outline: 2px solid #368aa2; outline-offset: 2px; }
+.town-bot-marker:focus-visible .town-focus-ring { position: absolute; inset: 2px; border: 2px solid #315b71; border-radius: 50%; }
+.town-hover-card { position: absolute; left: 0; top: 0; z-index: 2000; display: flex; flex-direction: column; gap: 3px; max-width: 260px; padding: 7px 10px; color: #f5fbfd; background: #203744f5; border: 1px solid #28434e; border-radius: 5px; box-shadow: 0 5px 14px #183e2d20; pointer-events: none; }
+.town-hover-card strong { font-size: 11px; line-height: 1.5; font-weight: 600; overflow-wrap: anywhere; }
+.town-hover-card span { font-size: 10px; color: #c4d5dc; }
+.town-task-card { position: absolute; left: 0; top: 0; z-index: 8; width: 294px; max-width: calc(100% - 32px); padding: 17px; border: 1px solid #f6faf8; border-top: 3px solid var(--district-color); border-radius: 8px; background: #fcfdfbf7; box-shadow: 0 17px 52px #25463c24, 0 2px 7px #25463c0a; outline: none; }
+.town-card-top { display: flex; align-items: center; gap: 8px; }
+.town-task-card::after { content: ""; position: absolute; width: 12px; height: 12px; background: #fcfdfbf7; transform: rotate(45deg); pointer-events: none; }
+.town-task-card[data-placement="above"]::after { bottom: -6px; left: calc(var(--pointer-left, 50%) - 6px); }
+.town-task-card[data-placement="side"]::after { left: -6px; top: calc(50% - 6px); }
+.town-card-top > span { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; color: #3c555b; font-size: 11px; }
+.town-card-top small { font-size: 10px; color: #7b898c; overflow-wrap: anywhere; }
+.town-card-top .icon-button { align-self: flex-start; margin: -4px -6px 0 0; }
+.town-task-card h3 { margin: 15px 0 11px; color: #233c43; font-size: 17px; line-height: 1.5; font-weight: 650; overflow-wrap: anywhere; letter-spacing: 0; }
+.town-card-status { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.town-card-status > span { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #47595f; }
+.town-card-status i { background: var(--district-color); width: 6px; height: 6px; border-radius: 50%; }
+.town-card-status small { font-size: 10px; color: #829094; }
+.town-card-result { font-size: 11px; line-height: 1.8; color: #718184; margin: 12px 0 0; overflow-wrap: anywhere; }
+.town-task-progress { height: 3px; border-radius: 2px; background: #e9eeeb; margin-top: 16px; overflow: hidden; }
+.town-task-progress > span { display: block; height: 100%; background: var(--district-color); transition: width .35s; }
+.town-card-actions { display: flex; align-items: center; justify-content: space-between; padding-top: 15px; margin-top: 15px; border-top: 1px solid #e6ece7; }
+.town-card-actions .button { min-height: 32px; font-size: 11px; }
+.town-card-actions .button > svg:last-child { margin-left: 13px; }
+.town-delete { color: #b25855; }
+.town-delete:hover:not(:disabled) { background: #f8e8e5; }
+.town-loading { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; gap: 10px; color: #6d8488; font-size: 12px; background: #edf4f4; }
+.town-corner-count { position: absolute; left: 18px; bottom: 15px; display: flex; gap: 6px; align-items: center; color: #637f7c; font-size: 10px; padding: 6px 9px; background: #f9fcfaac; border-radius: 4px; pointer-events: none; }
+.town-empty { position: absolute; left: 18px; bottom: 50px; display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid #dce7e1; border-radius: 5px; background: #f9fcf9e8; font-size: 11px; color: #496a65; z-index: 6; }
+.town-graphics-error { position: absolute; inset: 15px; overflow: auto; padding: 20px; background: #f7faf8; color: #627773; z-index: 7; font-size: 12px; }
+.town-fallback-tasks { display: flex; flex-direction: column; margin-top: 20px; }
+.town-fallback-tasks button { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 0; border-bottom: 1px solid #dce5de; background: transparent; padding: 14px 5px; text-align: left; color: #354e48; }
+.town-tooltip-enter-active,.town-tooltip-leave-active { transition: opacity .12s; }
+.town-tooltip-enter-from,.town-tooltip-leave-to { opacity: 0; }
+.town-card-enter-active,.town-card-leave-active { transition: opacity .18s, filter .18s; }
+.town-card-enter-from,.town-card-leave-to { opacity: 0; filter: blur(3px); }
+@media (max-width: 1250px) { .town-connection { display: none; } .town-search { width: 205px; } .town-toolbar { padding-inline: 12px; gap: 6px; } .town-tools .icon-button { min-width: 26px; width: 26px; } }
+@media (prefers-reduced-motion: reduce) { .town-task-progress > span,.town-tooltip-enter-active,.town-tooltip-leave-active,.town-card-enter-active,.town-card-leave-active { transition: none; } }
+.dashboard-layout:has(.company-workspace){grid-template-columns:minmax(0,1fr)}
+.dashboard-layout:has(.company-workspace)>.overview-rail{display:none}
+.dashboard-main.town-dashboard:has(.company-workspace){padding:0;overflow:hidden;grid-template-rows:auto minmax(0,1fr)}
+.town-dashboard:has(.company-workspace) .dashboard-heading{padding:18px 24px 8px;margin:0}
+.company-workspace{margin:0;min-height:0;overflow:hidden}
+.company-workspace .town-stage{min-height:300px;background:#eaf0f3}
+.company-workspace .town-toolbar{padding:10px 24px;min-height:54px}
+.company-room-nav{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:center;gap:3px;padding:5px;border:1px solid #d5e0e6;background:#f8fcfced;border-radius:7px;box-shadow:0 7px 24px #21374712;z-index:2500;pointer-events:auto;max-width:calc(100% - 40px)}
+.company-room-nav button{display:flex;align-items:center;gap:7px;border:0;border-radius:4px;background:transparent;min-height:33px;padding:0 12px;color:#60717c;font-size:11px;white-space:nowrap;cursor:pointer}
+.company-room-nav button:hover{background:#eaf0f3;color:#253f50}.company-room-nav button.active{background:#e2edf1;color:#243f4e}
+.company-room-nav i{width:6px;height:6px;flex:none;background:var(--room-color);border-radius:2px}
+.company-room-nav span{font-size:10px;font-variant-numeric:tabular-nums;color:#738592}
+.company-room-nav button:focus-visible{outline:2px solid #458bca;outline-offset:1px}
+.company-boss-interact{position:absolute;left:0;top:0;visibility:hidden;display:flex;align-items:center;gap:8px;border:1px solid #c9d9e3;border-radius:5px;min-height:36px;padding:0 11px;background:#f9fdff;color:#234558;font-size:11px;z-index:2501;pointer-events:auto;box-shadow:0 4px 15px #203d4d17;cursor:pointer}
+.company-boss-interact kbd{font:600 12px system-ui;border:1px solid #b7c9d5;border-radius:3px;padding:2px 5px;background:#e7f0f5}
+.company-screen-picker{position:absolute;top:17px;right:17px;display:flex;align-items:center;gap:5px;pointer-events:auto;padding:4px 7px;background:#f8fbfcef;border:1px solid #d5e0e6;border-radius:5px;z-index:2500}
+.company-screen-picker select{max-width:215px;font:11px system-ui;color:#405968;border:0;background:transparent;height:27px;outline-color:#4389e5}
+.company-screen-picker>i{width:6px;height:6px;border-radius:50%;background:#b78143}.company-screen-picker>i.connected{background:#2ca87c}.company-screen-picker>i.disconnected{background:#bf5555}
+.company-workspace .town-empty{bottom:75px}.company-workspace .town-corner-count{background:#f9fcfae0}
+.company-navigation-feedback{position:absolute;left:50%;bottom:78px;transform:translateX(-50%);padding:7px 12px;border:1px solid #e4c9bf;background:#fff9f3;color:#935c44;border-radius:5px;font-size:11px;z-index:5;pointer-events:none}
+@media(max-width:1250px){.company-workspace .town-toolbar{padding-inline:17px}.company-room-nav button{padding-inline:10px}}

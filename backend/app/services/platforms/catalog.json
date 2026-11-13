@@ -1,0 +1,9 @@
+[
+  {"name":"chaoxing","label":"学习通","home_url":"https://i.chaoxing.com/base?ws=1","hosts":["chaoxing.com","chaoxing.cn"],"logo":"xuexitong.png","assignments":true,"learning":true,"attendance":true,"academic_year_filter":true,"source":"cx.ts"},
+  {"name":"zhihuishu","label":"知到智慧树","home_url":"https://onlineweb.zhihuishu.com/onlinestuh5","hosts":["zhihuishu.com","polymas.com"],"logo":"zhihuishu.ico","assignments":false,"learning":true,"academic_year_filter":false,"source":"zhs.ts"},
+  {"name":"icourse","label":"中国大学 MOOC","home_url":"https://www.icourse163.org/home.htm#/home/course","hosts":["icourse163.org"],"logo":"icourse.ico","assignments":false,"learning":true,"academic_year_filter":false,"source":"icourse.ts"},
+  {"name":"icve","label":"智慧职教","home_url":"https://user.icve.com.cn/","hosts":["icve.com.cn","courshare.cn","webtrn.cn"],"logo":"icve.ico","assignments":false,"learning":true,"academic_year_filter":false,"source":"icve.ts"},
+  {"name":"zjy","label":"职教云","home_url":"https://zjy2.icve.com.cn/","hosts":["zjy2.icve.com.cn","zyk.icve.com.cn","icve.com.cn"],"logo":"zjy.ico","assignments":false,"learning":true,"academic_year_filter":false,"source":"zjy.ts"},
+  {"name":"yuketang","label":"雨课堂","home_url":"https://www.yuketang.cn/v2/web/index","hosts":["yuketang.cn","xuetangx.com","gdufemooc.cn"],"logo":"yuketang.ico","assignments":false,"learning":true,"academic_year_filter":false,"source":"yuketang.ts"},
+  {"name":"educoder","label":"头歌","home_url":"https://www.educoder.net/","hosts":["educoder.net"],"logo":"educoder.png","assignments":true,"learning":false,"academic_year_filter":false,"course_selection":true,"source":"educoder"}
+]

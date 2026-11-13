@@ -45,6 +45,7 @@ class Settings:
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
     openai_fallback_model: str = os.getenv("OPENAI_FALLBACK_MODEL", "")
     reasoning_effort: str = os.getenv("AI_REASONING_EFFORT", "high")
+    agent_max_steps: int = 100
     webhook_url: str = os.getenv("ANSWER_STUDIO_WEBHOOK_URL", "")
     weixin_bot_token: str = os.getenv("WEIXIN_BOT_TOKEN", "")
     weixin_user_id: str = os.getenv("WEIXIN_USER_ID", "")

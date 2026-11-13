@@ -2,17 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 from urllib.parse import urljoin, urlparse, parse_qs
 
 from bs4 import BeautifulSoup
-from playwright.async_api import BrowserContext, Page, async_playwright
+from playwright.async_api import BrowserContext, Page, Error as PlaywrightError, async_playwright
 
 from ..db import Database, utc_now
 from .browser import chrome_executable
+from .quiz_adapter import extract_questions
+from .assignment_readiness import assess_questions
 
 
 LOGIN_URL = (
@@ -20,6 +24,24 @@ LOGIN_URL = (
     "?fid=0&newversion=true&refer=https%3A%2F%2Fi.chaoxing.com"
 )
 WORK_LIST_BASE = "https://mooc1.chaoxing.com/mooc2/work/list"
+logger = logging.getLogger('answer-studio.collection')
+
+
+async def inspect_assignment(database: Database, assignment_id: str) -> dict[str, Any]:
+    from .learning.browser import LearningBrowser
+
+    assignment = database.get_assignment(assignment_id)
+    account = database.get_account(assignment["account_id"])
+    browser = LearningBrowser({**account, "_task_id": "inspect-" + assignment_id}, headless=True)
+    try:
+        await browser.open()
+        await browser.page.goto(assignment["task_url"], wait_until="domcontentloaded", timeout=45000)
+        await browser.page.wait_for_timeout(700)
+        inspected = await _inspect_submission_page(browser.page)
+        database.update_assignment_assessment(assignment_id, inspected["assessment"])
+        return database.get_assignment(assignment_id)
+    finally:
+        await browser.close()
 
 _login_jobs: dict[str, asyncio.Task[None]] = {}
 _login_status: dict[str, dict[str, Any]] = {}
@@ -27,6 +49,11 @@ _login_status: dict[str, dict[str, Any]] = {}
 
 def login_status(account_id: str) -> dict[str, Any]:
     return _login_status.get(account_id, {"status": "idle"})
+
+
+def login_in_progress(account_id: str) -> bool:
+    task = _login_jobs.get(account_id)
+    return task is not None and not task.done()
 
 
 def start_login(
@@ -80,34 +107,33 @@ async def _login_account(database: Database, account_id: str, settings: Any) -> 
             if not authenticated:
                 raise TimeoutError("登录等待超时")
             await asyncio.sleep(1)
-            storage_state = account["storage_state_path"]
-            await login_context.storage_state(path=storage_state)
+            storage_state = await login_context.storage_state()
             await login_context.close()
             login_context = None
             await asyncio.sleep(0.8)
 
-            verify_context = await playwright.chromium.launch_persistent_context(
-                account["profile_dir"],
+            verify_browser = await playwright.chromium.launch(
                 headless=True,
                 executable_path=str(chrome_executable()),
             )
             try:
-                await _restore_storage_state(verify_context, storage_state)
+                verify_context = await verify_browser.new_context(storage_state=storage_state)
                 if not await _verify_authenticated(verify_context):
                     raise RuntimeError("登录状态未能持久化，请重新登录")
+                from .account_identity import finish_chaoxing_authorization
+                authorized = await finish_chaoxing_authorization(database, account_id, await verify_context.new_page())
             finally:
-                await verify_context.close()
+                await verify_browser.close()
 
-            database.update_account(
-                account_id,
-                status="ready",
-                last_login_at=utc_now(),
-                last_login_error=None,
-            )
             _login_status[account_id] = {
                 "status": "success",
-                "message": "登录完成",
+                "account_id": authorized["id"],
+                "message": "授权已更新" if authorized["id"] != account_id else "授权完成",
             }
+            if authorized["id"] != account_id:
+                profile = Path(account["profile_dir"]).resolve()
+                if profile == (settings.profiles_root / account_id).resolve():
+                    shutil.rmtree(profile, ignore_errors=True)
     except Exception as error:
         database.update_account(
             account_id,
@@ -186,6 +212,33 @@ async def _fetch_rendered_page(
     return page.url, await page.content()
 
 
+async def _fetch_student_course_list(page: Page, url: str) -> tuple[str, str]:
+    final_url, html = await _fetch_rendered_page(page, url, 1000)
+    student_tab = page.locator('.course-tab .tab-item[coursetype="1"]')
+    if await student_tab.count() and await student_tab.first.is_visible():
+        current = await student_tab.first.evaluate("element => element.classList.contains('current')")
+        if not current:
+            # The portal may default to teaching, even for an authenticated student.
+            async with page.expect_response(
+                lambda response: urlparse(response.url).path.endswith('/visit/courselistdata')
+                and response.request.method == 'POST', timeout=30000
+            ) as requested:
+                await student_tab.first.click()
+            response = await requested.value
+            if not response.ok:
+                raise RuntimeError(f'切换“我学的课”失败（HTTP {response.status}），未将教师列表当作学生课程')
+            try:
+                await response.body()
+            except PlaywrightError as error:
+                raise RuntimeError('学生课程列表读取中断，请重试') from error
+            await page.wait_for_function("""() => new Promise(resolve =>
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))""")
+            if not await student_tab.first.evaluate("element => element.classList.contains('current')"):
+                raise RuntimeError('未能确认当前为“我学的课”，请在平台核对课程入口')
+            return page.url, await page.content()
+    return final_url, html
+
+
 async def _inspect_submission_page(page: Page) -> dict[str, Any]:
     controls = await page.locator(
         "button, a, input[type='button'], input[type='submit'], [role='button']"
@@ -214,7 +267,9 @@ async def _inspect_submission_page(page: Page) -> dict[str, Any]:
         r"作答时间[:：]?\s*(\d{2}-\d{2}\s+\d{2}:\d{2}\s*至\s*\d{2}-\d{2}\s+\d{2}:\d{2})",
         text,
     )
+    extracted = await extract_questions(page)
     return {
+        "assessment": assess_questions(extracted),
         "finalTaskUrl": page.url,
         "deadlineText": deadline_match.group(1) if deadline_match else "",
         "submittable": (
@@ -413,19 +468,24 @@ async def collect_assignments(
             course_list_url = _normalize_course_list_url(
                 urljoin(base_url, frame.get("src"))
             )
-            course_list_url, course_html = await _fetch_rendered_page(
+            course_list_url, course_html = await _fetch_student_course_list(
                 page,
                 course_list_url,
-                1000,
             )
+            student_courses = _parse_courses(course_html, course_list_url)
             courses = [
                 course
-                for course in _parse_courses(course_html, course_list_url)
+                for course in student_courses
                 if course["startDate"].startswith(f"{academic_year}-")
                 and not course["ended"]
             ]
+            logger.info('Student course list filtered', extra={'diagnostic_code':'collection.student_courses', 'diagnostic_data':{
+                'account_id':account_id, 'run_id':run_id, 'academic_year':academic_year, 'student_courses':len(student_courses),
+                'matched_courses':len(courses), 'ended_courses':sum(bool(item['ended']) for item in student_courses),
+                'missing_start_date':sum(not item['startDate'] for item in student_courses)}})
             if not courses:
-                raise RuntimeError(f"没有找到 {academic_year} 年开课的课程")
+                raise RuntimeError(f"已读取学生课程 {len(student_courses)} 门，没有符合 {academic_year} 年开课且未结束条件的课程"
+                                   if student_courses else '该账号“我学的课”暂无可读取的课程')
 
             collected: list[dict[str, Any]] = []
             errors: list[dict[str, Any]] = []
@@ -490,6 +550,9 @@ async def collect_assignments(
                                     "submittable": False,
                                 }
                             )
+                        from .assignment_availability import assignment_expired
+                        if assignment_expired(assignment):
+                            assignment["submittable"] = False
                         assignment_id = database.upsert_assignment(
                             account_id,
                             "chaoxing",
@@ -571,6 +634,8 @@ async def refresh_session(
                     "status": "login_error",
                     "message": "Cookie 已失效，请重新授权登录",
                 }
+            from .account_identity import save_identity
+            await save_identity(database,account_id,await context.new_page())
             await context.storage_state(path=account["storage_state_path"])
             database.update_account(
                 account_id,

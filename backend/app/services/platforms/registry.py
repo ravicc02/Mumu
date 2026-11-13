@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from .base import PlatformAdapter
 from .chaoxing_adapter import ChaoxingAdapter
+from .catalog import CATALOG
+from .course_adapter import CoursePlatformAdapter
+from ..educoder.adapter import EducoderAdapter
 
 
 class PlatformRegistry:
@@ -17,12 +20,15 @@ class PlatformRegistry:
         except KeyError as error:
             raise ValueError(f"暂不支持平台：{name}") from error
 
-    def list(self) -> list[dict[str, str]]:
+    def list(self) -> list[dict]:
         return [
-            {"name": adapter.name, "label": adapter.label}
+            dict(CATALOG[adapter.name])
             for adapter in self._adapters.values()
         ]
 
 
 platform_registry = PlatformRegistry()
 platform_registry.register(ChaoxingAdapter())
+platform_registry.register(EducoderAdapter())
+for name in CATALOG:
+    if name not in {"chaoxing", "educoder"}: platform_registry.register(CoursePlatformAdapter(name))

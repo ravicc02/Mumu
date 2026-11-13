@@ -1,0 +1,29 @@
+name: 问题反馈
+description: 提供版本、复现步骤及维护线索。
+title: "[Bug] "
+body:
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      description: 左下角头像 → 关于；源码运行也请附提交编号。
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 环境与平台
+      placeholder: Windows 11 / Chrome / 学习通作业
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤、预期与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志与截图
+      description: 今日日志在设置 → 系统设置 → 今日日志，文件为 main.log。公开反馈前检查内容，或将日志私下提供给维护者；不要填写 Cookie、Key、二维码凭据或授权文件。
