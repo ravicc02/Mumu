@@ -34,7 +34,8 @@ try {
   assert.equal(state.status,'ready'); assert.equal(state.backendReady,true);
   assert.equal(state.items.find(item=>item.id==='runtime').installable,false);
   const health = await (await fetch('http://127.0.0.1:8877/api/health')).json();
-  assert.equal(health.version,version); assert.equal(path.resolve(health.data_root),path.resolve(dataRoot));
+  assert.equal(health.version,version);
+  assert.equal(await fs.realpath(health.data_root),await fs.realpath(dataRoot));
   backendPid = Number(execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',"Get-NetTCPConnection -LocalPort 8877 -State Listen | Select-Object -First 1 -ExpandProperty OwningProcess"],{encoding:'utf8'}).trim());
   const images = await page.locator('.startup-experience img').evaluateAll(items=>items.map(item=>({loaded:item.complete&&item.naturalWidth>0})));
   assert.ok(images.length && images.every(item=>item.loaded),'Packaged logo must load.');
