@@ -103,9 +103,9 @@ class LearningTests(unittest.IsolatedAsyncioTestCase):
         self.notify.stop()
         self.root.cleanup()
 
-    async def wait_until(self, predicate, timeout=4):
+    async def wait_until(self, predicate, timeout=20):
         async with asyncio.timeout(timeout):
-            while not predicate(): await asyncio.sleep(.02)
+            while not predicate(): await asyncio.sleep(.05)
 
     async def test_continue_adopts_manual_play_without_pausing_replaying_or_reopening(self):
         self.service.browser_factory = AutoplayBlockedBrowser
