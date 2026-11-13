@@ -135,7 +135,7 @@ class ResourceQueueTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.service.store.run(run["id"])["completed"], ["two"])
 
     async def test_transient_catalog_errors_retry_but_authentication_errors_do_not(self):
-        from app.services.agent_runner import JobControl
+        from app.services.tasks.runner import JobControl
         run = self.service.store.create_run(self.course["id"])
         browser = ResourceBrowser({})
         browser.verify_catalog = AsyncMock(side_effect=[RuntimeError("HTTP 503"), TimeoutError("timed out"), [{"chapterId": "one", "title": "one", "completed": True}]])

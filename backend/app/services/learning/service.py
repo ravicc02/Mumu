@@ -10,10 +10,10 @@ from pathlib import Path
 
 from ...db import utc_now
 from ..platforms.catalog import platform_spec, platform_url
-from ..agent_runner import JobControl, JobStopped, _account_lock, _acquire_account_lock
-from ..notifier import notification_preferences, send_completion_notification
-from ..weixin_connector import record_delivery
-from ..preview import preview_manager
+from ..tasks.runner import JobControl, JobStopped, _account_lock, _acquire_account_lock
+from ..notifications.delivery import notification_preferences, send_completion_notification
+from ..notifications.weixin import record_delivery
+from ..runtime.preview import preview_manager
 from .browser import create_learning_browser
 from ...preferences import load_preferences
 from .store import ACTIVE, LearningStore
@@ -28,6 +28,8 @@ class LearningService:
         self.settings_provider = settings_provider or (lambda: settings)
         self.tasks, self.controls, self.browsers, self.operations = {}, {}, {}, {}
         self.browser_tickets = {}
+        self.auto_retry_limit = 3
+        self.shutting_down = False
 
     def browser_ticket(self, identifier):
         if identifier not in self.browsers: raise RuntimeError("当前任务浏览器已关闭或尚未就绪")
@@ -45,8 +47,12 @@ class LearningService:
     def store(self): return LearningStore(self._database())
 
     def initialize(self):
+        self.shutting_down = False
         self.store.initialize()
         self.store.recover()
+        for run in self.store.retryable_interrupted(self.auto_retry_limit):
+            if self._retryable_interruption(run.get("error", "")):
+                self._resume_interrupted(run["id"])
 
     def payload(self, run):
         identifier, status = run["id"], run["status"]
@@ -103,11 +109,78 @@ class LearningService:
 
     def start(self, course_id):
         run = self.store.create_run(course_id, headless=load_preferences(self._database()).learning.headless)
-        self.controls[run["id"]] = JobControl()
-        self.controls[run["id"]].learning_revision = 0
-        task = asyncio.create_task(self.run(run["id"]))
-        self.tasks[run["id"]] = task
+        self._launch_run(run["id"])
         return self.payload(run)
+
+    def _launch_run(self, identifier, retry_reason=None):
+        existing = self.tasks.get(identifier)
+        if existing and not existing.done():
+            return
+        self.controls[identifier] = JobControl()
+        self.controls[identifier].learning_revision = 0
+        self.tasks[identifier] = asyncio.create_task(self._supervise_run(identifier, retry_reason))
+
+    def _resume_interrupted(self, identifier):
+        try:
+            self.store.reopen_for_retry(identifier, reason="服务重启后自动恢复", limit=self.auto_retry_limit)
+        except (KeyError, RuntimeError):
+            return
+        self._launch_run(identifier, "服务重启后自动恢复")
+
+    @staticmethod
+    def _retryable_interruption(error):
+        text = str(error or "")
+        blocked = (
+            "原任务状态为 paused", "原任务状态为 awaiting_user", "原任务状态为 stopping",
+            "登录", "Cookie", "授权", "账号", "人工确认", "用户停止",
+        )
+        return not any(marker.lower() in text.lower() for marker in blocked)
+
+    async def _supervise_run(self, identifier, initial_retry_reason=None):
+        try:
+            if initial_retry_reason:
+                current = self.store.run(identifier)
+                await self.emit(identifier, "auto_retry", f"{initial_retry_reason}（{current['auto_retry_count']}/{self.auto_retry_limit}）", {
+                    "attempt": current["auto_retry_count"],
+                    "limit": self.auto_retry_limit,
+                    "reason": initial_retry_reason,
+                })
+            while True:
+                control = self.controls.get(identifier)
+                await self.run(identifier)
+                run = self.store.run(identifier)
+                if self.shutting_down or run["status"] != "interrupted":
+                    break
+                if getattr(control, "manual_hold", False) or not self._retryable_interruption(run.get("error")):
+                    self.store.update(identifier, phase="interrupted")
+                    break
+                retry_count = int(run.get("auto_retry_count") or 0)
+                if retry_count >= self.auto_retry_limit:
+                    detail = str(run.get("error") or "网课执行中断")
+                    message = f"{detail}；已自动重试 {self.auto_retry_limit} 次，仍未恢复。"
+                    self.store.update(identifier, error=message)
+                    await self.emit(identifier, "retry_exhausted", message, {
+                        "attempt": retry_count, "limit": self.auto_retry_limit,
+                    })
+                    break
+                try:
+                    next_run = self.store.reopen_for_retry(
+                        identifier, reason=run.get("error"), limit=self.auto_retry_limit,
+                    )
+                except (KeyError, RuntimeError):
+                    break
+                self.controls[identifier] = JobControl()
+                self.controls[identifier].learning_revision = 0
+                await self.emit(identifier, "auto_retry", f"网课连接异常，正在自动重试（{next_run['auto_retry_count']}/{self.auto_retry_limit}）", {
+                    "attempt": next_run["auto_retry_count"],
+                    "limit": self.auto_retry_limit,
+                    "reason": str(run.get("error") or "")[:500],
+                })
+                await asyncio.sleep(1)
+        finally:
+            self.tasks.pop(identifier, None)
+            if not self.shutting_down:
+                await self.notify(identifier)
 
     async def control(self, identifier, action):
         async with self.operations.setdefault(identifier, asyncio.Lock()):
@@ -119,16 +192,19 @@ class LearningService:
             elif action == "open_browser":
                 await browser.focus()
             elif action == "pause":
+                control.manual_hold = True
                 control.resume_event.clear()
                 control.paused_event.set()
                 try:
                     if browser: await asyncio.wait_for(browser.pause(), 5)
                 except Exception:
+                    control.manual_hold = False
                     control.paused_event.clear(); control.resume_event.set()
                     raise RuntimeError("未确认播放器暂停，请进入浏览器检查")
                 self.store.update(identifier, status="paused", paused_from=run["status"])
                 await self.emit(identifier, "paused", "用户已暂停，播放器和任务切换已停止")
             elif action in {"resume", "continue"}:
+                control.manual_hold = False
                 target = "queued" if run["status"] == "paused" and run["paused_from"] == "queued" else "running"
                 self.store.update(identifier, status=target, error=None, paused_from=None)
                 control.learning_revision += 1
@@ -163,6 +239,7 @@ class LearningService:
         if not owner.done(): owner.cancel(reason)
 
     async def wait_for_user(self, identifier, browser, control, message, *, pause_media=True):
+        control.manual_hold = True
         if pause_media:
             await browser.pause()
         diagnostics = self._database().diagnostics.trace("learning", identifier)
@@ -304,7 +381,8 @@ class LearningService:
             if current["status"] in ACTIVE:
                 if status == "stopped" and current["status"] != "stopping": self.store.update(identifier, status="stopping")
                 reason = "用户停止任务" if status == "stopped" else getattr(control, "browser_failure_reason", None) or "本地服务退出，网课执行已中断"
-                self.store.update(identifier, status=status, phase=status, error=reason, finished_at=utc_now())
+                phase = "auto_retry_pending" if status == "interrupted" and not getattr(control, "manual_hold", False) else status
+                self.store.update(identifier, status=status, phase=phase, error=reason, finished_at=utc_now())
                 await self.emit(identifier, status, "网课任务已停止" if status == "stopped" else reason)
         except Exception as error:
             diagnostics.exception(error, phase=self.store.run(identifier).get("phase"))
@@ -316,7 +394,8 @@ class LearningService:
                 status = "stopped" if control.stop_requested else "incomplete" if isinstance(error, ValueError) else "interrupted"
                 signal = getattr(browser, "connection_lost", None)
                 reason = browser.close_reason if isinstance(signal, asyncio.Event) and signal.is_set() else str(error)[:1600]
-                self.store.update(identifier, status=status, phase=status, error=reason, finished_at=utc_now())
+                phase = "auto_retry_pending" if status == "interrupted" and not getattr(control, "manual_hold", False) else status
+                self.store.update(identifier, status=status, phase=phase, error=reason, finished_at=utc_now())
                 await self.emit(identifier, status, reason)
                 if "登录" in str(error) or "Cookie" in str(error):
                     self._database().update_account(account["id"], status="login_error", last_login_error=str(error)[:500])
@@ -344,8 +423,6 @@ class LearningService:
                 self.browsers.pop(identifier, None)
                 if acquired: lock.release()
                 self.controls.pop(identifier, None)
-                self.tasks.pop(identifier, None)
-            await self.notify(identifier)
             diagnostics.summary(self.store.run(identifier))
             diagnostic_context.reset(log_context)
 
@@ -534,6 +611,7 @@ class LearningService:
             await self.emit(identifier, "notification_error", f"网课结果推送失败：{error}")
 
     async def shutdown(self):
+        self.shutting_down = True
         tasks = list(self.tasks.values())
         for task in tasks: task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

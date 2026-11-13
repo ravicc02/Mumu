@@ -1,12 +1,10 @@
 <div align="center">
 
-<img src="assets/brand/mumu.png" width="148" alt="Mumu 應用程式圖示">
+<img src="assets/brand/mumu-loop.gif" width="148" alt="Mumu 動態形象">
 
 <h1>Mumu</h1>
 
-<hr>
-
-**為大學生而打造的刷作業、刷課、簽到一體化輔助學習用戶端**
+**輔助大學生校園生活以及學習的一體式用戶端**
 
 [简体中文](README.md) · [English](README.en.md) · **繁體中文** · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md)
 
@@ -36,6 +34,10 @@
 >
 > 平台頁面與能力可能變更，專案不保證所有學校、課程、題型與頁面版本持續可用。模型請求會將完成任務所需的上下文傳送至你設定的模型服務，使用前請確認平台規則、課程要求與資料處理邊界。
 
+### 免責聲明
+
+> 本專案僅用於技術研究與學習交流，請勿用於任何違反平台規則、學校管理規定或法律法規的場景。使用者需自行承擔相應責任。
+
 ## 功能介紹
 
 | 功能 | 說明 |
@@ -50,25 +52,15 @@
 
 ## 支援的平台
 
-| 平台 | 作業 | 網課 | 簽到 | 目前能力 |
-| :---: | :---: | :---: | :---: | --- |
-| <img src="assets/platforms/xuexitong.png" height="28" alt="學習通 Logo"><br>**學習通** | 支援 | 支援 | 支援 | 結構化題型、章節學習、批次簽到與分享 |
-| <img src="assets/platforms/educoder.png" height="28" alt="頭歌 Logo"><br>**頭歌** | 支援 | — | — | 課堂實驗、Java/JUnit 編輯器、自動評測與有限修復 |
-| <img src="assets/platforms/zhihuishu.ico" height="28" alt="知到智慧樹 Logo"><br>**知到智慧樹** | — | 支援 | — | 課程任務點、媒體與閱讀流程 |
-| <img src="assets/platforms/icourse.ico" height="28" alt="中國大學 MOOC Logo"><br>**中國大學 MOOC** | — | 支援 | — | 課程任務點、媒體與閱讀流程 |
-| <img src="assets/platforms/icve.ico" height="28" alt="智慧職教 Logo"><br>**智慧職教** | — | 支援 | — | 課程任務點、媒體與閱讀流程 |
-| <img src="assets/platforms/zjy.ico" height="28" alt="職教雲 Logo"><br>**職教雲** | — | 支援 | — | 課程任務點、媒體與閱讀流程 |
-| <img src="assets/platforms/yuketang.ico" height="28" alt="雨課堂 Logo"><br>**雨課堂** | — | 支援 | — | 課程任務點、媒體與閱讀流程 |
-
-## Star History
-
-<div align="center">
-
-<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
-  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
-</a>
-
-</div>
+| 平台 | 作業 | 網課 | 簽到 |
+| :---: | :---: | :---: | :---: |
+| <img src="assets/platforms/xuexitong.png" height="28" alt="學習通 Logo"><br>**學習通** | 支援 | 支援 | 支援 |
+| <img src="assets/platforms/educoder.png" height="28" alt="頭歌 Logo"><br>**頭歌** | 支援 | — | — |
+| <img src="assets/platforms/zhihuishu.ico" height="28" alt="知到智慧樹 Logo"><br>**知到智慧樹** | — | 支援 | — |
+| <img src="assets/platforms/icourse.ico" height="28" alt="中國大學 MOOC Logo"><br>**中國大學 MOOC** | — | 支援 | — |
+| <img src="assets/platforms/icve.ico" height="28" alt="智慧職教 Logo"><br>**智慧職教** | — | 支援 | — |
+| <img src="assets/platforms/zjy.ico" height="28" alt="職教雲 Logo"><br>**職教雲** | — | 支援 | — |
+| <img src="assets/platforms/yuketang.ico" height="28" alt="雨課堂 Logo"><br>**雨課堂** | — | 支援 | — |
 
 ## 開始使用
 
@@ -127,3 +119,13 @@ assets/        README 使用的品牌、演示與平台標識
 ## 參與貢獻
 
 [貢獻指南](CONTRIBUTING.md) · [更新日誌](CHANGELOG.md)
+
+## Star History
+
+<div align="center">
+
+<a href="https://star-history.com/#ravicc02/mumu&amp;Date">
+  <img src="https://api.star-history.com/svg?repos=ravicc02/mumu&amp;type=Date" width="100%" alt="Mumu Star History">
+</a>
+
+</div>

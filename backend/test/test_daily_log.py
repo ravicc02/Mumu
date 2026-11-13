@@ -286,7 +286,7 @@ class DailyRuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             with socket.socket() as listener:
                 listener.bind(("127.0.0.1",0)); port=listener.getsockname()[1]
-            environment={**os.environ,"ANSWER_STUDIO_DATA":folder}
+            environment={**os.environ,"MUMU_DATA":folder}
             server_script=Path(__file__).resolve().parents[1]/"run_server.py"
             process=subprocess.Popen([sys.executable,str(server_script),"--host","127.0.0.1","--port",str(port)],
                 env=environment,stdout=subprocess.PIPE,stderr=subprocess.PIPE,

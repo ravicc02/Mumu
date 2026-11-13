@@ -1,7 +1,7 @@
-/* Local host adaptation of OCS 5.4.0 study handlers. See ocs-study.js and OCS-LICENSE. */
+/* Mumu native course navigation and resource handlers. */
 (() => {
   if (window.__studioCourse?.version === 'multi-platform.1') return;
-  const upstream = window.__studioOCSUpstream;
+  const studyHandlers = window.__mumuStudyRuntime;
   const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
   const hash = value => { let n=2166136261; for(const c of value) n=Math.imul(n^c.charCodeAt(0),16777619); return (n>>>0).toString(16); };
   const complete = item => item?.completed === true || item?.isFinish === true || item?.isFinished === true || Number(item?.progress ?? item?.studyProgress ?? item?.completionRate) === 100;
@@ -16,7 +16,7 @@
       id: element.dataset.id || element.dataset.leafId || element.getAttribute('itemid') || element.getAttribute('data-id') || element.id || '',
     }));
     if (platform === 'zhihuishu') {
-      const handlers = upstream.zhs;
+      const handlers = studyHandlers.zhs;
       if (document.querySelector('.el-tree-node')) {
         processor = new handlers.HikeV2();
         entries = select('.el-tree-node', e => e.querySelector('.file-name')?.textContent || e.textContent, e => e.querySelector('label.success')).filter(item => !item.element.querySelector('.el-tree-node__children')?.children.length);
@@ -41,21 +41,21 @@
         processor = new handlers.StudyVideoH5();
         entries = select('.clearfix.video',e=>processor.getChapterName(e),e=>e.querySelector('.time_icofinish'));
       }
-      // The original OCS selection algorithm remains the source of the next-task hint.
+      // Select the current platform's next actionable unit.
       if (entries.length) processor.getNext({next:false,restudy:false});
     } else if (platform === 'icourse') {
-      entries = select('.learn-unit-tabs-scroll button',e=>e.textContent,e=>upstream.icourse.finished(e));
+      entries = select('.learn-unit-tabs-scroll button',e=>e.textContent,e=>studyHandlers.icourse.finished(e));
       if (!entries.length) entries = select('.unitslist .unit',e=>e.querySelector('.unit-name')?.textContent||e.textContent,e=>e.querySelector('.lucide-circle-check'));
       if (!entries.length) entries = select('.unitslist li',e=>e.querySelector('.unit-name')?.textContent||e.textContent,e=>e.querySelector('.lucide-circle-check'));
     } else if (platform === 'icve') {
       entries = select('.s_point[itemtype]',e=>e.title||e.querySelector('.s_pointti')?.title||e.textContent,e=>e.querySelector('.done_icon_show'));
       if (!entries.length) {
-        const links = upstream.icve.directoryUrls();
+        const links = studyHandlers.icve.directoryUrls();
         entries = [...document.querySelectorAll('.h_cells a')].filter(e=>links.includes(e.href)).map(element=>({element,title:clean(element.textContent),completed:false,url:element.href}));
       }
     } else if (platform === 'zjy') {
       const raw = document.querySelector('.coursePreviewIndex')?.__vue__?.list || document.querySelector('.classroom_activities')?.__vue__?.activeList || [];
-      const original = document.querySelector('.classroom_activities') ? upstream.zjy.getCourseDataInClassroomNowPage() : upstream.zjy.zjyDataList();
+      const original = document.querySelector('.classroom_activities') ? studyHandlers.zjy.getCourseDataInClassroomNowPage() : studyHandlers.zjy.zjyDataList();
       const leaves = flatten(raw);
       const elements = [...document.querySelectorAll('.items,.fIteml,.iChild')];
       entries = original.filter(item=>!['父节点','子节点'].includes(item.fileType)).map(item => {
@@ -65,8 +65,8 @@
         return {element,id:String(item.id),title,completed:complete(originalItem),kind:item.fileType,courseDesignId:item.courseDesignId};
       });
     } else if (platform === 'yuketang') {
-      entries = upstream.yuketang.getJobs().map(element=>({element,id:element.dataset.id||element.dataset.leafId||'',title:clean(element.querySelector('.leaf-item-title')?.textContent||element.textContent),completed:!!element.querySelector('[class*=yuanquangou]'),kind:upstream.yuketang.getJobTag(element)}));
-      if (entries.length) upstream.yuketang.next.call({cfg:{restudy:false}});
+      entries = studyHandlers.yuketang.getJobs().map(element=>({element,id:element.dataset.id||element.dataset.leafId||'',title:clean(element.querySelector('.leaf-item-title')?.textContent||element.textContent),completed:!!element.querySelector('[class*=yuanquangou]'),kind:studyHandlers.yuketang.getJobTag(element)}));
+      if (entries.length) studyHandlers.yuketang.next.call({cfg:{restudy:false}});
     }
     return entries.filter(item=>item.title).map((item,index)=> {
       const chapterId = item.id || platform+':'+hash(item.title+'|'+(item.url||'')+'|'+index);
@@ -122,7 +122,7 @@
       element.setAttribute('data-studio-navigation',id);
       await window.__studioCourseClick({token,id});
     };
-    const next=document.querySelector('.learn-unit-tabs-scroll') ? await upstream.icourse.nextV2({click}) : await upstream.icourse.next();
+    const next=document.querySelector('.learn-unit-tabs-scroll') ? await studyHandlers.icourse.nextV2({click}) : await studyHandlers.icourse.next();
     for(const item of next) await click(typeof item==='function'?item():item);
     return {advanced:next.length>0};
   }

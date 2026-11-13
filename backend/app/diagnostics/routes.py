@@ -75,7 +75,7 @@ def install_request_diagnostics(app, database_provider, settings_provider=None):
         if trace:
             trace.exception(error, phase="api", data={"http_status": error.status_code, "api_request_id": getattr(request.state, "diagnostic_id", None)})
         settings = settings_provider() if settings_provider else database_provider().settings
-        logging.getLogger("answer-studio.api").warning("API rejected status=%s request_id=%s reason=%s", error.status_code,
+        logging.getLogger("mumu.api").warning("API rejected status=%s request_id=%s reason=%s", error.status_code,
             getattr(request.state, "diagnostic_id", None), task_scrubber(settings).text(error.detail))
         return await http_exception_handler(request, error)
 
@@ -102,14 +102,14 @@ def install_request_diagnostics(app, database_provider, settings_provider=None):
                 data = {"method": request.method, "path": path, "http_status": response.status_code, "request_id": identifier, "duration_ms": round((time.monotonic() - started) * 1000)}
                 if trace: trace.record("api.response", data=data, component="api", level="warning" if response.status_code >= 400 else "info")
                 if not trace:
-                    logging.getLogger("answer-studio.api").log(logging.WARNING if response.status_code >= 400 else logging.INFO,
+                    logging.getLogger("mumu.api").log(logging.WARNING if response.status_code >= 400 else logging.INFO,
                         "HTTP %s %s -> %s request_id=%s", request.method, path, response.status_code, identifier,
                         extra={"diagnostic_code": "api.response", "diagnostic_data": data})
             response.headers["X-Diagnostic-Request-ID"] = identifier
             return response
         except Exception as error:
             if trace: trace.exception(error, phase="api", data={"request_id": identifier, "method": request.method, "path": path})
-            logging.getLogger("answer-studio.api").exception("API request failed request_id=%s", identifier)
+            logging.getLogger("mumu.api").exception("API request failed request_id=%s", identifier)
             raise
         finally:
             current_trace.reset(token)

@@ -1,0 +1,423 @@
+/* Mumu native course study handlers. */
+(() => {
+  if (window.__mumuStudyRuntime?.version === "mumu-study-runtime-v1") return;
+  const $el = (selector, root = document) => root.querySelector(selector);
+  const $$el = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  const $ = { sleep: (ms) => window.__studioLearning.delay(ms) };
+  const cxReaders = {
+    async read(win) {
+      const finishJob = win.finishJob;
+      if (finishJob) finishJob();
+      await $.sleep(3e3);
+    },
+    async readPPTWithAudio(win) {
+      win.document.querySelectorAll("audio").forEach((audio) => {
+        audio.addEventListener("play", () => {
+          audio.muted = true;
+        });
+      });
+      const len = win.document.querySelectorAll(".swiper-container .swiper-slide").length;
+      for (let index = 0; index < len; index++) {
+        win.swiperNext?.();
+        await $.sleep(1e3);
+      }
+      await $.sleep(3e3);
+    },
+    async hyperlink(a) {
+      const _click = a.onclick;
+      a.onclick = () => false;
+      a.click();
+      a.onclick = _click;
+      await $.sleep(3e3);
+    }
+  };
+  class StudyVideoH5 {
+    getCourseName() {
+      return $el(".source-name")?.textContent || "\u65E0\u540D\u79F0";
+    }
+    getChapterName(root) {
+      return root.querySelector(".catalogue_title")?.textContent || "\u672A\u77E5\u7AE0\u8282";
+    }
+    getNext(opts) {
+      let videoItems = Array.from(document.querySelectorAll(".clearfix.video"));
+      if (!opts.restudy) {
+        videoItems = videoItems.filter((el) => el.querySelector(".time_icofinish") === null);
+      }
+      for (let i = 0; i < videoItems.length; i++) {
+        const item = videoItems[i];
+        if (item.classList.contains("current_play")) {
+          return videoItems[i + (opts.next ? 1 : 0)];
+        }
+      }
+      return videoItems[0];
+    }
+    hasJob() {
+      return $$el(".clearfix.video")?.length > 0;
+    }
+  }
+  class FusionCourseH5 extends StudyVideoH5 {
+    getCourseName() {
+      return "\u667A\u6167\u8BFE\u7A0B-AI";
+    }
+    getChapterName(root) {
+      const is_resource_box_mode = !!document.querySelector(".resource-box");
+      if (is_resource_box_mode) {
+        const card_name = root.querySelector(".file-name");
+        if (card_name) {
+          return card_name.textContent || "\u672A\u77E5\u7AE0\u8282";
+        }
+      }
+      return super.getChapterName(root);
+    }
+    getNext(opts) {
+      const is_resource_box_mode = !!document.querySelector(".resource-box");
+      if (is_resource_box_mode) {
+        const getNextCard = () => {
+          const cards = Array.from(document.querySelectorAll(".resources-item"));
+          let target_el;
+          let start = false;
+          for (let index = 0; index < cards.length; index++) {
+            const card = cards[index];
+            if (start) {
+              if (opts.restudy) {
+                target_el = card;
+                break;
+              } else {
+                if (card.querySelector(".isFinish")) {
+                  continue;
+                }
+                target_el = card;
+                break;
+              }
+            }
+            if (card.className.includes("active")) {
+              start = true;
+            }
+          }
+          return target_el;
+        };
+        const next_card = getNextCard();
+        if (next_card) {
+          return next_card;
+        }
+      }
+      let videoItems = Array.from(document.querySelectorAll(".clearfix.video")).filter((el) => {
+        if (is_resource_box_mode) {
+          return !!el.querySelector(".resource-box");
+        }
+        return true;
+      });
+      console.log(videoItems);
+      if (!opts.restudy) {
+        if (is_resource_box_mode) {
+          videoItems = videoItems.filter((el) => {
+            const text = el.querySelector(".resource-text")?.textContent || "";
+            const [progress, total] = text.replace("\u5FC5\u5B66", "").trim().split("/").map((s) => parseInt(s));
+            return progress < total;
+          });
+        } else {
+          videoItems = videoItems.filter((el) => {
+            const num_el = el.querySelector(".progress-num");
+            return num_el === null || num_el.textContent !== "100%";
+          });
+        }
+      }
+      for (let i = 0; i < videoItems.length; i++) {
+        const item = videoItems[i];
+        if (is_resource_box_mode) {
+          if (item.classList.contains("activeNode")) {
+            return videoItems[i + (opts.next ? 1 : 0)];
+          }
+        } else {
+          if (item.classList.contains("current_play")) {
+            return videoItems[i + (opts.next ? 1 : 0)];
+          }
+        }
+      }
+      return videoItems[0];
+    }
+  }
+  class StudyPlusH5 extends StudyVideoH5 {
+    getCourseName() {
+      return $el(".top-back-box > span:nth-child(2)")?.textContent?.match(/课程名称：(.+)/)?.[1] || "\u65E0\u540D\u79F0";
+    }
+    getChapterName(item) {
+      return item.parentElement?.textContent || "\u672A\u77E5\u7AE0\u8282";
+    }
+    hasJob() {
+      return $$el(".child-main")?.length > 0;
+    }
+    getNext(opts) {
+      let videoItems = Array.from(document.querySelectorAll(".child-main")).filter(
+        (el) => el.parentElement?.querySelector(".child-time")
+      );
+      console.log(videoItems);
+      if (!opts.restudy) {
+        videoItems = videoItems.filter((el) => {
+          if (el.parentElement?.querySelector(".finish-icon")) {
+            return false;
+          }
+          return true;
+        });
+      }
+      for (let i = 0; i < videoItems.length; i++) {
+        const item = videoItems[i];
+        if (item.classList.contains("current")) {
+          return videoItems[i + (opts.next ? 1 : 0)];
+        }
+      }
+      return videoItems[0];
+    }
+  }
+  class WishdomH5 extends StudyVideoH5 {
+    getCourseName() {
+      return $el(".course-name")?.textContent?.match(/课程名称：(.+)/)?.[1] || "\u65E0\u540D\u79F0";
+    }
+    getChapterName(item) {
+      return item.textContent || "\u672A\u77E5\u7AE0\u8282";
+    }
+    hasJob() {
+      return $$el(".chapter-content .chapter-content-second")?.length > 0;
+    }
+    getNext(opts) {
+      let jobs = Array.from(document.querySelectorAll(".chapter-content .chapter-item"));
+      jobs = jobs.map((el) => {
+        const children = el.querySelectorAll(".chapter-content-second");
+        if (children.length > 0) {
+          return Array.from(children);
+        } else {
+          return [el];
+        }
+      }).flat();
+      console.log(jobs);
+      if (!opts.restudy) {
+        jobs = jobs.filter((el) => {
+          if (el.querySelector(".finish-icon")) {
+            return false;
+          }
+          return true;
+        });
+      }
+      for (let i = 0; i < jobs.length; i++) {
+        const item = jobs[i];
+        if (item.classList.contains("current")) {
+          return jobs[i + (opts.next ? 1 : 0)];
+        }
+      }
+      return jobs[0];
+    }
+  }
+  class Hike extends StudyVideoH5 {
+    getCourseName() {
+      return "\u65E0\u540D\u79F0";
+    }
+    getChapterName(item) {
+      return item.textContent || "\u672A\u77E5\u7AE0\u8282";
+    }
+    hasJob() {
+      return document.querySelectorAll(".source-icon")?.length > 0;
+    }
+    getNext(opts) {
+      let jobs = Array.from(document.querySelectorAll(".source-icon")).map(
+        (el) => el.parentElement?.parentElement
+      );
+      console.log(jobs);
+      if (!opts.restudy) {
+        jobs = jobs.filter((el) => {
+          if (el.querySelector("i.select")) {
+            return false;
+          }
+          return true;
+        });
+      }
+      for (let i = 0; i < jobs.length; i++) {
+        const item = jobs[i];
+        if (item.querySelector(".active-file")) {
+          return jobs[i + (opts.next ? 1 : 0)];
+        }
+      }
+      return jobs[0];
+    }
+  }
+  class HikeV2 extends StudyVideoH5 {
+    getCourseName() {
+      return document.querySelector(".header-title-wrap")?.textContent || "\u65E0\u540D\u79F0";
+    }
+    getChapterName() {
+      return document.querySelector(".el-tree-node.is-current .file-name")?.textContent || "\u672A\u77E5\u7AE0\u8282";
+    }
+    hasJob() {
+      return document.querySelectorAll(".el-tree-node")?.length > 0;
+    }
+    getNext(opts) {
+      const jobs = Array.from(document.querySelectorAll(".el-tree-node")).filter(
+        (e) => e.querySelector(".el-tree-node__children")?.children.length === 0
+      );
+      const current_index = jobs.findIndex((job) => job.classList.contains("is-current"));
+      return jobs.find((job, i) => {
+        return i > current_index && (opts.restudy ? true : !job.querySelector("label.success"));
+      });
+    }
+  }
+  function getUniqueCourseId() {
+    return document.querySelector(".coursePreviewIndex")?.__vue__?.list?.[0]?.courseId || "";
+  }
+  function isZyk() {
+    return location.href.includes("zyk.icve.com.cn");
+  }
+  function getVueBindElement() {
+    return $el(".guide")?.__vue__ || $el(".teach")?.__vue__;
+  }
+  function getPPTVueBindElement() {
+    return $el(".FilePreview")?.__vue__ || $el(".guide")?.__vue__ || $el(".teach")?.__vue__;
+  }
+  function getCourseDataInClassroomNowPage() {
+    const list = document.querySelector(".classroom_activities")?.__vue__?.activeList || [];
+    const data = [];
+    const temp = JSON.parse(JSON.stringify(list));
+    while (temp.length > 0) {
+      const item = temp.shift();
+      if (item?.children?.length > 0) {
+        temp.unshift(...item.children);
+      } else {
+        data.push({
+          name: item.title,
+          id: item.activityId,
+          fileType: item.fileType,
+          courseDesignId: item.courseDesignId,
+          levelName: item.levelName || ""
+        });
+      }
+    }
+    return data;
+  }
+  const zjyDataList = () => {
+    const list = document.querySelector(".coursePreviewIndex")?.__vue__?.list || [];
+    const data = [];
+    const temp = JSON.parse(JSON.stringify(list));
+    while (temp.length > 0) {
+      const item = temp.shift();
+      if (item?.children?.length > 0) {
+        temp.unshift(...item.children);
+      } else {
+        data.push({
+          name: item.name,
+          id: item.id,
+          fileType: item.fileType,
+          levelName: item.levelName || "",
+          courseDesignId: item.courseDesignId || ""
+        });
+      }
+    }
+    return data;
+  };
+  async function icourseNext() {
+    const nextEl = document.querySelector(".unitslist .current")?.nextElementSibling;
+    if (nextEl) {
+      return [nextEl.querySelector(".unit-name")];
+    }
+    const getName = (node) => node?.textContent?.replace(/\s/g, "");
+    const lessonName = getName(document.querySelector(".j-lesson .j-up"));
+    if (!lessonName) {
+      throw Error("\u65E0\u6CD5\u8BFB\u53D6\u7AE0\u8282\u540D!");
+    }
+    const lessonList = Array.from(document.querySelectorAll(".j-lesson .j-list .list"));
+    let nextLesson = void 0;
+    for (const item of lessonList) {
+      const itemName = getName(item);
+      if (itemName === lessonName) {
+        if (item.nextElementSibling) {
+          nextLesson = item.nextElementSibling;
+          break;
+        }
+      }
+    }
+    if (nextLesson) {
+      return [
+        // 点击展开章节列表
+        document.querySelector(".j-lesson"),
+        // 点击章节
+        nextLesson
+      ];
+    }
+    const chapterName = getName(document.querySelector(".j-chapter .j-up"));
+    if (!chapterName) {
+      throw Error("\u65E0\u6CD5\u8BFB\u53D6\u5355\u5143\u540D!");
+    }
+    const chapterList = Array.from(document.querySelectorAll(".j-chapter .j-list .list"));
+    let nextChapter = void 0;
+    for (const item of chapterList) {
+      const itemName = getName(item);
+      if (itemName === chapterName) {
+        if (item.nextElementSibling) {
+          nextChapter = item.nextElementSibling;
+          break;
+        }
+      }
+    }
+    if (nextChapter) {
+      return [
+        // 点击展开单元列表
+        () => document.querySelector(".j-chapter"),
+        // 点击单元
+        () => nextChapter,
+        // 点击展开章节列表
+        () => document.querySelector(".j-lesson"),
+        // 点击第一个章节
+        () => document.querySelectorAll(".j-lesson .j-list .list")[0]
+      ];
+    } else {
+      return [];
+    }
+  }
+  async function icourseNextV2(remotePage) {
+    const getCurrentChapter = () => document.querySelectorAll("header > div.flex.flex-wrap.items-center.gap-3 button.rounded-\\[8px\\]")[0];
+    const getCurrentLesson = () => document.querySelectorAll("header > div.flex.flex-wrap.items-center.gap-3 button.rounded-\\[8px\\]")[1];
+    const getCurrentUnit = () => document.querySelector(".learn-unit-tabs-scroll button[class*=rgba]");
+    return (async function next() {
+      const nextEl = getCurrentUnit()?.nextElementSibling;
+      if (nextEl) {
+        return [() => nextEl];
+      }
+      await remotePage?.click(getCurrentLesson());
+      const nextLesson = getCurrentLesson().nextElementSibling?.querySelector("button.text-primary-700")?.nextElementSibling;
+      if (nextLesson) {
+        return [() => nextLesson];
+      }
+      await remotePage?.click(getCurrentChapter());
+      const nextChapter = getCurrentChapter().nextElementSibling?.querySelector("button.text-primary-700")?.nextElementSibling;
+      if (nextChapter) {
+        return [
+          // 点击单元
+          () => nextChapter,
+          // 点击展开章节列表
+          () => getCurrentLesson(),
+          // 点击第一个章节
+          () => getCurrentLesson().nextElementSibling?.querySelectorAll("button")[0]
+        ];
+      } else {
+        return [];
+      }
+    })();
+  }
+  const icourseFinished = (unit) => !!unit?.querySelector(".lucide-circle-check");
+  const getJobs = () => Array.from(document.querySelectorAll("div.leaf-item"));
+  const getJobName = () => document.querySelector(".leaf-item.is-active .leaf-item-title")?.textContent || "\u672A\u77E5\u4EFB\u52A1\u70B9";
+  const getJobTag = (el) => (el.querySelector(".leaf-item-tag")?.textContent || "").trim();
+  function yktNext() {
+    return (() => {
+      const jobs = getJobs();
+      const active_index = jobs.findIndex((job) => job.classList.contains("is-active"));
+      return jobs.find((job, i) => {
+        const tag_text = getJobTag(job);
+        const support = ["\u89C6\u9891", "\u4F5C\u4E1A", "\u8BA8\u8BBA", "\u56FE\u6587"].includes(tag_text.trim());
+        const finished = job.querySelector("[class*=yuanquangou]");
+        return i > active_index && support && (this.cfg.restudy || !finished);
+      });
+    })();
+  }
+  const icveDirectoryUrls = () => Array.from(document.querySelectorAll(".h_cells a")).map(
+    (a) => a.href
+  );
+  window.__mumuStudyRuntime = { version: "mumu-study-runtime-v1", cx: cxReaders, zhs: { StudyVideoH5, FusionCourseH5, StudyPlusH5, WishdomH5, Hike, HikeV2 }, zjy: { getUniqueCourseId, isZyk, getVueBindElement, getPPTVueBindElement, getCourseDataInClassroomNowPage, zjyDataList }, icourse: { next: icourseNext, nextV2: icourseNextV2, finished: icourseFinished }, icve: { directoryUrls: icveDirectoryUrls }, yuketang: { getJobs, getJobName, getJobTag, next: yktNext } };
+})();

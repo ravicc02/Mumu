@@ -18,14 +18,16 @@ import httpx
 
 from .config import settings
 from .preferences import PreferencesUpdate, AccountSchedule, load_preferences, collection_interval_seconds
-from .services.assignment_automation import save_preferences, record_discovery, pending_assignments, mark_pending, automation_status
+from .onboarding import OnboardingUpdate, complete_onboarding, load_onboarding
+from .services.assignments.automation import save_preferences, record_discovery, pending_assignments, mark_pending, automation_status
 from .db import ActiveJobConflict, Database
 from .version import __version__
 from .events import event_hub
+from .product import PRODUCT_NAME
 from .services.platforms import platform_registry
 from .services.platforms.catalog import platform_spec, platform_url, require_business
-from .services import platform_auth
-from .services.agent_runner import (
+from .services.accounts import auth as platform_auth
+from .services.tasks.runner import (
     capture_job_snapshot,
     close_preserved_sessions,
     continue_job_intervention,
@@ -41,29 +43,30 @@ from .services.agent_runner import (
     stop_job,
     shutdown_running_jobs,
 )
-from .services.job_state import annotate_queues
-from .services.notifier import notification_preferences, send_completion_notification, notification_examples
-from .services.collection_notifications import initialize_baseline, ledger_key, notify_new_assignments
-from .services import weixin_connector
-from .services import chaoxing
-from .services.assignment_readiness import execution_block
-from .services.preview import preview_manager
+from .services.tasks.state import annotate_queues
+from .services.notifications.delivery import notification_preferences, send_completion_notification, notification_examples
+from .services.notifications.collection import initialize_baseline, ledger_key, notify_new_assignments
+from .services.notifications import weixin as weixin_connector
+from .services.assignments import chaoxing
+from .services.assignments.readiness import execution_block
+from .services.runtime.preview import preview_manager
 from .services.learning.service import LearningService
 from .services.learning.routes import learning_router
 from .services.attendance.service import AttendanceService
-from .services.attendance.routes import attendance_router, ShareGateway
-from .services.browser_stream import BrowserTickets, serve_browser
+from .services.attendance.routes import attendance_router
+from .services.attendance.relay import RemoteShareGateway
+from .services.runtime.stream import BrowserTickets, serve_browser
 from .diagnostics.logging import configure_logging
 from .diagnostics.routes import diagnostic_router, install_request_diagnostics
 
 
 settings.ensure_directories()
 configure_logging(settings)
-logger = logging.getLogger("answer-studio")
+logger = logging.getLogger("mumu")
 database = Database(settings)
 learning_service = LearningService(lambda: database, settings, event_hub, settings_provider=lambda: effective_settings())
 attendance_service = AttendanceService(lambda: database)
-attendance_gateway = ShareGateway(attendance_service, settings.port + 1)
+attendance_gateway = RemoteShareGateway(attendance_service, '', '')
 job_browser_tickets = BrowserTickets()
 
 
@@ -171,7 +174,13 @@ async def lifespan(_: FastAPI):
     database.mark_interrupted_jobs()
     learning_service.initialize()
     attendance_service.initialize()
-    if attendance_service.store.has_live_shares():
+    relay_settings = database.get_setting('attendance_relay', {}) or {}
+    await attendance_gateway.configure(
+        relay_settings.get('base_url') or settings.attendance_share_base_url,
+        relay_settings.get('admin_secret') or settings.attendance_share_admin_secret,
+    )
+    await attendance_service.start_background()
+    if attendance_service.store.has_live_shares() or attendance_service.store.has_live_qr_groups():
         try: await attendance_gateway.ensure_started()
         except ValueError: logger.warning('Attendance share gateway could not resume',exc_info=True)
     database.diagnostics.prune()
@@ -198,9 +207,9 @@ async def lifespan(_: FastAPI):
         )
     scheduler_task = asyncio.create_task(run_collection_scheduler())
     health_monitor_task = asyncio.create_task(run_job_health_monitor())
-    from .services.account_identity import sync_legacy_chaoxing_identities
+    from .services.accounts.identity import sync_legacy_chaoxing_identities
     identity_sync_task = asyncio.create_task(sync_legacy_chaoxing_identities(database))
-    logger.info("Local AI assignment studio started")
+    logger.info("%s started", PRODUCT_NAME)
     try:
         yield
     finally:
@@ -220,10 +229,10 @@ async def lifespan(_: FastAPI):
         await platform_auth.shutdown()
         await close_preserved_sessions()
         await preview_manager.close()
-        logger.info("Local AI assignment studio stopped")
+        logger.info("%s stopped", PRODUCT_NAME)
 
 
-app = FastAPI(title="Local AI Assignment Studio", version=__version__, lifespan=lifespan)
+app = FastAPI(title=PRODUCT_NAME, version=__version__, lifespan=lifespan)
 app.include_router(diagnostic_router(lambda: database))
 app.include_router(attendance_router(attendance_service, attendance_gateway, lambda activity: preview_manager.open_interactive(
     database, activity['account_id'], task_id='attendance-'+activity['id'],
@@ -407,7 +416,7 @@ async def open_log_directory(request: Request) -> dict[str, bool]:
 
 @app.get("/api/setup/environment")
 async def get_setup_environment() -> dict[str, Any]:
-    from .services.setup_environment import setup_environment
+    from .services.runtime.environment import setup_environment
     return await asyncio.to_thread(setup_environment, settings)
 
 
@@ -433,6 +442,16 @@ async def get_settings() -> dict[str, Any]:
         "weixin_ready": bool(effective.weixin_bot_token and effective.weixin_user_id and effective.weixin_context_token)
         and not (database.get_setting("weixin_delivery", {}) or {}).get("error"),
     }
+
+
+@app.get("/api/onboarding")
+async def get_onboarding() -> dict[str, Any]:
+    return load_onboarding(database)
+
+
+@app.put("/api/onboarding")
+async def update_onboarding(payload: OnboardingUpdate) -> dict[str, Any]:
+    return complete_onboarding(database, payload)
 
 
 @app.get("/api/preferences")
@@ -1029,7 +1048,7 @@ async def list_semesters(account_id: str | None = None) -> list[str]:
 
 def ensure_assignment_execution_allowed(assignment_id: str) -> None:
     assignment_account(database.get_assignment(assignment_id)["account_id"])
-    from .services.assignment_availability import assignment_expired
+    from .services.assignments.availability import assignment_expired
     if assignment_expired(database.get_assignment(assignment_id)):
         raise HTTPException(409, "作业已超过截止时间，请重新采集确认最新开放时间。")
     attempts = [job for job in database.list_jobs() if job["assignment_id"] == assignment_id]

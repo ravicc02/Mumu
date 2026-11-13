@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from app.config import Settings
 from app.db import ActiveJobConflict, Database
 from app.events import EventHub
-from app.services.job_state import available_job_actions
+from app.services.tasks.state import available_job_actions
 from app.services.learning.routes import learning_router
 from app.services.learning.service import LearningService
 

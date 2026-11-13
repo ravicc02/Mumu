@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable
 
 from ...db import Database
-from .. import chaoxing
+from ..assignments import chaoxing
 from .base import PlatformAdapter
 
 

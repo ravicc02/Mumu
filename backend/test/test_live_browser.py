@@ -17,9 +17,9 @@ from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
 from playwright.async_api import async_playwright
 
-from app.services.assignment_live import AssignmentLiveBrowser
-from app.services.browser import chrome_executable
-from app.services.browser_stream import BrowserTickets, serve_browser
+from app.services.tasks.live import AssignmentLiveBrowser
+from app.services.runtime.browser import chrome_executable
+from app.services.runtime.stream import BrowserTickets, serve_browser
 from app.services.learning.live import BrowserInput, LiveBrowserChannel
 
 
@@ -32,9 +32,9 @@ class BrowserAccessTests(unittest.TestCase):
         token = store.issue("one")["token"]
         self.assertTrue(store.consume("one", token))
         self.assertFalse(store.consume("one", token))
-        with patch("app.services.browser_stream.time.monotonic", return_value=10):
+        with patch("app.services.runtime.stream.time.monotonic", return_value=10):
             token = store.issue("one")["token"]
-        with patch("app.services.browser_stream.time.monotonic", return_value=41):
+        with patch("app.services.runtime.stream.time.monotonic", return_value=41):
             self.assertFalse(store.consume("one", token))
 
     def test_untrusted_origins_and_invalid_tokens_never_attach_to_browser(self):
@@ -77,7 +77,7 @@ class AssignmentLiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(channel.subscribers),0)
 
     async def test_headed_background_window_keeps_delivering_changed_frames(self):
-        from app.services.agent_runner import _launch_chrome, _terminate_process
+        from app.services.tasks.runner import _launch_chrome, _terminate_process
         with tempfile.TemporaryDirectory() as folder:
             process, endpoint = await _launch_chrome(folder,headless=False,timeout=15)
             viewer = browser = cover = None

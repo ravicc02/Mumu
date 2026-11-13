@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from .product import DATABASE_FILENAME, LEGACY_DATA_DIRECTORY
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -26,27 +28,30 @@ load_env_file(PROJECT_ROOT / ".env")
 
 
 def default_data_root() -> Path:
-    explicit = os.getenv("ANSWER_STUDIO_DATA", "").strip()
+    explicit = (
+        os.getenv("MUMU_DATA", "").strip()
+        or os.getenv("ANSWER_STUDIO_DATA", "").strip()
+    )
     if explicit:
         return Path(explicit).expanduser().resolve()
     local_app_data = os.getenv("LOCALAPPDATA", "").strip()
     if local_app_data:
-        return Path(local_app_data) / "AIAssistantStudio"
+        return Path(local_app_data) / LEGACY_DATA_DIRECTORY
     return PROJECT_ROOT / "app-data"
 
 
 @dataclass(frozen=True)
 class Settings:
     data_root: Path = default_data_root()
-    host: str = os.getenv("ANSWER_STUDIO_HOST", "127.0.0.1")
-    port: int = int(os.getenv("ANSWER_STUDIO_PORT", "8877"))
+    host: str = os.getenv("MUMU_HOST") or os.getenv("ANSWER_STUDIO_HOST", "127.0.0.1")
+    port: int = int(os.getenv("MUMU_PORT") or os.getenv("ANSWER_STUDIO_PORT", "8877"))
     openai_base_url: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
     openai_fallback_model: str = os.getenv("OPENAI_FALLBACK_MODEL", "")
     reasoning_effort: str = os.getenv("AI_REASONING_EFFORT", "high")
     agent_max_steps: int = 100
-    webhook_url: str = os.getenv("ANSWER_STUDIO_WEBHOOK_URL", "")
+    webhook_url: str = os.getenv("MUMU_WEBHOOK_URL") or os.getenv("ANSWER_STUDIO_WEBHOOK_URL", "")
     weixin_bot_token: str = os.getenv("WEIXIN_BOT_TOKEN", "")
     weixin_user_id: str = os.getenv("WEIXIN_USER_ID", "")
     weixin_context_token: str = os.getenv("WEIXIN_CONTEXT_TOKEN", "")
@@ -54,10 +59,12 @@ class Settings:
         "WEIXIN_BASE_URL",
         "https://ilinkai.weixin.qq.com",
     )
+    attendance_share_base_url: str = os.getenv("MUMU_ATTENDANCE_SHARE_URL", "")
+    attendance_share_admin_secret: str = os.getenv("MUMU_ATTENDANCE_SHARE_SECRET", "")
 
     @property
     def database_path(self) -> Path:
-        return self.data_root / "answer-studio.sqlite3"
+        return self.data_root / DATABASE_FILENAME
 
     @property
     def profiles_root(self) -> Path:

@@ -14,13 +14,13 @@ from app import main
 from app.config import Settings
 from app.db import Database
 from app.events import EventHub
-from app.services.agent_runner import _launch_chrome, _terminate_process
-from app.services.assignment_live import AssignmentLiveBrowser
-from app.services.browser import TaskBrowserProfile
+from app.services.tasks.runner import _launch_chrome, _terminate_process
+from app.services.tasks.live import AssignmentLiveBrowser
+from app.services.runtime.browser import TaskBrowserProfile
 from app.services.learning.browser import LearningBrowser
 from app.services.learning.service import LearningService
-from app.services.platform_auth import restore_state
-from app.services.preview import ProfilePreviewManager
+from app.services.accounts.auth import restore_state
+from app.services.runtime.preview import ProfilePreviewManager
 
 
 class BrowserProfileTests(unittest.TestCase):
@@ -64,7 +64,7 @@ class TaskBrowserIntegrationTests(unittest.IsolatedAsyncioTestCase):
             manager = ProfilePreviewManager()
             manager._playwright = SimpleNamespace(chromium=SimpleNamespace(launch_persistent_context=launch), stop=AsyncMock())
             try:
-                with patch("app.services.preview.restore_state", AsyncMock()):
+                with patch("app.services.runtime.preview.restore_state", AsyncMock()):
                     await manager.open_interactive(database, account["id"], target_url=pages[0].url, task_id="one")
                     await manager.open_interactive(database, account["id"], target_url=pages[1].url, task_id="two")
                     await manager.open_interactive(database, account["id"], target_url=pages[0].url, task_id="one")

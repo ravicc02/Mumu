@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { setImmediate } from "node:timers/promises";
-import { createAccountAuthorization } from "../src/lib/account-authorization.js";
+import { createAccountAuthorization } from "../src/features/accounts/lib/authorization.js";
 
 function fixture(overrides = {}) {
   const states = [], finished = [], timers = [], calls = [];

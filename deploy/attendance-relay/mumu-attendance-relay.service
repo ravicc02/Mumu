@@ -1,0 +1,23 @@
+[Unit]
+Description=Mumu attendance QR relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/mumu-attendance/backend
+EnvironmentFile=/etc/mumu-attendance/relay.env
+ExecStart=/opt/mumu-attendance/venv/bin/python -m app.services.attendance.relay_server
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/mumu-attendance
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

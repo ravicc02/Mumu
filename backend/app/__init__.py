@@ -1,1 +1,1 @@
-"""Local AI assignment studio backend."""
+"""Mumu local backend."""

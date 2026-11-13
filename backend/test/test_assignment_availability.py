@@ -8,8 +8,8 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from app.config import Settings
 from app.db import Database
-from app.services.assignment_availability import assignment_deadline, assignment_expired
-from app.services.collection_notifications import eligible
+from app.services.assignments.availability import assignment_deadline, assignment_expired
+from app.services.notifications.collection import eligible
 
 
 class AssignmentAvailabilityTests(unittest.TestCase):

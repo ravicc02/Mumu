@@ -1,14 +1,14 @@
 {
-  "name": "ai-quiz-assistant",
-  "version": "0.5.1",
+  "name": "mumu",
+  "version": "0.6.0",
   "private": true,
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ravicc02/ai-quiz-assistant.git"
+    "url": "https://github.com/ravicc02/Mumu.git"
   },
   "type": "module",
-  "description": "Local Windows workspace for learning tasks, live browsers and multi-account workflows.",
+  "description": "Mumu local Windows workspace for learning tasks, live browsers and multi-account workflows.",
   "scripts": {
     "start": "npm run desktop:dev",
     "dev": "npm run desktop:dev",

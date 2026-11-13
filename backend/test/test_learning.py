@@ -20,7 +20,7 @@ from playwright.async_api import async_playwright
 from app.config import Settings
 from app.db import Database
 from app.events import EventHub
-from app.services.browser import chrome_executable
+from app.services.runtime.browser import chrome_executable
 from app.services.learning.browser import LearningBrowser, RUNTIME
 from app.services.learning.routes import learning_router
 from app.services.learning.service import LearningService
@@ -65,6 +65,20 @@ class DisconnectLearningBrowser(FakeLearningBrowser):
 
     def lose_connection(self):
         self.connection_lost.set()
+
+
+class CrashOnOpenLearningBrowser(FakeLearningBrowser):
+    def __init__(self, account, **kwargs):
+        super().__init__(account, **kwargs)
+        self.connection_lost = asyncio.Event()
+        self.close_reason = "浏览器连接已断开，任务已中断。"
+        self.failure_kind = "browser_closed"
+        self.connection_lost.set()
+
+
+class LoginFailureLearningBrowser(FakeLearningBrowser):
+    async def open(self):
+        raise RuntimeError("登录状态已失效，请重新授权")
 
 
 class AutoplayBlockedBrowser(FakeLearningBrowser):
@@ -256,7 +270,7 @@ class LearningTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(browser.paused)
         browser.focus.assert_not_awaited()
 
-    async def test_browser_loss_interrupts_running_and_manually_paused_tasks(self):
+    async def test_browser_loss_auto_retries_running_but_keeps_manual_pause_interrupted(self):
         self.service.browser_factory = DisconnectLearningBrowser
         for paused in (False, True):
             with self.subTest(manually_paused=paused):
@@ -265,13 +279,43 @@ class LearningTests(unittest.IsolatedAsyncioTestCase):
                 browser = self.service.browsers[run["id"]]
                 if paused: await self.service.control(run["id"], "pause")
                 browser.lose_connection()
+                if paused:
+                    await self.wait_until(lambda: run["id"] not in self.service.tasks)
+                    result = self.service.store.run(run["id"])
+                    self.assertEqual(result["status"], "interrupted")
+                    self.assertIn("窗口已关闭", result["error"])
+                else:
+                    await self.wait_until(lambda: any(
+                        event["kind"] == "auto_retry" for event in self.service.store.events(run["id"])
+                    ))
+                    self.assertGreaterEqual(self.service.store.run(run["id"])["auto_retry_count"], 1)
+                    await self.service.control(run["id"], "stop")
+                    await self.wait_until(lambda: run["id"] not in self.service.tasks)
                 self.assertFalse(self.service.payload(self.service.store.run(run["id"]))["browser_available"])
-                await self.wait_until(lambda: run["id"] not in self.service.tasks)
-                result = self.service.store.run(run["id"])
-                self.assertEqual(result["status"], "interrupted")
-                self.assertIn("窗口已关闭", result["error"])
                 self.assertTrue(any(event["kind"] == "browser_closed" for event in self.service.store.events(run["id"])))
                 self.assertEqual(sum(event["kind"] == "paused" for event in self.service.store.events(run["id"])), int(paused))
+
+    async def test_repeated_browser_crashes_stop_after_three_automatic_retries(self):
+        self.service.browser_factory = CrashOnOpenLearningBrowser
+        run = self.service.start(self.course["id"])
+        await self.wait_until(lambda: run["id"] not in self.service.tasks, timeout=20)
+        result = self.service.store.run(run["id"])
+        events = self.service.store.events(run["id"])
+        self.assertEqual(result["status"], "interrupted")
+        self.assertEqual(result["auto_retry_count"], 3)
+        self.assertEqual(sum(event["kind"] == "auto_retry" for event in events), 3)
+        self.assertTrue(any(event["kind"] == "retry_exhausted" for event in events))
+
+    async def test_login_failure_is_not_automatically_retried(self):
+        self.service.browser_factory = LoginFailureLearningBrowser
+        run = self.service.start(self.course["id"])
+        await self.wait_until(lambda: run["id"] not in self.service.tasks)
+        result = self.service.store.run(run["id"])
+        events = self.service.store.events(run["id"])
+        self.assertEqual(result["status"], "interrupted")
+        self.assertEqual(result["phase"], "interrupted")
+        self.assertEqual(result["auto_retry_count"], 0)
+        self.assertFalse(any(event["kind"] == "auto_retry" for event in events))
 
     async def test_browser_loss_during_human_intervention_is_not_left_waiting_forever(self):
         self.service.browser_factory = DisconnectLearningBrowser
@@ -396,7 +440,7 @@ class LearningTests(unittest.IsolatedAsyncioTestCase):
         app.include_router(learning_router(self.service, lambda account: None, lambda account: None, lambda account: asyncio.Lock()))
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             capabilities = (await client.get("/api/learning/capabilities")).json()
-            self.assertFalse(capabilities["external_ocs_required"])
+            self.assertFalse(capabilities["external_runtime_required"])
             response = await client.post("/api/learning/runs", json={"course_id": self.course["id"]})
             self.assertEqual(response.status_code, 200, response.text)
             identifier = response.json()["id"]
@@ -411,6 +455,24 @@ class LearningTests(unittest.IsolatedAsyncioTestCase):
         self.service.store.recover()
         self.assertEqual(self.service.store.run(run["id"])["status"], "interrupted")
         self.assertIsNone(self.service.active(self.account["id"]))
+
+    async def test_service_restart_auto_resumes_running_work_and_skips_manual_pause(self):
+        run = self.service.store.create_run(self.course["id"])
+        self.service.store.update(run["id"], status="running", phase="learning")
+        other = next(item for item in self.service.store.upsert_courses(
+            self.account["id"],
+            [{"courseId": "restart-paused", "classId": "class", "courseName": "暂停网课", "url": "https://example.test/restart-paused"}],
+            2026,
+            replace=False,
+        ) if item["id"] != self.course["id"])
+        paused = self.service.store.create_run(other["id"])
+        self.service.store.update(paused["id"], status="paused", paused_from="running")
+        self.service.initialize()
+        await self.wait_until(lambda: self.service.store.run(run["id"])["auto_retry_count"] == 1)
+        self.assertEqual(self.service.store.run(paused["id"])["status"], "interrupted")
+        self.assertEqual(self.service.store.run(paused["id"])["auto_retry_count"], 0)
+        await self.service.control(run["id"], "stop")
+        await self.wait_until(lambda: run["id"] not in self.service.tasks)
 
     async def test_account_deletion_cascades_learning_history(self):
         run = self.service.store.create_run(self.course["id"])

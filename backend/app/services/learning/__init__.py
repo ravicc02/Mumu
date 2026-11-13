@@ -1,1 +1,1 @@
-"""Local course learning, using the adapted OCS platform runtime."""
+"""Local multi-platform course learning runtime."""

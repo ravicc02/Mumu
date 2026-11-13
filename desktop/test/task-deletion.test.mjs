@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { api } from "../src/api.js";
-import { newMonitorState, reconcileMonitor, monitorSummary } from "../src/lib/task-monitor.js";
+import { api } from "../src/app/api.js";
+import { newMonitorState, reconcileMonitor, monitorSummary } from "../src/features/tasks/lib/monitor.js";
 
 test("deleting each task type calls its local DELETE endpoint", async () => {
   const previous = globalThis.fetch, requests = [];

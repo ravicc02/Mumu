@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildTaskOverview, overviewResult } from "../src/lib/task-overview.js";
+import { buildTaskOverview, overviewResult } from "../src/features/tasks/lib/overview.js";
 
 test("the dashboard retains one latest attempt per account and business object across both task types", () => {
   const jobs = [{ id: "assignment", account_id: "a", assignment_id: "same", status: "running", created_at: "2026-11-11T10:00:00Z" }];

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 from app.config import Settings
 from app.db import Database
 from app.events import EventHub
-from app.services import agent_runner
+from app.services.tasks import runner as agent_runner
 
 
 class FakeProcess:

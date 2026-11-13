@@ -4,11 +4,11 @@ import { readFile } from "node:fs/promises";
 import { parse, compileScript } from "@vue/compiler-sfc";
 import { createRenderer, defineComponent, h, nextTick } from "vue";
 
-const { descriptor }=parse(await readFile(new URL("../src/components/LiveBrowser.vue",import.meta.url),"utf8"));
+const { descriptor }=parse(await readFile(new URL("../src/features/tasks/components/LiveBrowser.vue",import.meta.url),"utf8"));
 let source=compileScript(descriptor,{id:"live-test",inlineTemplate:true}).content;
 for(const name of ["vue","@lucide/vue"]) source=source.replaceAll('from "'+name+'"','from '+JSON.stringify(import.meta.resolve(name)));
-source=source.replace('from "../api"','from '+JSON.stringify("data:text/javascript,"+encodeURIComponent('export const api={browserSession:async()=>({token:"fixture"}),browserUrl:()=>"ws://fixture.test"};')));
-source=source.replace('from "../lib/task-presentation"','from '+JSON.stringify(new URL("../src/lib/task-presentation.js",import.meta.url).href));
+source=source.replace('from "../../../app/api.js"','from '+JSON.stringify("data:text/javascript,"+encodeURIComponent('export const api={browserSession:async()=>({token:"fixture"}),browserUrl:()=>"ws://fixture.test"};')));
+source=source.replace('from "../lib/presentation.js"','from '+JSON.stringify(new URL("../src/features/tasks/lib/presentation.js",import.meta.url).href));
 const {default:Viewer}=await import("data:text/javascript;base64,"+Buffer.from(source).toString("base64"));
 
 const node=type=>({type,children:[],props:{},parent:null,width:0,height:0,getContext:()=>({drawImage(){}}),getBoundingClientRect:()=>({left:0,top:0,width:1000,height:600}),focus(){},setPointerCapture(){},hasPointerCapture(){return false;}});

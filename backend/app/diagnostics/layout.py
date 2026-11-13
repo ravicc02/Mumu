@@ -21,7 +21,7 @@ def useful_record(value):
     data = value.get("data") or {}
     if isinstance(data, dict) and isinstance(data.get("http_status"), int) and data["http_status"] >= 400:
         return True
-    if component in {"uvicorn.access", "answer-studio.api", ""} or value.get("code") == "legacy.text":
+    if component in {"uvicorn.access", "mumu.api", "answer-studio.api", ""} or value.get("code") == "legacy.text":
         # Only successful read traffic is noise. Mutations and every HTTP failure remain.
         if re.search(r'(?:HTTP )?(?:GET|HEAD|OPTIONS) [^\r\n]*?(?:HTTP/[\d.]+"? | -> |-> )(?:[23]\d\d)\b', message):
             return False

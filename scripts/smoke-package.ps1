@@ -5,20 +5,21 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $version = (Get-Content -LiteralPath (Join-Path $root "VERSION") -Raw).Trim()
+$product = Get-Content -LiteralPath (Join-Path $root "desktop/product.json") -Encoding UTF8 -Raw | ConvertFrom-Json
 $releaseRoot = if ([IO.Path]::IsPathRooted($ReleaseDirectory)) { $ReleaseDirectory } else { Join-Path $root $ReleaseDirectory }
 $productName = (Get-Content -LiteralPath (Join-Path $root "desktop/package.json") -Encoding UTF8 -Raw | ConvertFrom-Json).build.productName
 $desktopExe = Join-Path $releaseRoot ("win-unpacked/" + $productName + ".exe")
-$backendExe = Join-Path $releaseRoot "win-unpacked/resources/backend/answer-studio-backend.exe"
+$backendExe = Join-Path $releaseRoot ("win-unpacked/resources/backend/" + $product.backendExecutable)
 if (!(Test-Path -LiteralPath $desktopExe -PathType Leaf) -or !(Test-Path -LiteralPath $backendExe -PathType Leaf)) { throw "Packaged executables are missing" }
 $productVersion = (Get-Item -LiteralPath $desktopExe).VersionInfo.ProductVersion
 if ($productVersion -ne $version) { throw "Desktop executable version differs: $productVersion / $version" }
 if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) { throw "Smoke-test port $Port is already occupied" }
-$smokeRoot = Join-Path ([IO.Path]::GetTempPath()) ("assignment-studio-smoke-" + [guid]::NewGuid().ToString("N"))
+$smokeRoot = Join-Path ([IO.Path]::GetTempPath()) ("mumu-smoke-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $smokeRoot | Out-Null
-$previousDataRoot = $env:ANSWER_STUDIO_DATA
+$previousDataRoot = $env:MUMU_DATA
 $process = $null
 try {
-    $env:ANSWER_STUDIO_DATA = $smokeRoot
+    $env:MUMU_DATA = $smokeRoot
     $process = Start-Process -FilePath $backendExe -ArgumentList @("--host", "127.0.0.1", "--port", "$Port") -WorkingDirectory (Split-Path -Parent $backendExe) -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $smokeRoot "stdout.log") -RedirectStandardError (Join-Path $smokeRoot "stderr.log")
     $deadline = (Get-Date).AddSeconds(60)
     $health = $null
@@ -34,5 +35,5 @@ try {
     Write-Host "Packaged backend and desktop metadata verified: $version"
 } finally {
     if ($process) { $process.Refresh(); if (!$process.HasExited) { Stop-Process -Id $process.Id -ErrorAction SilentlyContinue } }
-    $env:ANSWER_STUDIO_DATA = $previousDataRoot
+    $env:MUMU_DATA = $previousDataRoot
 }

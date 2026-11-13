@@ -25,7 +25,7 @@ SCHEMA_VERSION = 1
 MAX_EVENT_BYTES = 65536
 MAX_EVIDENCE_BYTES = 2 * 1024 * 1024
 ROTATE_BYTES = 2 * 1024 * 1024
-logger = logging.getLogger("answer-studio.diagnostics")
+logger = logging.getLogger("mumu.diagnostics")
 LOCK = threading.RLock()
 FINAL = {"completed", "stopped", "interrupted", "failed", "incomplete", "needs_intervention"}
 
@@ -43,7 +43,7 @@ def environment():
         except importlib.metadata.PackageNotFoundError: versions[name] = "unavailable"
     root = Path(__file__).parents[1]
     hashes = {}
-    for relative in ("services/agent_runner.py", "services/quiz_adapter.py", "services/learning/runtime.js", "services/learning/ocs-study.js", "services/learning/platform-runtime.js", "services/learning/multi_platform.py", "services/platforms/catalog.json", "services/educoder/client.py", "services/educoder/contracts.py", "services/educoder/executor.py", "services/task_spec.py", "services/educoder/code_contract.py", "services/educoder/evaluation.py", "services/educoder/adapter.py", "services/account_identity.py", "diagnostics/recorder.py", "diagnostics/probe.py", "diagnostics/daily.py", "diagnostics/bridge.py", "diagnostics/logging.py", "diagnostics/privacy.py", "diagnostics/layout.py"):
+    for relative in ("services/tasks/runner.py", "services/assignments/quiz_adapter.py", "services/learning/runtime.js", "services/learning/study-runtime.js", "services/learning/platform-runtime.js", "services/learning/multi_platform.py", "services/platforms/catalog.json", "services/educoder/client.py", "services/educoder/contracts.py", "services/educoder/executor.py", "services/tasks/spec.py", "services/educoder/code_contract.py", "services/educoder/evaluation.py", "services/educoder/adapter.py", "services/accounts/identity.py", "diagnostics/recorder.py", "diagnostics/probe.py", "diagnostics/daily.py", "diagnostics/bridge.py", "diagnostics/logging.py", "diagnostics/privacy.py", "diagnostics/layout.py"):
         path = root / relative
         if path.is_file(): hashes[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
     version = __version__

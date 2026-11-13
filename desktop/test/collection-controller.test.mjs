@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createCollectionController } from "../src/lib/collection-controller.js";
+import { createCollectionController } from "../src/features/assignments/lib/collection-controller.js";
 
 function harness(fetchRuns = async () => []) {
   let states = {};

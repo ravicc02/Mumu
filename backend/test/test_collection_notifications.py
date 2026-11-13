@@ -13,8 +13,8 @@ import httpx
 from app import main
 from app.config import Settings
 from app.db import Database
-from app.services.collection_notifications import initialize_baseline, ledger_key, notify_new_assignments
-from app.services.notifier import _weixin_text, notification_preferences, send_completion_notification
+from app.services.notifications.collection import initialize_baseline, ledger_key, notify_new_assignments
+from app.services.notifications.delivery import _weixin_text, notification_preferences, send_completion_notification
 
 
 class CollectionNotificationTests(unittest.IsolatedAsyncioTestCase):
@@ -85,7 +85,7 @@ class CollectionNotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sender.await_count, 1)
 
     async def test_preferences_disable_network_delivery_before_creating_http_client(self):
-        with patch("app.services.notifier.httpx.AsyncClient") as client:
+        with patch("app.services.notifications.delivery.httpx.AsyncClient") as client:
             for event in ("assignment_completed", "assignment_needs_intervention", "assignment_interrupted", "assignments_discovered", "learning_completed", "learning_interrupted"):
                 result = await send_completion_notification(self.settings, {"event": event}, preferences={"completion_enabled": False, "new_assignments_enabled": False})
                 self.assertFalse(any(result.values()))

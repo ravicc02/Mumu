@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from ..platforms.catalog import CATALOG, platform_spec, platform_url, require_business
-from ..browser_stream import serve_browser
+from ..runtime.stream import serve_browser
 
 
 class CreateLearningRun(BaseModel):
@@ -33,10 +33,10 @@ def learning_router(service, guard_idle, guard_start, collection_lock):
 
     @router.get("/capabilities")
     async def capabilities():
-        return {"engine": "ocs-5.4.0-resources.2", "local": True, "platforms": [name for name,spec in CATALOG.items() if spec["learning"]],
+        return {"engine": "mumu-learning-resources-v1", "local": True, "platforms": [name for name,spec in CATALOG.items() if spec["learning"]],
                 "automatic": ["video", "audio"], "manual": ["quiz", "verification", "unknown"],
                 "resource_handlers": {"chaoxing": ["video", "audio", "document", "book", "audio_ppt", "hyperlink", "timed_reading"]},
-                "external_ocs_required": False, "userscript_manager_required": False}
+                "external_runtime_required": False, "userscript_manager_required": False}
 
     @router.get("/courses")
     async def courses(account_id: str, academic_year: int = 2026):

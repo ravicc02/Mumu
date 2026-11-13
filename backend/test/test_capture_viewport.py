@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from app.services.screenshot_capture import capture_screenshot_segments
+from app.services.runtime.screenshots import capture_screenshot_segments
 
 
 class CaptureViewportTests(unittest.IsolatedAsyncioTestCase):

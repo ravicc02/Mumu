@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createWaterMascot } from "../src/lib/water-mascot.js";
+import { createWaterMascot } from "../src/features/brand/lib/mascot.js";
 
 function environment(reduced = false) {
   const previous = new Map(), callbacks = new Map(), events = new Map();

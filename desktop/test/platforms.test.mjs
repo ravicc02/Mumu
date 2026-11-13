@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { api } from "../src/api.js";
+import { api } from "../src/app/api.js";
 
-test("six OCS platform entries share the backend catalog and ship local logos", async () => {
+test("six additional platform entries share the backend catalog and ship local logos", async () => {
   const catalog=JSON.parse(await readFile(new URL("../../backend/app/services/platforms/catalog.json",import.meta.url),"utf8"));
   assert.equal(catalog.length,7);
   for(const item of catalog) {

@@ -13,7 +13,7 @@ configure_logging(settings)
 try:
     from app.main import app
 except Exception:
-    logging.getLogger("answer-studio.startup").exception("Backend initialization failed")
+    logging.getLogger("mumu.startup").exception("Backend initialization failed")
     raise
 
 
