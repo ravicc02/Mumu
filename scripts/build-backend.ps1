@@ -55,6 +55,7 @@ try {
         --hidden-import "uvicorn.protocols.websockets.auto" `
         --hidden-import "uvicorn.lifespan.on" `
         run_server.py
+    if ($LASTEXITCODE -ne 0) { throw "PyInstaller backend build failed with exit code $LASTEXITCODE" }
 } finally {
     Pop-Location
     $env:PYTHONPATH = $oldPythonPath
