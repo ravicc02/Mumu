@@ -14,7 +14,7 @@ const manifest = JSON.parse(await fs.readFile(path.join(root,'desktop/package.js
 const product = JSON.parse(await fs.readFile(path.join(root,'desktop/product.json'),'utf8'));
 const release = path.join(root,'desktop/release');
 const installer = path.join(release,product.artifactId+'-'+version+'-windows-x64-setup.exe');
-const installRoot = await fs.mkdtemp(path.join(os.tmpdir(),'mumu-install-'));
+const installRoot = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'mumu-install-')));
 const dataRoot = path.join(installRoot,'verification-data'), profileRoot = path.join(installRoot,'verification-profile');
 const driver = execFileSync('python',['-c',"import pathlib,playwright; print(pathlib.Path(playwright.__file__).parent/'driver'/'package')"],{encoding:'utf8'}).trim();
 const { _electron } = createRequire(import.meta.url)(driver);
