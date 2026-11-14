@@ -29,7 +29,7 @@ try {
   app = await _electron.launch({executablePath:executable,args:['--no-sandbox','--user-data-dir='+profileRoot],cwd:installRoot,
     env:{...process.env,MUMU_DATA:dataRoot},timeout:60000});
   const page = await app.firstWindow(); page.setDefaultTimeout(60000);
-  await page.getByRole('heading',{name:'准备运行环境',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'准备浏览器环境',exact:true}).waitFor();
   await page.waitForFunction(()=>!document.querySelector('.startup-footer .button.dark')?.disabled);
   const state = await page.evaluate(()=>window.desktopApi.bootstrapState());
   assert.equal(state.status,'ready'); assert.equal(state.backendReady,true);
@@ -38,14 +38,12 @@ try {
   assert.equal(health.version,version);
   assert.equal(await fs.realpath(health.data_root),await fs.realpath(dataRoot));
   backendPid = Number(execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',"Get-NetTCPConnection -LocalPort 8877 -State Listen | Select-Object -First 1 -ExpandProperty OwningProcess"],{encoding:'utf8'}).trim());
-  const images = await page.locator('.startup-experience img').evaluateAll(items=>items.map(item=>({loaded:item.complete&&item.naturalWidth>0})));
-  assert.ok(images.length && images.every(item=>item.loaded),'Packaged logo must load.');
   await fs.mkdir(path.join(root,'.runtime/installed-smoke'),{recursive:true});
   await page.screenshot({path:path.join(root,'.runtime/installed-smoke/environment.png')});
   await page.getByRole('button',{name:'下一步',exact:true}).click();
-  await page.getByRole('heading',{name:'连接你的模型',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'连接模型服务',exact:true}).waitFor();
   await page.getByRole('button',{name:'稍后配置',exact:true}).click();
-  await page.getByRole('heading',{name:'加入学习平台',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'授权学习平台',exact:true}).waitFor();
   assert.equal(await page.locator('.startup-platform').count(),7);
   await page.waitForFunction(()=>[...document.querySelectorAll('.startup-platform img')].every(item=>item.complete&&item.naturalWidth>0));
   const platformImages = await page.locator('.startup-platform img').evaluateAll(items=>items.every(item=>item.complete&&item.naturalWidth>0));
@@ -55,6 +53,7 @@ try {
   await page.reload(); await page.locator('.dashboard-heading').waitFor();
   assert.equal(await page.locator('.startup-experience').count(),0);
   assert.equal(await page.locator('.brand h1').innerText(),product.name);
+  assert.equal(await page.locator('.brand-mark img').evaluate(image=>image.complete&&image.naturalWidth>0),true,'Packaged brand logo must load.');
   const evidencePath = path.join(release,'smoke-result.json');
   const evidence = JSON.parse((await fs.readFile(evidencePath,'utf8')).replace(/^\uFEFF/,''));
   Object.assign(evidence,{installed_app_verified:true,first_run_verified:true,optional_setup_skips_verified:true,packaged_brand_assets_verified:true});
