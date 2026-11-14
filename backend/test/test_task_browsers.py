@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -49,6 +50,24 @@ class BrowserProfileTests(unittest.TestCase):
             with self.assertRaises(RuntimeError): profile.close()
             self.assertTrue(Path(folder).exists())
             profile.path = owned; profile.close()
+
+    def test_cleanup_retries_while_windows_releases_profile_handles(self):
+        with tempfile.TemporaryDirectory() as folder:
+            profile = TaskBrowserProfile({"profile_dir": str(Path(folder) / "profiles" / "account")}, "assignment", "locked")
+            attempts = []
+            real_rmtree = shutil.rmtree
+
+            def remove(path):
+                attempts.append(path)
+                if len(attempts) < 3:
+                    raise OSError("profile is still locked")
+                return real_rmtree(path)
+
+            with patch("app.services.runtime.browser.shutil.rmtree", side_effect=remove):
+                with patch("app.services.runtime.browser.time.sleep"):
+                    profile.close()
+            self.assertTrue(profile.closed)
+            self.assertEqual(len(attempts), 3)
 
 
 class TaskBrowserIntegrationTests(unittest.IsolatedAsyncioTestCase):

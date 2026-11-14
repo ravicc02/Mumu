@@ -98,11 +98,29 @@ def _path_aliases(path: Path) -> tuple[Path, ...]:
     return tuple(unique)
 
 
-def _rebind_database_paths(database: Path, source: Path, target: Path) -> int:
+def _canonical_path(path: Path) -> Path:
+    path = path.expanduser().absolute()
+    if os.name == "nt":
+        direct = _windows_path_alias(path, "GetLongPathNameW")
+        if direct is not None:
+            return direct
+        parent = _windows_path_alias(path.parent, "GetLongPathNameW")
+        if parent is not None:
+            return parent / path.name
+    return path.resolve()
+
+
+def _rebind_database_paths(
+    database: Path,
+    source: Path,
+    target: Path,
+    *,
+    source_aliases: tuple[Path, ...] | None = None,
+) -> int:
     if not database.is_file():
         return 0
     replacements = []
-    for source_path in _path_aliases(source):
+    for source_path in source_aliases or _path_aliases(source):
         for old, new in (
             (str(source_path), str(target)),
             (str(source_path).replace("\\", "\\\\"), str(target).replace("\\", "\\\\")),
@@ -160,15 +178,23 @@ def migrate_legacy_data_root(target: Path, *, source: Path | None = None) -> Pat
         or os.getenv("ANSWER_STUDIO_DATA", "").strip()
     ):
         return target
-    source = (source or legacy_data_root())
-    if source is None:
+    requested_source = source or legacy_data_root()
+    if requested_source is None:
         return target
-    source = source.resolve()
-    target = target.expanduser().resolve()
+    source_aliases = _path_aliases(requested_source)
+    source = _canonical_path(requested_source)
+    target = target.expanduser().absolute()
+    if target.exists():
+        target = _canonical_path(target)
     if source == target or not source.is_dir():
         return target
     if target.exists() and any(target.iterdir()):
-        updated = _rebind_database_paths(target / DATABASE_FILENAME, source, target)
+        updated = _rebind_database_paths(
+            target / DATABASE_FILENAME,
+            source,
+            target,
+            source_aliases=source_aliases,
+        )
         if updated:
             logger.info(
                 "Legacy data paths rebound",
@@ -180,12 +206,18 @@ def migrate_legacy_data_root(target: Path, *, source: Path | None = None) -> Pat
         return target
 
     target.parent.mkdir(parents=True, exist_ok=True)
+    target = _canonical_path(target)
     staging = target.parent / f"{target.name}.migrating-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     try:
         shutil.copytree(_long_path(source), _long_path(staging), symlinks=True)
         if _tree_stats(_long_path(source)) != _tree_stats(_long_path(staging)):
             raise OSError("迁移后的文件数量或大小与旧目录不一致")
-        updated = _rebind_database_paths(staging / DATABASE_FILENAME, source, target)
+        updated = _rebind_database_paths(
+            staging / DATABASE_FILENAME,
+            source,
+            target,
+            source_aliases=source_aliases,
+        )
         if target.exists():
             target.rmdir()
         staging.replace(target)

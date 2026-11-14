@@ -5,6 +5,7 @@ import shutil
 import logging
 import re
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -33,14 +34,20 @@ class TaskBrowserProfile:
         root, target = self.root.resolve(), self.path.resolve()
         if target.parent != root or not target.is_relative_to(root):
             raise RuntimeError("Refusing to remove a browser directory outside its task root")
-        try:
-            shutil.rmtree(target)
-        except FileNotFoundError:
-            pass
-        except OSError:
-            logging.getLogger("mumu.browser").warning("Task Chrome directory remains locked: %s", target.name)
+        deadline = time.monotonic() + 3
+        while True:
+            try:
+                shutil.rmtree(target)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                if time.monotonic() < deadline:
+                    time.sleep(0.1)
+                    continue
+                logging.getLogger("mumu.browser").warning("Task Chrome directory remains locked: %s", target.name)
+                return
+            self.closed = True
             return
-        self.closed = True
 
 
 def chrome_executable() -> Path:
