@@ -132,7 +132,7 @@ async def refresh_context(database: Database) -> dict[str, Any]:
                 "get_updates_buf": binding.get("get_updates_buf", ""),
                 "base_info": {
                     "channel_version": "2.4.10",
-                    "bot_agent": f"AIAssignmentStudio/{__version__}",
+                    "bot_agent": f"Mumu/{__version__}",
                 },
             },
         )

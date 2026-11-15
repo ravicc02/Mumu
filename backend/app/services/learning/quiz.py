@@ -194,12 +194,13 @@ async def solve_learning_quiz(
     except Exception:
         still_open = None
     if submission.get("clicked") or submission.get("confirmed") or still_open is False:
+        confirmed = bool(submission.get("confirmed"))
         await emit(
             "quiz_submitted",
-            "章节题目已提交，等待平台完成状态确认",
+            "章节题目已提交，平台已确认" if confirmed else "章节题目已提交，等待平台完成状态确认",
             {
-                "confirmed": bool(submission.get("confirmed")),
-                "pending": bool(submission.get("pending")) or still_open is False,
+                "confirmed": confirmed,
+                "pending": not confirmed and (bool(submission.get("pending")) or still_open is False),
                 "reason": submission.get("reason") or "",
             },
         )

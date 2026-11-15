@@ -19,6 +19,7 @@ from app.services.assignments.quiz_adapter import (
     QuizAnswerSheet,
     extract_questions,
     fill_answers,
+    generate_answers,
     submit_answers,
 )
 from app.services.learning.service import LearningService
@@ -253,6 +254,25 @@ class LearningQuizServiceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class LearningQuizAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_plain_text_model_response_uses_strict_json_fallback(self):
+        class PlainTextLLM:
+            def __init__(self):
+                self.calls = []
+
+            async def ainvoke(self, messages, output_format=None):
+                self.calls.append(output_format)
+                if output_format is not None:
+                    raise RuntimeError("Expected tool_calls in response but got none")
+                return SimpleNamespace(
+                    completion='```json\n{"units":[{"unit_id":"q1","answer":"A"}]}\n```'
+                )
+
+        llm = PlainTextLLM()
+        result = await generate_answers(llm, QUIZ_EXTRACTED)
+        self.assertEqual(result.answers, [QuizAnswer(unit_id="q1", values=["A"])])
+        self.assertEqual(len(llm.calls), 2)
+        self.assertIsNone(llm.calls[1])
+
     async def test_quiz_confirmation_dialog_accepts_non_native_button(self):
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(headless=True, executable_path=str(chrome_executable()))
@@ -280,6 +300,42 @@ class LearningQuizAdapterTests(unittest.IsolatedAsyncioTestCase):
                 submitted = await submit_answers(page)
                 self.assertTrue(submitted["clicked"])
                 self.assertTrue(submitted["confirmed"])
+            finally:
+                await browser.close()
+
+    async def test_quiz_confirmation_dialog_is_clicked_in_the_parent_frame(self):
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True, executable_path=str(chrome_executable()))
+            try:
+                page = await browser.new_page()
+                await page.set_content("""
+                    <iframe id="quiz" style="width:800px;height:500px"></iframe>
+                    <div id="workpop" class="maskDiv" style="display:none">
+                      <a id="popok">提交</a><a id="popno">取消</a>
+                    </div>
+                """)
+                frame = page.frames[1]
+                await frame.set_content("""
+                    <div class="questionLi" id="question1">
+                      <label><input type="radio" name="answer" value="A" checked>A 正确选项</label>
+                    </div>
+                    <button id="submit">提交</button>
+                    <div id="feedback" role="status"></div>
+                """)
+                await page.evaluate("""() => {
+                  const frame = document.querySelector('#quiz');
+                  frame.contentDocument.querySelector('#submit').onclick = () => {
+                    document.querySelector('#workpop').style.display = 'block';
+                  };
+                  document.querySelector('#popok').onclick = () => {
+                    document.querySelector('#workpop').style.display = 'none';
+                    frame.contentDocument.querySelector('#feedback').textContent = '提交成功';
+                  };
+                }""")
+                submitted = await submit_answers(frame)
+                self.assertTrue(submitted["clicked"])
+                self.assertTrue(submitted["confirmed"])
+                self.assertEqual(submitted["dialog"]["text"], "提交")
             finally:
                 await browser.close()
 

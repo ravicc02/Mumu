@@ -10,9 +10,19 @@ from pathlib import Path
 
 from ...db import utc_now
 from ..platforms.catalog import platform_spec, platform_url
-from ..tasks.runner import JobControl, JobStopped, _account_lock, _acquire_account_lock, _build_agent_llm
-from ..notifications.delivery import notification_preferences, send_completion_notification
-from ..notifications.weixin import record_delivery
+from ..tasks.runner import (
+    JobControl,
+    JobStopped,
+    _account_lock,
+    _acquire_account_lock,
+    _build_task_llm,
+)
+from ..agents.leases import lease_heartbeat
+from ..agents.workspace import TaskWorkspace
+from ..notifications.delivery import (
+    enqueue_completion_notification,
+    notification_preferences,
+)
 from ..runtime.preview import preview_manager
 from .browser import create_learning_browser
 from .quiz import quiz_signature, solve_learning_quiz
@@ -20,31 +30,95 @@ from ...preferences import load_preferences
 from .store import ACTIVE, LearningStore
 from ...diagnostics.logging import current_trace as diagnostic_context
 from ...diagnostics.probe import capture_page as capture_diagnostic_page
+from ...diagnostics.privacy import task_scrubber
+
+
+async def send_completion_notification(
+    database,
+    settings,
+    payload,
+    *,
+    preferences=None,
+):
+    return enqueue_completion_notification(
+        database,
+        settings,
+        payload,
+        preferences=preferences,
+    )
 
 
 class LearningService:
-    def __init__(self, database, settings, hub, browser_factory=create_learning_browser, settings_provider=None, llm_factory=None):
+    def __init__(self, database, settings, hub, browser_factory=create_learning_browser, settings_provider=None, llm_factory=None, orchestrator=None):
         self._database = database if callable(database) else lambda: database
         self.settings, self.hub, self.browser_factory = settings, hub, browser_factory
         self.settings_provider = settings_provider or (lambda: settings)
         self.llm_factory = llm_factory
+        self.orchestrator = orchestrator
         self.tasks, self.controls, self.browsers, self.operations = {}, {}, {}, {}
+        self.workspaces = {}
+        self.checkpoint_scrubbers = {}
         self.browser_tickets = {}
         self.auto_retry_limit = 3
         self.shutting_down = False
 
-    def _quiz_llm(self):
+    def _quiz_llm(self, attempt_id):
         settings = self.settings_provider()
         if self.llm_factory:
             return self.llm_factory(settings)
         if not settings.openai_api_key:
             raise RuntimeError("章节题目需要先在设置中配置可用模型")
-        return _build_agent_llm(
+
+        def model_waiting(reason, retry_at):
+            previous = self.store.run(attempt_id).get("waiting_reason")
+            self.store.update(
+                attempt_id,
+                phase="waiting_upstream" if reason else "agent_running",
+                waiting_reason=reason,
+                not_before=retry_at,
+            )
+            if reason and reason != previous:
+                try:
+                    run = self.store.run(attempt_id)
+                    checkpoint = self._database().save_task_checkpoint(
+                        attempt_id=attempt_id,
+                        attempt_kind="learning",
+                        phase="waiting_upstream",
+                        goal={
+                            "course": run.get("course_name"),
+                            "platform": run.get("platform"),
+                        },
+                        completed={
+                            "progress": run.get("progress", 0),
+                            "current_chapter": run.get("current_chapter"),
+                            "current_unit": run.get("current_unit"),
+                        },
+                        blockers=[reason],
+                        next_action_id="model_retry",
+                    )
+                    workspace = self.workspaces.get(attempt_id)
+                    if workspace:
+                        workspace.write_checkpoint(checkpoint)
+                except Exception:
+                    self._database().diagnostics.trace(
+                        "learning",
+                        attempt_id,
+                    ).record(
+                        "learning.model_waiting_checkpoint_failed",
+                        "模型等待检查点写入失败",
+                        level="warning",
+                    )
+
+        _, llm = _build_task_llm(
+            self._database(),
             settings,
-            settings.openai_model,
+            "structured_answer",
+            attempt_id,
             temperature=.1,
             max_retries=1,
+            waiting_callback=model_waiting,
         )
+        return llm
 
     def browser_ticket(self, identifier):
         if identifier not in self.browsers: raise RuntimeError("当前任务浏览器已关闭或尚未就绪")
@@ -78,6 +152,31 @@ class LearningService:
     def payload(self, run):
         identifier, status = run["id"], run["status"]
         actions = []
+        queue_position = 0
+        if status == "queued":
+            queued = sorted(
+                (
+                    item for item in self.store.runs()
+                    if item["status"] == "queued"
+                ),
+                key=lambda item: (
+                    -int(item.get("queue_priority") or 0),
+                    item.get("created_at") or "",
+                    item["id"],
+                ),
+            )
+            queue_position = next(
+                (
+                    index
+                    for index, item in enumerate(queued, start=1)
+                    if item["id"] == identifier
+                ),
+                0,
+            )
+        if status == "queued":
+            actions.extend(["pause", "stop"])
+        elif status == "paused" and run.get("paused_from") == "queued":
+            actions.extend(["resume", "stop"])
         if identifier in self.controls:
             if status in {"queued", "running"}: actions.append("pause")
             if status == "paused": actions.append("resume")
@@ -90,14 +189,35 @@ class LearningService:
         if status in {"stopped", "incomplete", "interrupted"}: actions.append("retry")
         if status not in ACTIVE and identifier not in self.tasks and identifier not in self.controls and browser is None and not run.get("deleted_at"):
             actions.append("delete")
-        return {**run, "actions": actions, "browser_available": available, "browser_scope": "task", "browser_task_id": identifier}
+        return {
+            **run,
+            "actions": list(dict.fromkeys(actions)),
+            "browser_available": available,
+            "browser_scope": "task",
+            "browser_task_id": identifier,
+            "queue_position": queue_position,
+        }
 
     def delete_task(self, identifier):
         run = self.store.run(identifier)
         attempts = [item for item in self.store.runs(run["account_id"], include_deleted=True) if item["course_id"] == run["course_id"]]
         if any(item["id"] in self.tasks or item["id"] in self.controls or item["id"] in self.browsers for item in attempts):
             raise RuntimeError("请先停止网课任务，再删除任务。")
-        return self.store.delete_task(identifier)
+        account = self._database().get_account(run["account_id"])
+        result = self.store.delete_task(identifier)
+        for attempt in attempts:
+            try:
+                TaskWorkspace.purge_business_data_for_account(
+                    account,
+                    "learning",
+                    attempt["id"],
+                )
+            except Exception:
+                logger.warning(
+                    "Learning workspace business data cleanup failed",
+                    exc_info=True,
+                )
+        return result
 
     def active(self, account_id):
         for identifier in list(self.browsers):
@@ -108,6 +228,61 @@ class LearningService:
 
     async def emit(self, identifier, kind, message, data=None):
         event = self.store.event(identifier, kind, message, data)
+        if kind in {
+            "queued", "browser_ready", "catalog", "chapter", "chapter_verified",
+            "chapter_deferred", "resource_deferred", "pending_summary",
+            "awaiting_user", "auto_retry", "completed", "incomplete",
+            "interrupted", "stopped",
+        }:
+            try:
+                run = self.store.run(identifier)
+                scrubber = self.checkpoint_scrubbers.get(identifier)
+                if scrubber is None:
+                    scrubber = task_scrubber(
+                        self.settings_provider(),
+                        self._database().get_account(run["account_id"]),
+                    )
+                    self.checkpoint_scrubbers[identifier] = scrubber
+                checkpoint = self._database().save_task_checkpoint(
+                    attempt_id=identifier,
+                    attempt_kind="learning",
+                    phase=str(run.get("phase") or kind),
+                    goal={
+                        "course": run.get("course_name") or run.get("title"),
+                        "platform": run.get("platform"),
+                    },
+                    completed={
+                        "progress": run.get("progress", 0),
+                        "current_chapter": run.get("current_chapter"),
+                        "current_unit": run.get("current_unit"),
+                    },
+                    blockers=(
+                        [scrubber.clean(message, include_content=False)]
+                        if kind in {
+                            "chapter_deferred", "resource_deferred",
+                            "pending_summary", "awaiting_user", "incomplete",
+                            "interrupted", "stopped",
+                        }
+                        else []
+                    ),
+                    evidence_refs=(
+                        [data["artifact_id"]]
+                        if isinstance(data, dict) and data.get("artifact_id")
+                        else []
+                    ),
+                    next_action_id=None if kind in {"completed", "stopped"} else kind,
+                )
+                workspace = self.workspaces.get(identifier)
+                if workspace:
+                    workspace.write_checkpoint(checkpoint)
+                    workspace.update(phase=str(run.get("phase") or kind))
+            except Exception:
+                self._database().diagnostics.trace("learning", identifier).record(
+                    "learning.checkpoint_failed",
+                    "网课任务检查点写入失败",
+                    level="warning",
+                    data={"event_kind": kind},
+                )
         await self.hub.publish(f"learning:{identifier}", event)
         return event
 
@@ -130,13 +305,20 @@ class LearningService:
 
     def start(self, course_id):
         run = self.store.create_run(course_id, headless=load_preferences(self._database()).learning.headless)
-        self._launch_run(run["id"])
+        if self.orchestrator:
+            self.orchestrator.wake()
+        else:
+            self._launch_run(run["id"])
         return self.payload(run)
 
     def _launch_run(self, identifier, retry_reason=None):
         existing = self.tasks.get(identifier)
         if existing and not existing.done():
             return
+        if retry_reason is None:
+            queued = self.store.run(identifier)
+            if int(queued.get("auto_retry_count") or 0) > 0:
+                retry_reason = "服务重启后自动恢复"
         self.controls[identifier] = JobControl()
         self.controls[identifier].learning_revision = 0
         self.tasks[identifier] = asyncio.create_task(self._supervise_run(identifier, retry_reason))
@@ -151,7 +333,10 @@ class LearningService:
                 "diagnostic_code":"learning.auto_resume_error","diagnostic_data":{"run_id":identifier},
             })
             return
-        self._launch_run(identifier, "服务重启后自动恢复")
+        if self.orchestrator:
+            self.orchestrator.wake()
+        else:
+            self._launch_run(identifier, "服务重启后自动恢复")
 
     @staticmethod
     def _retryable_interruption(error):
@@ -163,7 +348,11 @@ class LearningService:
         return not any(marker.lower() in text.lower() for marker in blocked)
 
     async def _supervise_run(self, identifier, initial_retry_reason=None):
+        lease_task = None
         try:
+            lease_task = asyncio.create_task(
+                lease_heartbeat(self._database(), identifier)
+            )
             if initial_retry_reason:
                 current = self.store.run(identifier)
                 await self.emit(identifier, "auto_retry", f"{initial_retry_reason}（{current['auto_retry_count']}/{self.auto_retry_limit}）", {
@@ -174,7 +363,15 @@ class LearningService:
             while True:
                 control = self.controls.get(identifier)
                 run_task = asyncio.create_task(self.run(identifier))
-                await run_task
+                try:
+                    await run_task
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    database = self._database()
+                    if not getattr(database, "path", None) or not database.path.parent.exists():
+                        break
+                    raise
                 run = self.store.run(identifier)
                 if self.shutting_down or run["status"] != "interrupted":
                     break
@@ -205,8 +402,18 @@ class LearningService:
                 })
                 await asyncio.sleep(1)
         finally:
+            if lease_task:
+                lease_task.cancel()
+                await asyncio.gather(lease_task, return_exceptions=True)
+            database = self._database()
+            database_available = bool(
+                getattr(database, "path", None)
+                and database.path.parent.exists()
+            )
+            if database_available:
+                database.release_resource_leases(identifier)
             self.tasks.pop(identifier, None)
-            if not self.shutting_down:
+            if not self.shutting_down and database_available:
                 await self.notify(identifier)
 
     async def control(self, identifier, action):
@@ -219,6 +426,16 @@ class LearningService:
             elif action == "open_browser":
                 await browser.focus()
             elif action == "pause":
+                if run["status"] == "queued" and control is None:
+                    self.store.update(
+                        identifier,
+                        status="paused",
+                        paused_from="queued",
+                        waiting_reason=None,
+                        not_before=None,
+                    )
+                    await self.emit(identifier, "paused", "排队中的网课任务已暂停")
+                    return self.payload(self.store.run(identifier))
                 control.manual_hold = True
                 control.resume_event.clear()
                 control.paused_event.set()
@@ -231,6 +448,17 @@ class LearningService:
                 self.store.update(identifier, status="paused", paused_from=run["status"])
                 await self.emit(identifier, "paused", "用户已暂停，播放器和任务切换已停止")
             elif action in {"resume", "continue"}:
+                if control is None and run.get("paused_from") == "queued":
+                    self.store.update(
+                        identifier,
+                        status="queued",
+                        phase="queued",
+                        paused_from=None,
+                    )
+                    if self.orchestrator:
+                        self.orchestrator.wake()
+                    await self.emit(identifier, "resumed", "网课任务已继续排队")
+                    return self.payload(self.store.run(identifier))
                 control.manual_hold = False
                 target = "queued" if run["status"] == "paused" and run["paused_from"] == "queued" else "running"
                 self.store.update(identifier, status=target, error=None, paused_from=None)
@@ -238,6 +466,25 @@ class LearningService:
                 control.paused_event.clear(); control.resume_event.set()
                 await self.emit(identifier, "resumed", "继续当前课程，重新核验平台进度")
             elif action == "stop":
+                if control is None and (
+                    run["status"] == "queued"
+                    or (
+                        run["status"] == "paused"
+                        and run.get("paused_from") == "queued"
+                    )
+                ):
+                    self._database().release_resource_leases(identifier)
+                    self.store.update(
+                        identifier,
+                        status="stopped",
+                        phase="stopped",
+                        error="用户停止排队中的网课任务",
+                        waiting_reason=None,
+                        not_before=None,
+                        finished_at=utc_now(),
+                    )
+                    await self.emit(identifier, "stopped", "排队中的网课任务已停止")
+                    return self.payload(self.store.run(identifier))
                 control.stop_requested = True
                 control.stop_event.set(); control.resume_event.set()
                 self.store.update(identifier, status="stopping", phase="stopping")
@@ -319,6 +566,9 @@ class LearningService:
             browser.learning_options = load_preferences(self._database()).learning.model_dump()
             browser.diagnostics = diagnostics
             if hasattr(browser, "workspace"):
+                task_workspace = getattr(browser.workspace, "workspace", None)
+                if task_workspace:
+                    self.workspaces[identifier] = task_workspace
                 diagnostics.record("browser.workspace", "Task browser isolated", data={"kind": "learning", "task_id": identifier, "profile": browser.workspace.path.name})
             await control.run(browser.open)
             self.browsers[identifier] = browser
@@ -456,6 +706,8 @@ class LearningService:
                 await self.emit(identifier, "warning", f"浏览器退出异常：{error}")
             finally:
                 self.browsers.pop(identifier, None)
+                self.workspaces.pop(identifier, None)
+                self.checkpoint_scrubbers.pop(identifier, None)
                 if acquired: lock.release()
                 self.controls.pop(identifier, None)
             diagnostics.summary(self.store.run(identifier))
@@ -569,7 +821,7 @@ class LearningService:
                     await defer(key, unit["title"], "章节测验已提交，等待平台确认完成", "quiz")
                     continue
                 if quiz_llm is None:
-                    quiz_llm = self._quiz_llm()
+                    quiz_llm = self._quiz_llm(identifier)
 
                 async def quiz_emit(event_kind, message, data=None):
                     return await self.emit(identifier, event_kind, message, data)
@@ -712,15 +964,30 @@ class LearningService:
     async def notify(self, identifier):
         run = self.store.run(identifier)
         try:
-            result = await send_completion_notification(self.settings_provider(), {
-                "event": f"learning_{run['status']}", "account": run["account_name"], "course": run["course_name"],
-                "result": run["error"] or "已通过平台进度复验", "status": run["status"],
-            }, preferences=notification_preferences(self._database()))
-            record_delivery(self._database(),result=result)
-            if any(result.values()): await self.emit(identifier, "notification", "网课执行结果已推送")
+            result = await send_completion_notification(
+                self._database(),
+                self.settings_provider(),
+                {
+                    "event": f"learning_{run['status']}",
+                    "account": run["account_name"],
+                    "course": run["course_name"],
+                    "result": run["error"] or "已通过平台进度复验",
+                    "status": run["status"],
+                },
+                preferences=notification_preferences(self._database()),
+            )
+            if any(result.values()):
+                await self.emit(
+                    identifier,
+                    "notification",
+                    "网课结果已加入发送队列",
+                )
         except Exception as error:
-            record_delivery(self._database(),error=error)
-            await self.emit(identifier, "notification_error", f"网课结果推送失败：{error}")
+            await self.emit(
+                identifier,
+                "notification_error",
+                f"网课结果加入发送队列失败：{error}",
+            )
 
     async def shutdown(self):
         self.shutting_down = True

@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import socket
 import time
+from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, FastAPI, File, HTTPException, Request, UploadFile
@@ -14,6 +15,8 @@ from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .contracts import AttendanceError, SignInput, is_expired_qr_message, parse_qr_payload, qr_credentials
+from .presentation import open_batch_view
+from .relay import OFFICIAL_RELAY_BASE_URL, RELAY_MODE_CUSTOM, RELAY_MODE_OFFICIAL
 
 
 class BatchRequest(BaseModel):
@@ -89,7 +92,8 @@ class AutoGroupCourseRequest(BaseModel):
 
 class RelaySettingsRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    base_url: str = Field(min_length=1,max_length=2048)
+    mode: Literal['official','custom'] = RELAY_MODE_CUSTOM
+    base_url: str = Field(default='',max_length=2048)
     admin_secret: str = Field(default='',max_length=512)
 
 
@@ -107,22 +111,12 @@ def public_batch(batch):
 
 def public_share_batch(service, record):
     batch = service.store.batch(record['batch_id'])
-    if record.get('mode') != 'open' or batch['items']:
+    if record.get('mode') != 'open':
         return public_batch(batch)
     account_ids = []
     try: account_ids = json.loads(record.get('account_ids_json') or '[]')
     except (TypeError, ValueError): pass
-    participants = {account['id']: account for account in batch.get('participants', [])}
-    items = [{
-        'id':'participant-'+account_id,
-        'name':(participants.get(account_id,{}).get('name') or '同')[:1]+'*',
-        'course':'等待扫码匹配',
-        'title':'二维码签到',
-        'kind':'qr',
-        'status':'waiting',
-        'message':'等待同学扫描教师二维码',
-    } for account_id in account_ids]
-    return {'id':batch['id'],'status':'waiting','completed':0,'total':len(items),'items':items}
+    return {'id':batch['id'],**open_batch_view(service,batch,account_ids,include_ids=True)}
 
 
 def share_app(service):
@@ -480,7 +474,52 @@ def attendance_router(service, gateway, open_activity=None):
     @api.get('/relay')
     async def relay_settings():
         settings_payload = gateway.settings() if hasattr(gateway,'settings') else {}
-        return dict(settings_payload)
+        payload = dict(settings_payload)
+        configured_base = str(payload.get('base_url') or '').rstrip('/')
+        mode = str(payload.get('mode') or '').strip().lower()
+        if mode not in {RELAY_MODE_OFFICIAL, RELAY_MODE_CUSTOM}:
+            mode = (
+                RELAY_MODE_OFFICIAL
+                if not configured_base or configured_base == OFFICIAL_RELAY_BASE_URL
+                else RELAY_MODE_CUSTOM
+            )
+        payload.update({
+            'mode':mode,
+            'official':mode == RELAY_MODE_OFFICIAL,
+        })
+        payload.pop('admin_secret',None)
+        return payload
+
+    def relay_values(payload: RelaySettingsRequest):
+        saved = service.database_provider().get_setting('attendance_relay', {}) or {}
+        saved_base = str(saved.get('base_url') or '').rstrip('/')
+        saved_mode = str(saved.get('mode') or '').strip().lower()
+        current_mode = str(getattr(gateway,'mode','') or '').strip().lower()
+        current_base = str(getattr(gateway,'base_url','') or '').rstrip('/')
+        current_secret = str(getattr(gateway,'admin_secret','') or '').strip()
+        official_secret = str(getattr(gateway,'official_admin_secret','') or '').strip()
+        if not official_secret and (
+            saved_mode == RELAY_MODE_OFFICIAL
+            or (not saved_mode and saved_base == OFFICIAL_RELAY_BASE_URL)
+        ):
+            official_secret = str(saved.get('admin_secret') or '').strip()
+
+        if payload.mode == RELAY_MODE_OFFICIAL:
+            secret = payload.admin_secret.strip() or official_secret
+            if not secret and current_mode == RELAY_MODE_OFFICIAL and current_base == OFFICIAL_RELAY_BASE_URL:
+                secret = current_secret
+            official_secret = secret or official_secret
+            return OFFICIAL_RELAY_BASE_URL,secret,RELAY_MODE_OFFICIAL,official_secret
+
+        base_url = payload.base_url.strip().rstrip('/')
+        if not base_url:
+            raise AttendanceError('请输入自定义中继服务地址')
+        secret = payload.admin_secret.strip()
+        if not secret and current_mode == RELAY_MODE_CUSTOM and current_base == base_url:
+            secret = current_secret
+        if not secret and saved_base == base_url:
+            secret = str(saved.get('admin_secret') or '').strip()
+        return base_url,secret,RELAY_MODE_CUSTOM,official_secret
 
     async def check_relay(base_url, admin_secret):
         from .relay import RelayClient
@@ -495,23 +534,30 @@ def attendance_router(service, gateway, open_activity=None):
 
     @api.post('/relay/test')
     async def test_relay(payload: RelaySettingsRequest):
-        secret = payload.admin_secret or getattr(gateway,'admin_secret','')
-        try: return await check_relay(payload.base_url,secret)
+        try:
+            base_url,secret,_,_ = relay_values(payload)
+            return await check_relay(base_url,secret)
         except AttendanceError as error: raise HTTPException(409,str(error)) from error
 
     @api.put('/relay')
     async def save_relay_settings(payload: RelaySettingsRequest):
-        secret = payload.admin_secret or getattr(gateway,'admin_secret','')
         try:
-            health = await check_relay(payload.base_url,secret)
+            base_url,secret,mode,official_secret = relay_values(payload)
+            health = await check_relay(base_url,secret)
             existing_groups = service.store.live_qr_groups()
             previous = getattr(gateway,'base_url','').rstrip('/')
-            if existing_groups and previous != payload.base_url.rstrip('/'):
+            if existing_groups and previous != base_url:
                 raise AttendanceError('已有扫码链接绑定时不能直接切换服务域名，请先撤销现有链接')
             service.database_provider().set_setting('attendance_relay',{
-                'base_url':payload.base_url.rstrip('/'),'admin_secret':secret,
+                'mode':mode,'base_url':base_url,'admin_secret':secret,
             })
-            if hasattr(gateway,'configure'): await gateway.configure(payload.base_url,secret)
+            if hasattr(gateway,'configure'):
+                await gateway.configure(
+                    base_url,
+                    secret,
+                    mode=mode,
+                    official_admin_secret=official_secret,
+                )
             if hasattr(gateway,'ensure_started'): await gateway.ensure_started()
             return {**health,**(gateway.settings() if hasattr(gateway,'settings') else {})}
         except AttendanceError as error: raise HTTPException(409,str(error)) from error

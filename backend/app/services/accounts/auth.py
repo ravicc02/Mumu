@@ -56,6 +56,15 @@ async def authenticated_for_platform(platform, page):
 
 def start_login(database, identifier, settings):
     if login_in_progress(identifier): return {"status": "running"}
+    lease_owner = f"auth:{identifier}"
+    acquired, _ = database.acquire_resource_leases(
+        owner_id=lease_owner,
+        owner_kind="auth",
+        resource_keys=[f"auth-write:{identifier}"],
+        ttl_seconds=360,
+    )
+    if not acquired:
+        return {"status": "running"}
     database.update_account(identifier, status="authorizing", last_login_error=None)
     _statuses[identifier] = {"status": "starting"}
     _jobs[identifier] = asyncio.create_task(_login(database, identifier))
@@ -108,6 +117,7 @@ async def _login(database, identifier):
         database.update_account(identifier, status="login_error", last_login_error=str(error))
         _statuses[identifier] = {"status": "error", "message": str(error)}
     finally:
+        database.release_resource_leases(f"auth:{identifier}")
         _sessions.pop(identifier, None)
         _jobs.pop(identifier, None)
         if context:
@@ -117,19 +127,31 @@ async def _login(database, identifier):
 
 async def refresh_session(database, identifier):
     account = database.get_account(identifier)
-    async with async_playwright() as playwright:
-        context = await playwright.chromium.launch_persistent_context(account["profile_dir"], executable_path=str(chrome_executable()), headless=True)
-        try:
-            await restore_state(context, account["storage_state_path"])
-            page = context.pages[0] if context.pages else await context.new_page()
-            await page.goto(account_home(account), wait_until="domcontentloaded", timeout=45000)
-            await page.wait_for_timeout(1500)
-            if not await authenticated_for_platform(account["platform"], page):
-                database.update_account(identifier,status="login_error",last_login_error="未能核验授权，请重新打开浏览器完成授权")
-                return {"ok": False, "status": "login_error", "message": "未能核验授权，请重新打开浏览器完成授权"}
-            from .identity import save_identity
-            await save_identity(database,identifier,page)
-            await context.storage_state(path=account["storage_state_path"])
-            database.update_account(identifier, status="ready", last_login_at=utc_now(), last_login_error=None)
-            return {"ok": True, "status": "ready", "message": "授权已核验并保存"}
-        finally: await context.close()
+    lease_owner = f"auth-refresh:{identifier}"
+    acquired, _ = database.acquire_resource_leases(
+        owner_id=lease_owner,
+        owner_kind="auth",
+        resource_keys=[f"auth-write:{identifier}"],
+        ttl_seconds=120,
+    )
+    if not acquired:
+        raise RuntimeError("该账号正在执行其他授权写入")
+    try:
+        async with async_playwright() as playwright:
+            context = await playwright.chromium.launch_persistent_context(account["profile_dir"], executable_path=str(chrome_executable()), headless=True)
+            try:
+                await restore_state(context, account["storage_state_path"])
+                page = context.pages[0] if context.pages else await context.new_page()
+                await page.goto(account_home(account), wait_until="domcontentloaded", timeout=45000)
+                await page.wait_for_timeout(1500)
+                if not await authenticated_for_platform(account["platform"], page):
+                    database.update_account(identifier,status="login_error",last_login_error="未能核验授权，请重新打开浏览器完成授权")
+                    return {"ok": False, "status": "login_error", "message": "未能核验授权，请重新打开浏览器完成授权"}
+                from .identity import save_identity
+                await save_identity(database,identifier,page)
+                await context.storage_state(path=account["storage_state_path"])
+                database.update_account(identifier, status="ready", last_login_at=utc_now(), last_login_error=None)
+                return {"ok": True, "status": "ready", "message": "授权已核验并保存"}
+            finally: await context.close()
+    finally:
+        database.release_resource_leases(lease_owner)

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const http = require("node:http");
@@ -11,9 +11,13 @@ const { readWindowsLocation } = require("./windows-location.cjs");
 let backendProcess = null;
 let mainWindow = null;
 let bootstrap = null;
+let tray = null;
+let quitting = false;
 const isDev = !app.isPackaged;
 app.setName(product.name);
 if (process.platform === "win32") app.setAppUserModelId(product.appId);
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) app.quit();
 
 function dataRoot() {
   return resolveDataRoot({ home:app.getPath("home"), product });
@@ -106,7 +110,39 @@ function startBackend(pythonCommand) {
   });
 }
 
+function showMainWindow() {
+  if (!app.isReady()) {
+    void app.whenReady().then(showMainWindow);
+    return;
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    void createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function createTray() {
+  if (tray) return;
+  const icon = nativeImage.createFromPath(path.join(__dirname, "..", "build", "icon.png"));
+  tray = new Tray(icon.resize({ width: 16, height: 16 }));
+  tray.setToolTip(product.name);
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: "打开 Mumu", click: showMainWindow },
+    { type: "separator" },
+    { label: "退出 Mumu", click: () => { quitting = true; app.quit(); } }
+  ]));
+  tray.on("click", showMainWindow);
+  tray.on("double-click", showMainWindow);
+}
+
 async function createWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    showMainWindow();
+    return;
+  }
   mainWindow = new BrowserWindow({
     width: 1480,
     height: 960,
@@ -120,6 +156,14 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false
     }
+  });
+  mainWindow.on("close", event => {
+    if (quitting) return;
+    event.preventDefault();
+    mainWindow.hide();
+  });
+  mainWindow.on("closed", () => {
+    mainWindow = null;
   });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => (
@@ -147,24 +191,31 @@ async function createWindow() {
   }
 }
 
+app.on("second-instance", showMainWindow);
+
 app.whenReady().then(async () => {
+  if (!singleInstance) return;
   Menu.setApplicationMenu(null);
+  createTray();
   await createWindow();
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+  if (!tray && process.platform !== "darwin") {
     app.quit();
   }
 });
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+  showMainWindow();
 });
 
 app.on("before-quit", () => {
+  quitting = true;
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
   if (backendProcess) {
     backendProcess.kill();
     backendProcess = null;

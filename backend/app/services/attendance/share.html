@@ -3,228 +3,835 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
   <title>扫码签到 · Mumu</title>
   <style>
-    *{box-sizing:border-box}body{margin:0;background:#f2f5f7;color:#172231;font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
-    main{width:min(100% - 24px,680px);margin:24px auto;padding:24px;background:#fff;border:1px solid #dce3e8;border-radius:8px}
-    header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}h1{font-size:22px;line-height:1.2;margin:0}header p{margin:6px 0 0;color:#657183}
-    .badge{font-size:12px;padding:3px 8px;border-radius:999px;background:#edf1f4;color:#526071;white-space:nowrap}
-    .status{margin:18px 0;padding:12px 14px;background:#f5f7f9;border-left:3px solid #59728f;color:#3f4e60}
-    .status.error{border-color:#b7364a;color:#982a3d}.status.success{border-color:#16836a;color:#126c58}
-    .items{border-top:1px solid #e4e9ed}.row{border-bottom:1px solid #e4e9ed;padding:12px 0;display:flex;justify-content:space-between;gap:14px}.row small{display:block;color:#6e7a89;margin-top:2px}.row b{font-weight:600;white-space:nowrap;color:#526071}
-    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 10px}button{border:0;border-radius:6px;background:#263f59;color:#fff;padding:10px 15px;font:inherit;cursor:pointer}button.secondary{background:#e9eef2;color:#26394d}button:disabled{opacity:.5;cursor:wait}
-    input,textarea{width:100%;border:1px solid #cfd8df;border-radius:6px;padding:10px 11px;font:inherit;background:#fff}label{display:block;margin:14px 0 6px;font-weight:600}small{color:#687687}
-    video{display:none;width:100%;max-height:58vh;background:#101820;border-radius:6px;object-fit:cover}.scanning video{display:block}.scanner{border:1px dashed #b9c5ce;border-radius:8px;padding:18px;text-align:center;margin-top:16px}
-    .pin{display:none}.locked .pin{display:block}.locked .content{display:none}.capture{display:none}.purpose-qr .capture{display:block}.purpose-input .input-mode{display:block}.input-mode{display:none}
-    footer{margin-top:18px;font-size:12px;color:#748190;word-break:break-word}.hidden{display:none!important}
-    @media(max-width:520px){main{margin:0;width:100%;min-height:100vh;border:0;border-radius:0;padding:20px 16px}header h1{font-size:20px}}
+    :root {
+      --bg: #f4f5f7;
+      --surface: #ffffff;
+      --surface-muted: #edf0f4;
+      --ink: #1c232b;
+      --muted: #596370;
+      --subtle: #6f7a86;
+      --line: #e0e4e9;
+      --line-strong: #cbd2da;
+      --accent: #3157d5;
+      --accent-hover: #2747b6;
+      --accent-soft: #edf1ff;
+      --green: #1b7550;
+      --green-soft: #e8f4ed;
+      --orange: #94620f;
+      --orange-soft: #fbf2de;
+      --red: #b6413b;
+      --red-soft: #fbedeb;
+      --radius: 6px;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; }
+    html { min-height: 100%; background: var(--bg); }
+    body {
+      min-height: 100dvh;
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font: 14px/1.55 "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    .app-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      min-height: 60px;
+      padding: calc(10px + var(--safe-top)) 16px 10px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.96);
+      backdrop-filter: blur(14px);
+    }
+    .brand { display: flex; align-items: center; gap: 8px; flex: none; }
+    .brand img { width: 28px; height: 28px; display: block; }
+    .brand span { font-size: 15px; font-weight: 650; letter-spacing: 0; }
+    .header-divider { width: 1px; height: 20px; background: var(--line); }
+    .header-title { min-width: 0; flex: 1; font-size: 14px; font-weight: 500; }
+    .badge {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      border-radius: 999px;
+      padding: 3px 9px;
+      color: var(--muted);
+      background: var(--surface-muted);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .badge.live { color: var(--accent); background: var(--accent-soft); }
+    .badge.success { color: var(--green); background: var(--green-soft); }
+    .badge.warn { color: var(--orange); background: var(--orange-soft); }
+    .badge.error { color: var(--red); background: var(--red-soft); }
+    main {
+      width: min(100%, 620px);
+      min-height: calc(100dvh - 60px);
+      margin: 0 auto;
+      background: var(--surface);
+      border-inline: 1px solid var(--line);
+    }
+    .pin-panel { display: none; padding: 32px 20px; }
+    .locked .pin-panel { display: block; }
+    .locked .content { display: none; }
+    .pin-panel h1 { margin: 0 0 18px; font-size: 21px; line-height: 1.35; letter-spacing: 0; }
+    .field { display: grid; gap: 7px; }
+    .field span { color: var(--muted); font-size: 12px; }
+    .field input {
+      width: 100%;
+      height: 42px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      padding: 0 12px;
+      color: var(--ink);
+      background: var(--surface);
+      outline: 0;
+      font-size: 16px;
+      font-variant-numeric: tabular-nums;
+    }
+    .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(49,87,213,.12); }
+    .content { min-height: calc(100dvh - 60px); display: flex; flex-direction: column; }
+    .group-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 24px 18px 14px;
+    }
+    .group-head h1 { min-width: 0; margin: 0; font-size: 22px; line-height: 1.35; font-weight: 650; letter-spacing: 0; overflow-wrap: anywhere; }
+    .group-count { flex: none; color: var(--subtle); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .participants { margin: 0 18px; border-top: 1px solid var(--line); }
+    .participant {
+      display: grid;
+      grid-template-columns: 42px minmax(0,1fr) auto;
+      align-items: center;
+      gap: 12px;
+      min-height: 68px;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 0;
+    }
+    .avatar {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      overflow: hidden;
+      border-radius: 50%;
+      color: var(--accent);
+      background: var(--accent-soft);
+      font-size: 13px;
+      font-weight: 650;
+    }
+    .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .participant-copy { min-width: 0; }
+    .participant-copy strong { display: block; overflow-wrap: anywhere; font-size: 14px; font-weight: 550; }
+    .participant-copy small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+    .participant-copy small:empty { display: none; }
+    .person-state { max-width: 92px; color: var(--subtle); font-size: 12px; text-align: right; overflow-wrap: anywhere; }
+    .person-state.succeeded, .person-state.already_signed, .person-state.completed { color: var(--green); }
+    .person-state.signing, .person-state.submitting, .person-state.running, .person-state.queued, .person-state.captured { color: var(--accent); }
+    .person-state.failed, .person-state.auth_required { color: var(--red); }
+    .person-state.manual_required, .person-state.awaiting_input, .person-state.unknown, .person-state.partial { color: var(--orange); }
+    .loading-list { padding: 0 18px; }
+    .loading-row { height: 68px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
+    .loading-row:first-child { border-top: 0; }
+    .loading-avatar, .loading-copy span { background: var(--surface-muted); animation: pulse 1.2s ease-in-out infinite; }
+    .loading-avatar { width: 42px; height: 42px; border-radius: 50%; }
+    .loading-copy { flex: 1; display: grid; gap: 7px; }
+    .loading-copy span { width: 38%; height: 10px; border-radius: 3px; }
+    .loading-copy span:last-child { width: 63%; height: 8px; }
+    @keyframes pulse { 50% { opacity: .5; } }
+    .feedback {
+      margin: 12px 18px 0;
+      border-left: 3px solid var(--accent);
+      padding: 8px 10px;
+      color: var(--muted);
+      background: var(--surface-muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .feedback.success { border-color: var(--green); color: var(--green); background: var(--green-soft); }
+    .feedback.error { border-color: var(--red); color: var(--red); background: var(--red-soft); }
+    .actions { margin-top: auto; padding: 20px 18px calc(20px + var(--safe-bottom)); }
+    .primary-button, .secondary-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      min-height: 46px;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      cursor: pointer;
+      font-weight: 550;
+    }
+    .primary-button { color: #fbfcfe; background: var(--accent); }
+    .primary-button:active:not(:disabled) { background: var(--accent-hover); transform: translateY(1px); }
+    .secondary-button { color: var(--ink); background: var(--surface-muted); }
+    button:disabled { opacity: .52; cursor: wait; }
+    .primary-button svg, .secondary-button svg { width: 19px; height: 19px; }
+    .input-mode { display: none; margin-bottom: 10px; }
+    .purpose-input .input-mode { display: block; }
+    .input-mode form { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+    .input-mode input {
+      min-width: 0;
+      height: 44px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      padding: 0 12px;
+      outline: 0;
+      font-size: 16px;
+    }
+    .input-mode button { width: auto; min-width: 82px; }
+    .scanner-shell {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      overflow: hidden;
+      color: #fff;
+      background: #090b0e;
+      animation: scanner-in 160ms ease-out;
+    }
+    .scanner-shell[hidden] { display: none; }
+    @keyframes scanner-in { from { opacity: .35; } }
+    .scanner-media, .scanner-media video, .scanner-shade { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .scanner-media video { object-fit: cover; background: #090b0e; }
+    .scanner-shade {
+      pointer-events: none;
+      background:
+        linear-gradient(to bottom, rgba(0,0,0,.58), transparent 21%, transparent 68%, rgba(0,0,0,.72)),
+        radial-gradient(circle at center, transparent 0 31%, rgba(0,0,0,.5) 32% 100%);
+    }
+    .scanner-header {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 3;
+      display: grid;
+      grid-template-columns: 40px minmax(0,1fr) 40px;
+      align-items: center;
+      gap: 12px;
+      min-height: calc(56px + var(--safe-top));
+      padding: calc(8px + var(--safe-top)) 14px 8px;
+    }
+    .scanner-header strong { text-align: center; font-size: 15px; font-weight: 550; }
+    .scanner-back {
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      border: 0;
+      border-radius: 50%;
+      color: #fff;
+      background: rgba(0,0,0,.28);
+    }
+    .scanner-back svg { width: 24px; height: 24px; }
+    .scan-stage {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+    }
+    .scan-frame {
+      position: relative;
+      width: min(72vw, 292px);
+      aspect-ratio: 1;
+      border: 1px solid rgba(255,255,255,.34);
+      box-shadow: 0 0 0 1px rgba(0,0,0,.08);
+      overflow: hidden;
+    }
+    .scan-frame::before, .scan-frame::after, .scan-frame span::before, .scan-frame span::after {
+      content: "";
+      position: absolute;
+      width: 28px;
+      height: 28px;
+      border-color: #fff;
+      border-style: solid;
+    }
+    .scan-frame::before { top: -1px; left: -1px; border-width: 3px 0 0 3px; }
+    .scan-frame::after { top: -1px; right: -1px; border-width: 3px 3px 0 0; }
+    .scan-frame span::before { bottom: -1px; left: -1px; border-width: 0 0 3px 3px; }
+    .scan-frame span::after { right: -1px; bottom: -1px; border-width: 0 3px 3px 0; }
+    .scan-line {
+      position: absolute;
+      left: 7%;
+      right: 7%;
+      top: 10%;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, #6f9bff 18%, #fff 50%, #6f9bff 82%, transparent);
+      box-shadow: 0 0 14px rgba(80,130,255,.9);
+      animation: scan 2.25s ease-in-out infinite;
+    }
+    @keyframes scan { 0%,100% { transform: translateY(0); opacity: .55; } 50% { transform: translateY(230px); opacity: 1; } }
+    .scan-state {
+      position: absolute;
+      left: 20px;
+      right: 20px;
+      top: calc(50% + min(42vw, 174px));
+      z-index: 3;
+      text-align: center;
+      color: rgba(255,255,255,.88);
+      font-size: 13px;
+      text-shadow: 0 1px 5px rgba(0,0,0,.7);
+    }
+    .scan-state.error { color: #ffd5d1; }
+    .scan-state.success { color: #c8f1db; }
+    .scanner-footer {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: calc(88px + var(--safe-bottom));
+      padding: 14px 20px calc(18px + var(--safe-bottom));
+    }
+    .gallery-button {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      min-width: 68px;
+      border: 0;
+      color: #fff;
+      background: transparent;
+      font-size: 12px;
+    }
+    .gallery-button span {
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.14);
+      backdrop-filter: blur(8px);
+    }
+    .gallery-button svg { width: 22px; height: 22px; }
+    .scan-success {
+      position: absolute;
+      inset: 0;
+      z-index: 4;
+      display: none;
+      place-content: center;
+      gap: 12px;
+      color: #fff;
+      text-align: center;
+      background: rgba(9,11,14,.5);
+      backdrop-filter: blur(3px);
+    }
+    .scanner-shell.success .scan-success { display: grid; }
+    .scanner-shell.success .scan-line { animation-play-state: paused; opacity: .25; }
+    .success-icon {
+      display: grid;
+      place-items: center;
+      width: 72px;
+      height: 72px;
+      margin: 0 auto;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--green);
+    }
+    .success-icon svg { width: 38px; height: 38px; }
+    .scan-success strong { font-size: 17px; font-weight: 550; }
+    .scan-success small { color: rgba(255,255,255,.78); font-size: 13px; }
+    @media (max-width: 520px) {
+      main { border-inline: 0; }
+      .group-head { padding-top: 20px; }
+    }
+    @media (min-width: 621px) {
+      body { padding-block: 16px; }
+      .app-header { width: min(100%, 620px); margin: 0 auto; border: 1px solid var(--line); border-bottom: 0; }
+      main { min-height: calc(100dvh - 93px); border: 1px solid var(--line); }
+      .content { min-height: calc(100dvh - 93px); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+    }
   </style>
 </head>
 <body>
-<main id="app" class="locked">
-  <header><div><h1>扫码签到</h1><p id="summary">正在读取签到信息…</p></div><span id="state" class="badge">连接中</span></header>
-  <div id="message" class="status" role="status"></div>
-  <section class="pin">
-    <label for="pin">输入分享 PIN</label>
-    <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="4 至 6 位数字">
-    <div class="toolbar"><button id="unlock" type="button">解锁</button></div>
+  <header class="app-header">
+    <div class="brand">
+      <img src="data:image/png;base64,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" alt="">
+      <span>Mumu</span>
+    </div>
+    <div class="header-divider"></div>
+    <div class="header-title">扫码签到</div>
+    <span id="state" class="badge">连接中</span>
+  </header>
+
+  <main id="app" class="locked">
+    <section class="pin-panel">
+      <h1>输入分享 PIN</h1>
+      <label class="field">
+        <span>PIN</span>
+        <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="4 至 6 位数字">
+      </label>
+      <div class="actions">
+        <button id="unlock" class="primary-button" type="button">解锁</button>
+      </div>
+    </section>
+
+    <div class="content">
+      <section class="group-head">
+        <h1 id="summary">扫码签到</h1>
+        <span id="count" class="group-count">0 / 0</span>
+      </section>
+      <div id="loading" class="loading-list">
+        <div class="loading-row"><span class="loading-avatar"></span><span class="loading-copy"><span></span><span></span></span></div>
+        <div class="loading-row"><span class="loading-avatar"></span><span class="loading-copy"><span></span><span></span></span></div>
+      </div>
+      <section id="items" class="participants" aria-live="polite"></section>
+      <div id="feedback" class="feedback" role="status" hidden></div>
+      <div class="actions">
+        <section class="input-mode">
+          <form id="inputForm">
+            <input id="code" inputmode="numeric" maxlength="16" autocomplete="off" aria-label="签到码或手势码" placeholder="签到码／手势码">
+            <button class="primary-button" type="submit">提交</button>
+          </form>
+        </section>
+        <button id="scanButton" class="primary-button" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14.5 4H6a2 2 0 0 0-2 2v8.5"/><path d="M9.5 20H18a2 2 0 0 0 2-2v-8.5"/>
+            <path d="M8 8h.01M16 16h.01M12 12h4M8 16v-4"/><path d="M16 8v4"/>
+          </svg>
+          扫码签到
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <section id="scanner" class="scanner-shell" role="dialog" aria-modal="true" aria-label="扫码签到" hidden>
+    <div class="scanner-media">
+      <video id="video" playsinline muted autoplay></video>
+      <div class="scanner-shade"></div>
+    </div>
+    <header class="scanner-header">
+      <button id="closeScanner" class="scanner-back" type="button" aria-label="关闭扫码">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <strong>扫码签到</strong>
+      <span></span>
+    </header>
+    <div class="scan-stage" aria-hidden="true">
+      <div id="scanFrame" class="scan-frame">
+        <div class="scan-line"></div>
+        <span></span>
+      </div>
+    </div>
+    <div id="scanState" class="scan-state">正在打开摄像头…</div>
+    <div class="scanner-footer">
+      <button id="gallery" class="gallery-button" type="button">
+        <span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/>
+          </svg>
+        </span>
+        相册
+      </button>
+      <input id="image" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+    </div>
+    <div id="scanSuccess" class="scan-success" aria-live="assertive">
+      <div class="success-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+      </div>
+      <strong>二维码已接收</strong>
+      <small>正在自动签到</small>
+    </div>
   </section>
-  <div class="content">
-    <div id="items" class="items"></div>
-    <section class="capture">
-      <div class="toolbar">
-        <button id="camera" type="button">打开摄像头</button>
-        <button id="stopCamera" class="secondary hidden" type="button">关闭摄像头</button>
-      </div>
-      <div id="scanner" class="scanner">
-        <video id="video" playsinline muted></video>
-        <p>扫描老师当前展示的签到二维码</p>
-        <label for="image">或上传二维码图片</label>
-        <input id="image" type="file" accept="image/png,image/jpeg,image/webp">
-        <label for="manual">或粘贴二维码内容</label>
-        <textarea id="manual" rows="3" maxlength="4096" placeholder="https://mobilelearn.chaoxing.com/..."></textarea>
-        <div class="toolbar"><button id="manualSubmit" type="button">提交二维码</button></div>
-      </div>
-    </section>
-    <section class="input-mode">
-      <form id="inputForm">
-        <label for="code">签到码／手势码</label>
-        <input id="code" inputmode="numeric" maxlength="16" autocomplete="off">
-        <div class="toolbar"><button id="inputSubmit" type="submit">提交签到</button></div>
-      </form>
-    </section>
-  </div>
-  <footer id="expires"></footer>
-</main>
-<script src="/assets/qr-decoder.js"></script>
-<script>
-const token = location.hash.slice(1);
-const remote = location.pathname.startsWith('/qr/');
-const base = remote ? '/api/qr' : '/api/share';
-const endpoint = path => base + (remote && !path ? '/session' : path);
-const el = id => document.getElementById(id);
-let state = null, busy = false, active = true, stream = null, scanTimer = null;
 
-const labels = {waiting:'等待扫码',captured:'已收到二维码',pending:'待执行',queued:'排队中',running:'核验中',submitting:'提交中',signing:'签到中',succeeded:'已签到',already_signed:'已签到',completed:'已完成',partial:'部分完成',awaiting_input:'待补充',failed:'失败',auth_required:'待授权',expired:'已结束',manual_required:'需人工处理',unknown:'待核对',cancelled:'已取消',revoked:'已撤销'};
-function pin() { return el('pin').value.trim(); }
-function headers() { return {Authorization:'Bearer ' + token, 'Content-Type':'application/json', ...(pin() ? {'X-Mumu-Pin':pin()} : {})}; }
-function show(message, kind = '') { el('message').textContent = message; el('message').className = 'status ' + kind; }
-function setLocked(locked) { el('app').classList.toggle('locked', locked); if (locked) show('该链接需要 PIN 才能继续'); }
+  <script src="/assets/qr-decoder.js"></script>
+  <script>
+    const token = location.hash.slice(1);
+    const remote = location.pathname.startsWith('/qr/');
+    const base = remote ? '/api/qr' : '/api/share';
+    const endpoint = path => base + (remote && !path ? '/session' : path);
+    const el = id => document.getElementById(id);
+    const CAPTURE_HOLD_MS = 1900;
+    const labels = {
+      waiting:'等待扫码', captured:'已接收', pending:'待执行', queued:'排队中', running:'核验中',
+      submitting:'提交中', signing:'签到中', succeeded:'已签到', already_signed:'已签到',
+      completed:'已完成', partial:'部分完成', awaiting_input:'待补充', failed:'失败',
+      auth_required:'待授权', expired:'已结束', manual_required:'需人工处理', unknown:'待核对',
+      cancelled:'已取消', revoked:'已撤销'
+    };
+    let state = null;
+    let busy = false;
+    let active = true;
+    let stream = null;
+    let scanFrame = null;
+    let scannerOpen = false;
+    let lastDecodeAt = 0;
 
-async function call(path, body) {
-  const response = await fetch(endpoint(path), {method:body ? 'POST' : 'GET', headers:headers(), body:body ? JSON.stringify(body) : undefined});
-  let data = {};
-  try { data = await response.json(); } catch {}
-  if (!response.ok) {
-    if (response.status === 401) setLocked(true);
-    throw new Error(typeof data.detail === 'string' ? data.detail : '请求未通过，请稍后重试');
-  }
-  return data;
-}
-
-function render(data) {
-  state = data;
-  el('summary').textContent = (data.group_name || data.course || '扫码签到') + ' · 已签到 ' + (data.completed || 0) + ' / ' + (data.total || 0);
-  el('state').textContent = labels[data.status] || data.status || '等待扫码';
-  el('app').classList.toggle('purpose-qr', data.purpose !== 'input');
-  el('app').classList.toggle('purpose-input', data.purpose === 'input');
-  const locked = Boolean(data.requires_pin && !data.unlocked);
-  setLocked(locked);
-  if (data.items) {
-    el('items').replaceChildren(...data.items.map(item => {
-      const row = document.createElement('div'); row.className = 'row';
-      const text = document.createElement('span');
-      const name = document.createElement('strong'); name.textContent = item.name + ' · ' + item.course;
-      const detail = document.createElement('small'); detail.textContent = item.message || '';
-      text.append(name, detail);
-      const status = document.createElement('b'); status.textContent = labels[item.status] || item.status;
-      row.append(text, status); return row;
-    }));
-  }
-  if (!locked && data.status === 'completed') show(data.persistent ? '本次所有账号均已签到成功，可继续扫描下一次教师二维码' : '所有账号均已签到成功', 'success');
-  else if (!locked && data.status === 'partial') show('部分账号需要核对，请查看逐账号结果', 'error');
-  else if (!locked && data.status === 'failed' && data.persistent) show('本次签到未完成，请扫描教师当前二维码重试', 'error');
-  else if (!locked && data.status === 'waiting' && data.items?.some(item => item.status === 'failed')) show('未匹配到课程活动，请重新扫描教师二维码', 'error');
-  else if (!locked && data.status === 'waiting') show('等待扫描教师当前展示的签到二维码');
-  if (data.expires_at) el('expires').textContent = '授权到期：' + new Date(data.expires_at * 1000).toLocaleString();
-  else if (data.persistent) el('expires').textContent = '可随时在 Mumu 中撤销';
-}
-
-async function refresh() {
-  if (!active) return;
-  try {
-    const data = await call('');
-    render(data);
-    if (!data.persistent && ['completed', 'partial', 'failed', 'expired', 'revoked'].includes(data.status)) active = false;
-    if (data.status === 'revoked') active = false;
-  } catch (error) {
-    show(error.message, 'error');
-    active = false;
-  } finally {
-    if (active) {
-      const currentStatus = state?.status;
-      setTimeout(refresh, ['captured', 'queued', 'signing'].includes(currentStatus) ? 500 : currentStatus === 'waiting' ? 1000 : 2000);
+    function pin() {
+      return el('pin').value.trim();
     }
-  }
-}
 
-async function unlock() {
-  if (busy) return; busy = true;
-  try {
-    await call('/unlock', {});
-    setLocked(false); show('已解锁，请扫描签到二维码。', 'success');
-    active = true; refresh();
-  } catch (error) { show(error.message, 'error'); }
-  finally { busy = false; }
-}
+    function headers() {
+      return {
+        Authorization: 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        ...(pin() ? {'X-Mumu-Pin': pin()} : {})
+      };
+    }
 
-async function capture(text, source) {
-  if (!text || busy) return;
-  busy = true; stopCamera();
-  try {
-    show('二维码已识别，正在提交…');
-    const data = await call('/capture', {text, source});
-    render(data);
-    show(data.status === 'completed' ? '签到已完成，可继续扫描下一次' : '二维码已接收，正在逐账号执行', 'success');
-    active = true;
-    refresh();
-  } catch (error) { show(error.message, 'error'); }
-  finally { busy = false; }
-}
+    function badge(label, kind = '') {
+      el('state').textContent = label;
+      el('state').className = 'badge ' + kind;
+    }
 
-async function decodeFile(file) {
-  if (!file) return;
-  if (file.size > 4 * 1024 * 1024) throw new Error('图片不得超过 4 MB');
-  const bitmap = await createImageBitmap(file);
-  try {
-    const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    const context = canvas.getContext('2d', {willReadFrequently:true});
-    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
-    const found = decodeQrCode(pixels.data, pixels.width, pixels.height);
-    if (!found?.data) throw new Error('图片中未识别到二维码');
-    await capture(found.data, 'image');
-  } finally { bitmap.close(); }
-}
+    function feedback(message = '', kind = '') {
+      el('feedback').textContent = message;
+      el('feedback').className = 'feedback ' + kind;
+      el('feedback').hidden = !message;
+    }
 
-function stopCamera() {
-  if (scanTimer) cancelAnimationFrame(scanTimer);
-  scanTimer = null;
-  if (stream) stream.getTracks().forEach(track => track.stop());
-  stream = null; el('video').srcObject = null;
-  el('scanner').classList.remove('scanning');
-  el('camera').classList.remove('hidden'); el('stopCamera').classList.add('hidden');
-}
+    function setLocked(locked) {
+      el('app').classList.toggle('locked', locked);
+      if (locked) badge('需要 PIN');
+    }
 
-async function startCamera() {
-  if (!navigator.mediaDevices?.getUserMedia) { show('当前浏览器不支持摄像头，请上传图片。', 'error'); return; }
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false});
-    el('video').srcObject = stream; await el('video').play();
-    el('scanner').classList.add('scanning');
-    el('camera').classList.add('hidden'); el('stopCamera').classList.remove('hidden');
-    const canvas = document.createElement('canvas'), context = canvas.getContext('2d', {willReadFrequently:true});
-    const tick = () => {
-      if (!stream || busy) return;
-      if (el('video').readyState >= 2) {
-        canvas.width = el('video').videoWidth; canvas.height = el('video').videoHeight;
-        context.drawImage(el('video'), 0, 0);
+    async function call(path, body) {
+      const response = await fetch(endpoint(path), {
+        method: body ? 'POST' : 'GET',
+        headers: headers(),
+        body: body ? JSON.stringify(body) : undefined,
+        cache: 'no-store'
+      });
+      let data = {};
+      try { data = await response.json(); } catch {}
+      if (!response.ok) {
+        if (response.status === 401) setLocked(true);
+        throw new Error(typeof data.detail === 'string' ? data.detail : '请求未通过，请稍后重试');
+      }
+      return data;
+    }
+
+    function initials(name) {
+      const chars = Array.from(String(name || '同学').trim());
+      return chars.slice(0, 2).join('');
+    }
+
+    function personRow(item) {
+      const row = document.createElement('article');
+      row.className = 'participant';
+
+      const avatar = document.createElement('span');
+      avatar.className = 'avatar';
+      avatar.textContent = initials(item.name);
+      if (item.avatar) {
+        const image = document.createElement('img');
+        image.src = item.avatar;
+        image.alt = '';
+        image.addEventListener('error', () => image.remove(), {once:true});
+        avatar.append(image);
+      }
+
+      const copy = document.createElement('span');
+      copy.className = 'participant-copy';
+      const name = document.createElement('strong');
+      name.textContent = item.name || '同学';
+      const message = document.createElement('small');
+      message.textContent = item.status === 'waiting' ? '' : (item.message || '');
+      copy.append(name, message);
+
+      const status = document.createElement('span');
+      status.className = 'person-state ' + String(item.status || '');
+      status.textContent = labels[item.status] || item.status || '等待';
+
+      row.append(avatar, copy, status);
+      return row;
+    }
+
+    function render(data) {
+      state = data;
+      const total = Number(data.total || 0);
+      const completed = Number(data.completed || 0);
+      const locked = Boolean(data.requires_pin && !data.unlocked);
+      el('summary').textContent = data.group_name || data.course || '扫码签到';
+      el('count').textContent = completed + ' / ' + total;
+      el('loading').hidden = true;
+      el('app').classList.toggle('purpose-input', data.purpose === 'input');
+      el('scanButton').hidden = data.purpose === 'input';
+      setLocked(locked);
+
+      if (!locked) {
+        el('items').replaceChildren(...(data.items || []).map(personRow));
+        if (data.status === 'completed') {
+          badge('已完成', 'success');
+          feedback('签到已完成', 'success');
+        } else if (data.status === 'partial') {
+          badge('部分完成', 'warn');
+          feedback('部分账号未完成，请查看成员状态', 'error');
+        } else if (data.status === 'failed') {
+          badge('未完成', 'error');
+          feedback('本次签到未完成，可以重新扫码', 'error');
+        } else if (data.status === 'waiting' && (data.items || []).some(item => item.status === 'failed')) {
+          badge('未匹配', 'error');
+          feedback('没有匹配到当前二维码活动，可以重新扫码', 'error');
+        } else if (['captured','queued','signing'].includes(data.status)) {
+          badge(labels[data.status] || '处理中', 'live');
+          feedback('');
+        } else {
+          badge(labels[data.status] || '等待扫码');
+          feedback('');
+        }
+      }
+    }
+
+    async function refresh() {
+      if (!active) return;
+      try {
+        const data = await call('');
+        render(data);
+        if (!data.persistent && ['completed','partial','failed','expired','revoked'].includes(data.status)) {
+          active = false;
+        }
+        if (data.status === 'revoked' || data.status === 'expired') active = false;
+      } catch (error) {
+        feedback(error.message, 'error');
+        badge('链接不可用', 'error');
+        active = false;
+      } finally {
+        if (active) {
+          const currentStatus = state?.status;
+          const delay = ['captured','queued','signing'].includes(currentStatus)
+            ? 550
+            : currentStatus === 'waiting' ? 1200 : 1800;
+          window.setTimeout(refresh, delay);
+        }
+      }
+    }
+
+    async function unlock() {
+      if (busy) return;
+      busy = true;
+      el('unlock').disabled = true;
+      try {
+        await call('/unlock', {});
+        setLocked(false);
+        active = true;
+        await refresh();
+      } catch (error) {
+        feedback(error.message, 'error');
+      } finally {
+        busy = false;
+        el('unlock').disabled = false;
+      }
+    }
+
+    function setScanState(message, kind = '') {
+      el('scanState').textContent = message;
+      el('scanState').className = 'scan-state ' + kind;
+    }
+
+    function stopCamera() {
+      if (scanFrame) cancelAnimationFrame(scanFrame);
+      scanFrame = null;
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      stream = null;
+      el('video').srcObject = null;
+    }
+
+    function closeScanner() {
+      if (busy) return;
+      scannerOpen = false;
+      stopCamera();
+      el('scanner').hidden = true;
+      el('scanner').classList.remove('success');
+      setScanState('正在打开摄像头…');
+      document.body.style.overflow = '';
+    }
+
+    function openScanner() {
+      if (scannerOpen || busy) return;
+      scannerOpen = true;
+      el('scanner').hidden = false;
+      el('scanner').classList.remove('success');
+      document.body.style.overflow = 'hidden';
+      setScanState('正在打开摄像头…');
+      startCamera();
+    }
+
+    function scanNextFrame() {
+      if (scanFrame || !scannerOpen || busy || !stream) return;
+      scanFrame = requestAnimationFrame(now => {
+        scanFrame = null;
+        if (!scannerOpen || busy || !stream) return;
+        if (now - lastDecodeAt < 160 || el('video').readyState < 2) {
+          scanNextFrame();
+          return;
+        }
+        lastDecodeAt = now;
+        const width = el('video').videoWidth;
+        const height = el('video').videoHeight;
+        if (!width || !height) {
+          scanNextFrame();
+          return;
+        }
+        const scale = Math.min(1, 900 / Math.max(width, height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(width * scale));
+        canvas.height = Math.max(1, Math.round(height * scale));
+        const context = canvas.getContext('2d', {willReadFrequently:true});
+        context.drawImage(el('video'), 0, 0, canvas.width, canvas.height);
         const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
         const found = decodeQrCode(pixels.data, pixels.width, pixels.height);
-        if (found?.data) { capture(found.data, 'camera'); return; }
+        if (found?.data) {
+          capture(found.data, 'camera');
+          return;
+        }
+        scanNextFrame();
+      });
+    }
+
+    async function startCamera() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setScanState('无法打开摄像头，可从相册选择', 'error');
+        return;
       }
-      scanTimer = requestAnimationFrame(tick);
-    };
-    tick();
-  } catch { show('未取得摄像头权限，可改用图片上传。', 'error'); stopCamera(); }
-}
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {facingMode:{ideal:'environment'}},
+          audio: false
+        });
+        if (!scannerOpen) {
+          stopCamera();
+          return;
+        }
+        el('video').srcObject = stream;
+        await el('video').play();
+        setScanState('将二维码放入框内');
+        lastDecodeAt = 0;
+        scanNextFrame();
+      } catch (error) {
+        stopCamera();
+        const denied = ['NotAllowedError','PermissionDeniedError'].includes(error?.name);
+        setScanState(denied ? '请允许摄像头权限，或从相册选择' : '无法打开摄像头，可从相册选择', 'error');
+      }
+    }
 
-async function submitInput(event) {
-  event.preventDefault(); if (busy) return;
-  busy = true;
-  try {
-    const data = await call('/execute', {code:el('code').value.trim(), qr:'', location:null});
-    render(data); show('已提交，正在逐账号核验', 'success');
-  } catch (error) { show(error.message, 'error'); }
-  finally { busy = false; }
-}
+    async function capture(text, source) {
+      if (!text || busy) return;
+      busy = true;
+      if (scanFrame) cancelAnimationFrame(scanFrame);
+      scanFrame = null;
+      el('closeScanner').disabled = true;
+      el('scanner').classList.add('success');
+      setScanState('正在提交…');
+      let accepted = false;
+      try {
+        const data = await call('/capture', {text, source});
+        accepted = true;
+        render(data);
+        setScanState('二维码已接收', 'success');
+        active = true;
+        refresh();
+        await new Promise(resolve => window.setTimeout(resolve, CAPTURE_HOLD_MS));
+        stopCamera();
+        el('scanner').classList.remove('success');
+        scannerOpen = false;
+        el('scanner').hidden = true;
+        document.body.style.overflow = '';
+      } catch (error) {
+        el('scanner').classList.remove('success');
+        setScanState(error.message, 'error');
+      } finally {
+        busy = false;
+        el('closeScanner').disabled = false;
+        if (!accepted && scannerOpen && stream) scanNextFrame();
+      }
+    }
 
-el('unlock').addEventListener('click', unlock);
-el('camera').addEventListener('click', startCamera);
-el('stopCamera').addEventListener('click', stopCamera);
-el('image').addEventListener('change', async event => {
-  try { await decodeFile(event.target.files[0]); }
-  catch (error) { show(error.message, 'error'); }
-  finally { event.target.value = ''; }
-});
-el('manualSubmit').addEventListener('click', () => capture(el('manual').value.trim(), 'paste'));
-el('inputForm').addEventListener('submit', submitInput);
-window.addEventListener('beforeunload', stopCamera);
-if (!token) { show('链接缺少授权信息，请重新生成。', 'error'); active = false; }
-else refresh();
-</script>
+    async function decodeFile(file) {
+      if (!file) return;
+      if (file.size > 4 * 1024 * 1024) {
+        setScanState('图片不得超过 4 MB', 'error');
+        return;
+      }
+      setScanState('正在识别图片…');
+      try {
+        const bitmap = await createImageBitmap(file);
+        try {
+          const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+          canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+          const context = canvas.getContext('2d', {willReadFrequently:true});
+          context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+          const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+          const found = decodeQrCode(pixels.data, pixels.width, pixels.height);
+          if (!found?.data) throw new Error('图片中未识别到二维码');
+          await capture(found.data, 'image');
+        } finally {
+          bitmap.close();
+        }
+      } catch (error) {
+        setScanState(error.message || '图片识别失败', 'error');
+        if (stream) scanNextFrame();
+      }
+    }
+
+    async function submitInput(event) {
+      event.preventDefault();
+      if (busy) return;
+      busy = true;
+      try {
+        const data = await call('/execute', {
+          code: el('code').value.trim(),
+          qr: '',
+          location: null
+        });
+        render(data);
+        feedback('已提交，正在核验', 'success');
+      } catch (error) {
+        feedback(error.message, 'error');
+      } finally {
+        busy = false;
+      }
+    }
+
+    el('unlock').addEventListener('click', unlock);
+    el('pin').addEventListener('keydown', event => {
+      if (event.key === 'Enter') unlock();
+    });
+    el('scanButton').addEventListener('click', openScanner);
+    el('closeScanner').addEventListener('click', closeScanner);
+    el('gallery').addEventListener('click', () => el('image').click());
+    el('image').addEventListener('change', async event => {
+      try {
+        await decodeFile(event.target.files[0]);
+      } finally {
+        event.target.value = '';
+      }
+    });
+    el('inputForm').addEventListener('submit', submitInput);
+    window.addEventListener('beforeunload', stopCamera);
+    window.addEventListener('pagehide', stopCamera);
+
+    if (!token) {
+      badge('链接无效', 'error');
+      feedback('链接缺少授权信息，请重新生成', 'error');
+      active = false;
+    } else {
+      refresh();
+    }
+  </script>
 </body>
 </html>

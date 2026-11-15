@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from "vue";
-import { ArrowUpRight, FileText, FolderOpen, LoaderCircle, RefreshCw } from "@lucide/vue";
+import { ArrowUpRight, FileText, FolderOpen, LoaderCircle, RefreshCw, Scale } from "@lucide/vue";
 import { appInfo, displayVersion } from "../../../app/lib/product.js";
 
 const props = defineProps({
@@ -85,6 +85,9 @@ async function openLink(url) {
       <footer class="about-footer">
         <button type="button" @click="openLink(appInfo.repository + '/releases')">
           <FileText :size="15" />更新记录<ArrowUpRight :size="13" />
+        </button>
+        <button type="button" title="查看 GPL-3.0-only 许可证" @click="openLink(appInfo.repository + '/blob/main/LICENSE')">
+          <Scale :size="15" />GPL-3.0-only · 无担保<ArrowUpRight :size="13" />
         </button>
         <button type="button" @click="openLogs">
           <FolderOpen :size="15" />日志目录<ArrowUpRight :size="13" />
@@ -319,6 +322,7 @@ async function openLink(url) {
 .about-footer {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 24px;
   min-height: 60px;
   border-top: 1px solid var(--line);

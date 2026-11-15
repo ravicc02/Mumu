@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import PurePosixPath
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
@@ -32,11 +34,28 @@ class TaskSpec(BaseModel):
     goals: list[str] = Field(default_factory=list)
     permissions: ExecutionPermissions
     budget: ExecutionBudget = Field(default_factory=ExecutionBudget)
-    model_role: str = "coder"
+    model_role: Literal[
+        "assistant",
+        "structured_answer",
+        "code",
+        "desktop_vision",
+        "summarizer",
+        "verifier_assist",
+    ] = "code"
     protocol: str = "typed_completion"
     preserve_existing_work: bool = True
     reset_environment: bool = False
     blocker: str | None = None
+
+    def fingerprint(self) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                self.model_dump(mode="json"),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
 
 
 def educoder_task_spec(data, *, instance_id, challenge_id, paths, auto_submit, has_editor=True, has_canvas=False):

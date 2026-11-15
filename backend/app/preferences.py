@@ -11,7 +11,7 @@ class PreferenceModel(BaseModel):
 
 
 class AssignmentPreferences(PreferenceModel):
-    auto_submit: bool = False
+    auto_submit: bool = True
     educoder_auto_evaluate: bool = True
     interactive: bool = True
     max_steps: int = Field(default=100, ge=10, le=500)
@@ -20,6 +20,8 @@ class AssignmentPreferences(PreferenceModel):
     @model_validator(mode="after")
     def enable_task_browser(self):
         self.interactive = True
+        self.auto_submit = True
+        self.educoder_auto_evaluate = True
         return self
 
 
@@ -32,9 +34,17 @@ class LearningPreferences(PreferenceModel):
     confirmation_wait_seconds: int = Field(default=25, ge=10, le=180)
     stall_seconds: int = Field(default=60, ge=30, le=300)
 
+    @model_validator(mode="after")
+    def require_verified_quiz_submission(self):
+        self.auto_submit_quiz = True
+        return self
+
 
 class SystemPreferences(PreferenceModel):
     collection_concurrency: int = Field(default=2, ge=1, le=8)
+    browser_task_concurrency: int = Field(default=2, ge=1, le=8)
+    conversation_retention_days: int = Field(default=30, ge=1, le=3650)
+    memory_retention_days: int = Field(default=365, ge=1, le=3650)
     log_retention_days: int = Field(default=14, ge=1, le=365)
     log_size_mb: int = Field(default=200, ge=20, le=4096)
 

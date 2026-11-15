@@ -175,8 +175,8 @@ test('attendance groups and relay settings use local scoped APIs without sending
     await api.scanAttendanceAutoGroup('auto-one');
     await api.deleteAttendanceAutoGroup('auto-one');
     await api.attendanceRelay();
-    await api.testAttendanceRelay({ base_url: 'https://sign.example.com', admin_secret: 'x'.repeat(32) });
-    await api.saveAttendanceRelay({ base_url: 'https://sign.example.com', admin_secret: 'x'.repeat(32) });
+    await api.testAttendanceRelay({ mode: 'custom', base_url: 'https://sign.example.com', admin_secret: 'x'.repeat(32) });
+    await api.saveAttendanceRelay({ mode: 'custom', base_url: 'https://sign.example.com', admin_secret: 'x'.repeat(32) });
     assert.ok(calls[0].url.endsWith('/accounts/account-a/profile'));
     assert.deepEqual(JSON.parse(calls[2].body), { latitude: 30.5, longitude: 114.3, address: '教室' });
     assert.deepEqual(JSON.parse(calls[4].body), { name: '计算机科学 1 组', account_ids: ['account-a'], pin: '', base_url: '' });
@@ -190,6 +190,7 @@ test('attendance groups and relay settings use local scoped APIs without sending
     assert.ok(calls[13].url.endsWith('/relay'));
     assert.ok(calls[14].url.endsWith('/relay/test'));
     assert.equal(calls[15].method, 'PUT');
+    assert.deepEqual(JSON.parse(calls[14].body), { mode: 'custom', base_url: 'https://sign.example.com', admin_secret: 'x'.repeat(32) });
     for (const call of calls) {
       assert.ok(!call.url.includes('chaoxing.com'));
       assert.ok(!/cookie|password|storage_state|platform_user_id/.test(call.body || ''));

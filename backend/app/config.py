@@ -275,6 +275,14 @@ class Settings:
         return self.data_root / "artifacts"
 
     @property
+    def task_workspaces_root(self) -> Path:
+        return self.data_root / "task-workspaces"
+
+    @property
+    def secrets_root(self) -> Path:
+        return self.data_root / "secrets"
+
+    @property
     def logs_root(self) -> Path:
         return self.data_root / "logs"
 
@@ -283,6 +291,8 @@ class Settings:
             self.data_root,
             self.profiles_root,
             self.artifacts_root,
+            self.task_workspaces_root,
+            self.secrets_root,
             self.logs_root,
         ):
             path.mkdir(parents=True, exist_ok=True)

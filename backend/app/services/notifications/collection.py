@@ -5,7 +5,6 @@ from typing import Any
 from ...db import utc_now
 from ..assignments.availability import assignment_expired
 from .delivery import notification_preferences
-from .weixin import record_delivery
 
 
 def ledger_key(account_id: str, academic_year: int) -> str:
@@ -50,17 +49,15 @@ async def notify_new_assignments(database: Any, settings: Any, account: dict[str
             "event": "assignments_discovered", "account": account["name"],
             "account_id": account["id"], "academic_year": academic_year, "assignments": deliverable,
         }, preferences=preferences)
-        record_delivery(database,result=channels)
         if not any(channels.values()):
             state["last_error"] = "推送通道尚未就绪，等待下次定时采集重试"
             status = "pending"
         else:
             for item in deliverable:
                 pending.pop(item["id"], None)
-            state.update(last_error=None, last_sent_at=utc_now())
-            status = "sent"
+            state.update(last_error=None, last_queued_at=utc_now())
+            status = "queued"
     except Exception as error:
-        record_delivery(database,error=error)
         state["last_error"] = str(error)
         status = "failed"
     database.set_setting(key, state)

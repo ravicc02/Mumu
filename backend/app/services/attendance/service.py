@@ -823,7 +823,7 @@ class AttendanceService:
         batch = self.store.batch(batch_id)
         if batch['items']:
             existing_accounts = {item['account_id'] for item in batch['items']}
-            if existing_accounts != set(account_ids) or len(batch['items']) != len(account_ids):
+            if not existing_accounts.issubset(set(account_ids)) or len(batch['items']) > len(account_ids):
                 raise AttendanceError('二维码与当前扫码链接绑定的账号不一致')
             if any(item['kind'] != 'qr' or str(item['upstream_id']) != active_id for item in batch['items']):
                 raise AttendanceError('二维码与当前扫码链接已匹配的活动不一致')
@@ -857,7 +857,7 @@ class AttendanceService:
         if missing:
             found = self.store.resolve_activity_ids(active_id, account_ids)
             missing = [account_id for account_id in account_ids if account_id not in found]
-        if missing:
+        if not found:
             names = []
             for account_id in missing:
                 try: names.append(self.database_provider().get_account(account_id)['name'])
@@ -865,9 +865,10 @@ class AttendanceService:
             raise AttendanceError('以下账号没有匹配到该二维码活动：' + '、'.join(names))
         if any(item['kind'] != 'qr' for item in found.values()):
             raise AttendanceError('二维码对应活动不是二维码签到')
-        batch = self.store.populate_batch_items(batch_id, [found[account_id]['id'] for account_id in account_ids])
+        matched_ids = [account_id for account_id in account_ids if account_id in found]
+        batch = self.store.populate_batch_items(batch_id, [found[account_id]['id'] for account_id in matched_ids])
         logger.info('Attendance open QR matched', extra={'diagnostic_code':'attendance.open_qr_matched','diagnostic_data':{
-            'batch_id':batch_id,'active_id':active_id,'accounts':len(account_ids)}})
+            'batch_id':batch_id,'active_id':active_id,'accounts':len(matched_ids),'unmatched':len(missing)}})
         return batch
 
     def start(self, identifier, inputs, *, share=None, source='owner', rush=False):

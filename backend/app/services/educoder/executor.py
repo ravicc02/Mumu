@@ -364,7 +364,7 @@ def model_schema_error(error):
     return False
 
 
-async def execute_code_stage(database, job, runtime, llm, emit, control, diagnostics, data, stage, total, passed):
+async def execute_code_stage(database, job, runtime, llm, emit, control, diagnostics, data, stage, total, passed, *, workspace=None):
     challenge = data["challenge"]
     description = str(challenge.get("task_pass") or challenge.get("description") or "")
     paths = [repository_path(path.strip()) for path in re.split("[；;\\n]", str(challenge.get("path") or "")) if path.strip()]
@@ -374,6 +374,8 @@ async def execute_code_stage(database, job, runtime, llm, emit, control, diagnos
         has_canvas = await runtime.page.locator("canvas").count() > 0
     spec = educoder_task_spec(data, instance_id=runtime.instance_id, challenge_id=runtime.task_id,
         paths=paths, auto_submit=job["auto_submit"], has_editor=has_editor, has_canvas=has_canvas)
+    if workspace is not None:
+        workspace.set_task_spec(spec)
     diagnostics.record("educoder.task_spec", data=spec.model_dump(mode="json"), phase="planning")
     if spec.blocker: raise ExperimentError(spec.blocker, category="unsupported_environment")
     if not description or not paths or len(paths) > 12: raise ExperimentError("该关卡缺少明确说明或授权文件列表。", category="missing_context")
@@ -421,7 +423,7 @@ async def execute_code_stage(database, job, runtime, llm, emit, control, diagnos
         model_calls += 1
         phase = "repairing" if feedback else "planning"
         database.update_job(job["id"], phase=phase)
-        diagnostics.record("educoder.model_request", data={"role": "coder", "protocol": "typed_completion", "model_call": model_calls,
+        diagnostics.record("educoder.model_request", data={"role": "code", "protocol": "typed_completion", "model_call": model_calls,
             "http_retries": 0, "remaining_repairs": spec.budget.max_model_calls - model_calls}, phase=phase)
         started = asyncio.get_running_loop().time()
         try:
@@ -515,7 +517,7 @@ async def execute_code_stage(database, job, runtime, llm, emit, control, diagnos
     raise ExperimentError("当前关卡已达到 3 次修复上限，代码和失败报告已保留。" + str((feedback or {}).get("summary") or ""), category="repair_budget")
 
 
-async def execute_experiment(database,job,session,llm,emit,control,diagnostics,*,runtime=None,resume=False):
+async def execute_experiment(database,job,session,llm,emit,control,diagnostics,*,runtime=None,resume=False,workspace=None):
     assessment = database.get_assignment(job["assignment_id"])["assessment"]
     account = database.get_account(job["account_id"])
     driver = client = None
@@ -587,7 +589,20 @@ async def execute_experiment(database,job,session,llm,emit,control,diagnostics,*
                 data = await control.run(runtime.task)
             else: data = await control.run(lambda: runtime.select(stage["identifier"]))
             if data["game"].get("status") == 2: continue
-            outcome = await execute_code_stage(database, job, runtime, llm, emit, control, diagnostics, data, stage, total, passed)
+            outcome = await execute_code_stage(
+                database,
+                job,
+                runtime,
+                llm,
+                emit,
+                control,
+                diagnostics,
+                data,
+                stage,
+                total,
+                passed,
+                workspace=workspace,
+            )
             if outcome is not None: return outcome
             confirmed = await control.run(runtime.challenges)
             if not any(item.get("identifier") == runtime.task_id and item.get("status") == 2 for item in confirmed):

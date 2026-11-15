@@ -108,7 +108,7 @@ class LoopPolicyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_new_code_job_evaluates_by_default_independent_of_chaoxing_submission(self):
         case=self.case
-        self.assertFalse(load_preferences(case.db).assignments.auto_submit)
+        self.assertTrue(load_preferences(case.db).assignments.auto_submit)
         self.assertTrue(load_preferences(case.db).assignments.educoder_auto_evaluate)
         with (patch.object(main,'database',case.db), patch.object(main,'effective_settings',return_value=SimpleNamespace(openai_api_key='fixture')),
              patch.object(main,'platform_login_in_progress',return_value=False), patch.object(main,'start_job')):

@@ -8,7 +8,8 @@ import logging
 import os
 import platform
 import socket
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -25,8 +26,14 @@ import browser_use.utils as browser_use_utils
 from ...config import Settings
 from ...db import Database, utc_now
 from ...events import EventHub
-from ..notifications.delivery import notification_preferences, send_completion_notification
-from ..notifications.weixin import record_delivery
+from ..agents.contracts import ModelCapability
+from ..agents.gateway import ModelGateway
+from ..agents.leases import lease_heartbeat
+from ..agents.workspace import TaskWorkspace
+from ..notifications.delivery import (
+    enqueue_completion_notification,
+    notification_preferences,
+)
 from ..runtime.browser import chrome_executable, COURSE_BROWSER_ARGS, TaskBrowserProfile
 from .state import EVENT_PHASES, available_job_actions
 from ..assignments.readiness import assess_questions, execution_block
@@ -34,6 +41,7 @@ from ..assignments.draft_saver import DraftSaveError, save_assignment_draft
 from ..runtime.screenshots import capture_screenshot_segments
 from ...diagnostics.probe import capture_page as capture_diagnostic_page
 from ...diagnostics.logging import current_trace as diagnostic_context
+from ...diagnostics.privacy import task_scrubber
 from ..assignments.quiz_adapter import (
     QuizAnswerSheet,
     extract_questions,
@@ -43,6 +51,21 @@ from ..assignments.quiz_adapter import (
 
 
 logger = logging.getLogger(__name__)
+
+
+async def send_completion_notification(
+    database: Database,
+    settings: Any,
+    payload: dict[str, Any],
+    *,
+    preferences: dict[str, bool] | None = None,
+) -> dict[str, bool]:
+    return enqueue_completion_notification(
+        database,
+        settings,
+        payload,
+        preferences=preferences,
+    )
 
 
 _running_jobs: dict[str, asyncio.Task[None]] = {}
@@ -369,6 +392,44 @@ def _build_agent_llm(
     )
 
 
+def _build_task_llm(
+    database: Database,
+    settings: Settings,
+    role: str,
+    attempt_id: str,
+    *,
+    temperature: float,
+    max_retries: int,
+    candidate_index: int = 0,
+    waiting_callback=None,
+):
+    gateway = ModelGateway(database, settings)
+
+    def build_delegate(resolved, api_key):
+        routed = replace(
+            settings,
+            openai_api_key=api_key,
+            openai_base_url=resolved.provider.base_url,
+            openai_model=resolved.profile.model,
+            reasoning_effort=gateway.config.reasoning_effort,
+        )
+        return _build_agent_llm(
+            routed,
+            resolved.profile.model,
+            temperature=temperature,
+            # Route-level retry is owned by the model gateway.
+            max_retries=0,
+        )
+
+    llm = gateway.build_route(
+        role,
+        attempt_id=attempt_id,
+        delegate_builder=build_delegate,
+        waiting_callback=waiting_callback,
+    )
+    return gateway, llm
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -636,11 +697,20 @@ def job_browser_state(job: dict[str, Any]) -> dict[str, Any]:
         browser = False
     return {
         **job,
-        "phase": EVENT_PHASES.get(job["status"], job.get("phase", "queued")),
+        "phase": job.get("phase") or EVENT_PHASES.get(job["status"], "queued"),
         "browser_available": browser,
         "headless": job.get("platform") == "educoder" or not bool(job.get("interactive")),
         "browser_scope": "task", "browser_task_id": job["id"],
-        "actions": available_job_actions(job, controlled=job["id"] in _job_controls,
+        "actions": available_job_actions(
+            job,
+            controlled=(
+                job["id"] in _job_controls
+                or job["status"] == "queued"
+                or (
+                    job["status"] == "paused"
+                    and job.get("paused_from_status") == "queued"
+                )
+            ),
                                          browser=browser, retained=retained),
     }
 
@@ -956,6 +1026,46 @@ def start_job(
         run_job(database, event_hub, settings, job_id, reused_session=reused_session)
     )
     _running_jobs[job_id] = task
+    task.add_done_callback(
+        lambda finished, identifier=job_id: _job_task_finished(
+            database,
+            identifier,
+            finished,
+        )
+    )
+
+
+def _job_task_finished(
+    database: Database,
+    job_id: str,
+    task: asyncio.Task[None],
+) -> None:
+    if _running_jobs.get(job_id) is task:
+        _running_jobs.pop(job_id, None)
+    if task.cancelled():
+        database.release_resource_leases(job_id)
+        return
+    error = task.exception()
+    if error is None:
+        return
+    logger.error(
+        "Assignment task crashed outside the runner boundary",
+        exc_info=(type(error), error, error.__traceback__),
+    )
+    database.release_resource_leases(job_id)
+    try:
+        job = database.get_job(job_id)
+        if job["status"] == "queued":
+            database.update_job(
+                job_id,
+                phase="waiting_resource",
+                waiting_reason=f"任务启动失败，{type(error).__name__}",
+                not_before=(
+                    datetime.now(timezone.utc) + timedelta(seconds=5)
+                ).isoformat(),
+            )
+    except Exception:
+        logger.debug("Could not record assignment startup failure", exc_info=True)
 
 
 async def focus_job_browser(job_id: str) -> bool:
@@ -1369,6 +1479,17 @@ def pause_job(
         raise RuntimeError("只有排队中或运行中的任务可以暂停")
     control = _job_controls.get(job_id)
     if not control:
+        if job["status"] == "queued":
+            database.transition_job(
+                job_id,
+                "paused",
+                paused_from_status="queued",
+                waiting_reason=None,
+                not_before=None,
+            )
+            event = database.add_event(job_id, "paused", "排队任务已暂停")
+            asyncio.create_task(event_hub.publish(job_id, event))
+            return
         raise RuntimeError("任务当前未运行")
     database.transition_job(
         job_id,
@@ -1391,6 +1512,16 @@ def resume_job(
         raise RuntimeError("只有已暂停的任务可以继续")
     control = _job_controls.get(job_id)
     if not control:
+        if job.get("paused_from_status") == "queued":
+            database.transition_job(
+                job_id,
+                "queued",
+                paused_from_status=None,
+                phase="queued",
+            )
+            event = database.add_event(job_id, "resumed", "任务已继续排队")
+            asyncio.create_task(event_hub.publish(job_id, event))
+            return
         raise RuntimeError("任务当前未运行")
     resume_status = job.get("paused_from_status") or "running"
     if resume_status not in {"queued", "running"}:
@@ -1420,6 +1551,23 @@ def stop_job(
         raise RuntimeError("当前任务不能停止")
     control = _job_controls.get(job_id)
     if not control:
+        if job["status"] == "queued" or (
+            job["status"] == "paused"
+            and job.get("paused_from_status") == "queued"
+        ):
+            database.release_resource_leases(job_id)
+            database.transition_job(
+                job_id,
+                "stopped",
+                submission_status=job.get("submission_status", "not_submitted"),
+                error="用户停止排队任务",
+                waiting_reason=None,
+                not_before=None,
+                finished_at=utc_now(),
+            )
+            event = database.add_event(job_id, "stopped", "排队任务已停止")
+            asyncio.create_task(event_hub.publish(job_id, event))
+            return
         raise RuntimeError("任务当前未运行")
     database.transition_job(job_id, "stopping")
     control.stop_requested = True
@@ -1459,6 +1607,29 @@ async def run_job(
     diagnostics = database.diagnostics.trace("assignment", job_id)
     diagnostics.configure(job, account, settings)
     log_context = diagnostic_context.set(diagnostics)
+    checkpoint_scrubber = task_scrubber(settings, account)
+    task_role = "code" if account["platform"] == "educoder" else "structured_answer"
+    attempt_workspace = (
+        reused_session.workspace.workspace
+        if reused_session and reused_session.workspace
+        else TaskWorkspace.for_account(
+            account,
+            "assignment",
+            job_id,
+            metadata={
+                "platform": account["platform"],
+                "route": "code" if account["platform"] == "educoder" else "structured",
+                "environment": (
+                    "web_code_editor"
+                    if account["platform"] == "educoder"
+                    else "fixed_controls"
+                ),
+                "model_role": task_role,
+                "trigger": job.get("trigger"),
+                "parent_attempt_id": job.get("parent_job_id"),
+            },
+        )
+    )
 
     async def emit(
         kind: str,
@@ -1479,6 +1650,51 @@ async def run_job(
                 live_artifact_id = database.add_artifact(job_id, "live_screenshot", live_path)["id"]
             persisted_data["artifact_id"] = live_artifact_id
         event = database.add_event(job_id, kind, message, persisted_data)
+        if kind in {
+            "queued", "resumed", "browser_ready", "agent_ready",
+            "draft_saved", "result_summary", "completed", "incomplete",
+            "needs_intervention", "interrupted", "stopped", "failed",
+        }:
+            try:
+                current = database.get_job(job_id)
+                checkpoint = database.save_task_checkpoint(
+                    attempt_id=job_id,
+                    attempt_kind="assignment",
+                    phase=str(current.get("phase") or kind),
+                    goal={
+                        "assignment": job["assignment_title"],
+                        "course": job["course_name"],
+                        "platform": job["platform"],
+                    },
+                    completed={
+                        "progress": current.get("progress", 0),
+                        "completed_units": current.get("completed_units", 0),
+                        "total_units": current.get("total_units", 0),
+                    },
+                    blockers=(
+                        [checkpoint_scrubber.clean(message, include_content=False)]
+                        if kind in {
+                            "incomplete", "needs_intervention", "interrupted",
+                            "stopped", "failed",
+                        }
+                        else []
+                    ),
+                    evidence_refs=(
+                        [persisted_data["artifact_id"]]
+                        if persisted_data.get("artifact_id")
+                        else []
+                    ),
+                    next_action_id=None if kind in {"completed", "stopped"} else kind,
+                )
+                attempt_workspace.write_checkpoint(checkpoint)
+                attempt_workspace.update(phase=str(current.get("phase") or kind))
+            except Exception as checkpoint_error:
+                diagnostics.record(
+                    "task.checkpoint_failed",
+                    str(checkpoint_error),
+                    level="warning",
+                    data={"event_kind": kind},
+                )
         if image:
             event = {**event, "data": {**event["data"], "image": image}}
         await event_hub.publish(job_id, event)
@@ -1486,20 +1702,23 @@ async def run_job(
 
     async def notify_safely(payload: dict[str, Any]) -> None:
         try:
-            sent = await send_completion_notification(settings, payload, preferences=notification_preferences(database))
-            record_delivery(database,result=sent)
-            if not any(sent.values()):
+            queued = await send_completion_notification(
+                database,
+                settings,
+                payload,
+                preferences=notification_preferences(database),
+            )
+            if not any(queued.values()):
                 return
             await emit(
                 "notification",
-                "通知已发送",
-                {"channels": sent},
+                "通知已加入发送队列",
+                {"channels": queued},
             )
         except Exception as notification_error:
-            record_delivery(database,error=notification_error)
             await emit(
                 "notification_error",
-                f"通知发送失败：{notification_error}",
+                f"通知加入发送队列失败：{notification_error}",
             )
 
     async def save_progress() -> dict[str, Any]:
@@ -1558,6 +1777,7 @@ async def run_job(
     session: BrowserSession | None = reused_session.session if reused_session else None
     browser_process: asyncio.subprocess.Process | None = reused_session.process if reused_session else None
     heartbeat_task: asyncio.Task[None] | None = None
+    lease_task: asyncio.Task[None] | None = None
     step_counter = 0
     task_lock = reused_session.task_lock if reused_session else asyncio.Lock()
     workspace = reused_session.workspace if reused_session else None
@@ -1571,11 +1791,9 @@ async def run_job(
             })
             await asyncio.sleep(5)
 
-    await emit("resumed" if reused_session else "queued", "复用人工处理后的浏览器继续执行" if reused_session else "任务已创建，正在准备独立浏览器")
     try:
-        if not settings.openai_api_key:
-            raise RuntimeError("未配置 OPENAI_API_KEY")
-
+        lease_task = asyncio.create_task(lease_heartbeat(database, job_id))
+        await emit("resumed" if reused_session else "queued", "复用人工处理后的浏览器继续执行" if reused_session else "任务已创建，正在准备独立浏览器")
         if not reused_session:
             await _acquire_account_lock(task_lock, control)
             lock_acquired = True
@@ -1595,7 +1813,12 @@ async def run_job(
                 "正在启动任务专属 Chrome",
                 {"interactive": interactive},
             )
-            workspace = TaskBrowserProfile(account, "assignment", job_id)
+            workspace = TaskBrowserProfile(
+                account,
+                "assignment",
+                job_id,
+                workspace=attempt_workspace,
+            )
             diagnostics.record("browser.workspace", "Task browser isolated", data={"kind": "assignment", "task_id": job_id, "profile": workspace.path.name})
             browser_process, cdp_url = await _launch_chrome(
                 str(workspace.path),
@@ -1667,18 +1890,63 @@ async def run_job(
         await control.wait_if_paused()
 
         await emit("agent_starting", "正在初始化模型和 Agent")
-        is_deepseek = "deepseek" in settings.openai_model.lower()
-        llm = _build_agent_llm(
+
+        def model_waiting(reason: str | None, retry_at: str | None) -> None:
+            previous = database.get_job(job_id).get("waiting_reason")
+            database.update_job(
+                job_id,
+                phase="waiting_upstream" if reason else "agent_running",
+                waiting_reason=reason,
+                not_before=retry_at,
+            )
+            if reason and reason != previous:
+                try:
+                    checkpoint = database.save_task_checkpoint(
+                        attempt_id=job_id,
+                        attempt_kind="assignment",
+                        phase="waiting_upstream",
+                        goal={
+                            "assignment": job["assignment_title"],
+                            "course": job["course_name"],
+                        },
+                        completed={
+                            "progress": database.get_job(job_id).get("progress", 0),
+                        },
+                        blockers=[reason],
+                        next_action_id="model_retry",
+                    )
+                    attempt_workspace.write_checkpoint(checkpoint)
+                except Exception as checkpoint_error:
+                    diagnostics.record(
+                        "model.waiting_checkpoint_failed",
+                        str(checkpoint_error),
+                        level="warning",
+                    )
+
+        gateway, llm = _build_task_llm(
+            database,
             settings,
-            settings.openai_model,
+            task_role,
+            job_id,
             temperature=0.1,
             max_retries=1,
+            waiting_callback=model_waiting,
         )
         if account["platform"] == "educoder":
             from ..educoder.executor import execute_experiment, ExperimentError
             from ..educoder.contracts import ContractError
             try:
-                result = await execute_experiment(database,job,session,llm,emit,control,diagnostics,resume=bool(reused_session))
+                result = await execute_experiment(
+                    database,
+                    job,
+                    session,
+                    llm,
+                    emit,
+                    control,
+                    diagnostics,
+                    resume=bool(reused_session),
+                    workspace=attempt_workspace,
+                )
             except ExperimentError as error:
                 if error.unknown: database.update_job(job_id,submission_status="submission_unknown")
                 raise AgentOperationError("头歌代码实验",str(error),"在实时浏览器核对当前关卡、保存与评测结果后继续。",job_status="interrupted" if error.interrupted else "incomplete") from error
@@ -1778,16 +2046,25 @@ async def run_job(
                 }
             )
             return
-        fallback_model = (
-            settings.openai_fallback_model.strip()
-            or settings.openai_model
-        )
-        fallback_llm = _build_agent_llm(
-            settings,
-            fallback_model,
-            temperature=0,
-            max_retries=2,
-        )
+
+        agent_role = "assistant"
+        if gateway.route_size(agent_role) == 0:
+            agent_role = "desktop_vision"
+        if agent_role != task_role:
+            gateway, llm = _build_task_llm(
+                database,
+                settings,
+                agent_role,
+                job_id,
+                temperature=0.1,
+                max_retries=1,
+                waiting_callback=model_waiting,
+            )
+        model_profile = llm.resolution.profile
+        is_deepseek = model_profile.protocol == "deepseek_chat"
+        supports_vision = ModelCapability.VISION in model_profile.capabilities
+
+        fallback_llm = None
 
         async def on_step(
             _browser_state: Any,
@@ -1931,7 +2208,7 @@ async def run_job(
             fallback_llm=fallback_llm,
             tools=agent_tools,
             browser_session=session,
-            use_vision=not is_deepseek,
+            use_vision=supports_vision,
             use_judge=False,
             flash_mode=is_deepseek,
             register_new_step_callback=on_step,
@@ -2226,6 +2503,10 @@ async def run_job(
                 }
             )
     finally:
+        if lease_task:
+            lease_task.cancel()
+            await asyncio.gather(lease_task, return_exceptions=True)
+        database.release_resource_leases(job_id)
         if heartbeat_task:
             heartbeat_task.cancel()
             await asyncio.gather(heartbeat_task, return_exceptions=True)
@@ -2243,5 +2524,21 @@ async def run_job(
             if lock_acquired and task_lock.locked():
                 task_lock.release()
             _job_sessions.pop(job_id, None)
-        diagnostics.summary(database.get_job(job_id))
+        final_job = database.get_job(job_id)
+        try:
+            attempt_workspace.update(
+                phase=str(final_job.get("phase") or final_job.get("status") or "finished"),
+                retention_reason=(
+                    "browser_retained"
+                    if final_job.get("browser_retained")
+                    else "checkpoint_retained"
+                ),
+            )
+        except Exception as workspace_error:
+            diagnostics.record(
+                "task.workspace_finalize_failed",
+                str(workspace_error),
+                level="warning",
+            )
+        diagnostics.summary(final_job)
         diagnostic_context.reset(log_context)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 from typing import Any
 
 from browser_use.llm.messages import SystemMessage, UserMessage
@@ -271,6 +273,8 @@ EXTRACT_QUESTIONS_SCRIPT = r"""
   return JSON.stringify({
     title: document.title,
     url: location.href,
+    page_text: clean(document.body?.innerText || "").slice(0, 6000),
+    file_inputs: document.querySelectorAll('input[type="file"]').length,
     question_count: questions.length,
     unit_count: units.length,
     questions,
@@ -517,7 +521,7 @@ SUBMIT_ANSWERS_SCRIPT = r"""
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
 
-  const deadline = Date.now() + 12000;
+  const deadline = Date.now() + 900;
   while (Date.now() < deadline) {
     const messages = [...document.querySelectorAll(feedbackSelector)].filter(visible)
       .map((node) => clean(node.innerText || node.textContent))
@@ -544,6 +548,53 @@ SUBMIT_ANSWERS_SCRIPT = r"""
     reason: "提交请求已发出，等待平台目录或回执确认",
   });
 })()
+"""
+
+
+CONFIRM_SUBMIT_SCRIPT = r"""
+() => {
+  const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const visible = (node) => Boolean(node?.getClientRects().length)
+    && getComputedStyle(node).visibility !== "hidden"
+    && getComputedStyle(node).display !== "none";
+  const roots = [...document.querySelectorAll(
+    "#workpop,.popDiv,[role=dialog],.layui-layer,.modal,.dialog,.el-dialog,.ant-modal"
+  )].filter(visible);
+  const labels = new Set(["提交", "确定", "确认", "确认提交", "继续提交"]);
+  for (const root of roots) {
+    const controls = [...root.querySelectorAll(
+      "button,a,input[type=button],input[type=submit],[role=button],[onclick]"
+    )].filter((node) => visible(node) && !node.disabled && node.getAttribute("aria-disabled") !== "true");
+    const confirm = controls.find((node) => labels.has(clean(node.innerText || node.value || node.textContent)));
+    if (!confirm) continue;
+    const text = clean(confirm.innerText || confirm.value || confirm.textContent);
+    confirm.click();
+    return JSON.stringify({
+      clicked: true,
+      text,
+      root: clean(root.innerText || root.textContent).slice(0, 240),
+    });
+  }
+  return JSON.stringify({ clicked: false });
+}
+"""
+
+
+SUBMIT_FEEDBACK_SCRIPT = r"""
+() => {
+  const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const visible = (node) => Boolean(node?.getClientRects().length)
+    && getComputedStyle(node).visibility !== "hidden"
+    && getComputedStyle(node).display !== "none";
+  const messages = [...document.querySelectorAll(
+    "#dialogToast,.toast,[role=status],[role=alert],.layui-layer-content,"
+    + ".el-message__content,.ant-message-notice-content,.ans-videoquiz,#worktoast,.mask-no-bg"
+  )].filter(visible).map((node) => clean(node.innerText || node.textContent))
+    .filter(Boolean);
+  const questions = [...document.querySelectorAll(".questionLi[id^='question'],.TiMu,.ans-videoquiz")]
+    .filter(visible).length;
+  return JSON.stringify({ url: location.href, title: document.title, messages, questions });
+}
 """
 
 
@@ -576,11 +627,177 @@ async def fill_answers(
     return raw
 
 
-async def submit_answers(page: Any) -> dict[str, Any]:
-    raw = await page.evaluate(SUBMIT_ANSWERS_SCRIPT)
+def _decode_script_result(raw: Any) -> dict[str, Any]:
     if isinstance(raw, str):
         return json.loads(raw)
     return raw
+
+
+async def _submission_snapshot(frame: Any) -> dict[str, Any]:
+    try:
+        return _decode_script_result(await frame.evaluate(SUBMIT_FEEDBACK_SCRIPT))
+    except Exception:
+        return {}
+
+
+async def _submission_snapshots(frames: list[Any]) -> dict[int, dict[str, Any]]:
+    result = {}
+    for frame in frames:
+        snapshot = await _submission_snapshot(frame)
+        if snapshot:
+            result[id(frame)] = snapshot
+    return result
+
+
+def _is_submission_response(response: Any) -> bool:
+    try:
+        method = str(response.request.method or "").upper()
+        url = str(response.url or "").lower()
+    except Exception:
+        return False
+    return method in {"POST", "PUT"} and "/work/" in url and "/validate" not in url
+
+
+async def _submission_response_result(response: Any) -> dict[str, Any]:
+    try:
+        data = await response.json()
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    message = str(data.get("msg") or data.get("message") or "").strip()
+    status = data.get("status")
+    success = status in {True, 1, "1", "true", "success"} or data.get("result") in {True, 1, "1", "success"}
+    failed = status in {False, 0, "0", "false", "failure"} and bool(message)
+    if success:
+        return {"confirmed": True, "reason": message or "平台已确认提交", "data": data}
+    if failed or re.search(r"失败|错误|异常|未完成|不能提交", message):
+        return {"clicked": True, "confirmed": False, "failed": True, "reason": message or "平台拒绝提交", "data": data}
+    return {"data": data}
+
+
+async def submit_answers(page: Any) -> dict[str, Any]:
+    playwright_page = getattr(page, "page", page)
+    frames = list(playwright_page.frames)
+    before = await _submission_snapshots(frames)
+    dialogs = []
+
+    def handle_dialog(dialog):
+        message = str(dialog.message or "")
+        accepted = dialog.type == "confirm" and bool(re.search(r"确认.*提交|提交.*吗|交卷", message))
+        dialogs.append({"type": dialog.type, "message": message, "accepted": accepted})
+        asyncio.create_task((dialog.accept if accepted else dialog.dismiss)())
+
+    playwright_page.on("dialog", handle_dialog)
+    response_task = asyncio.create_task(playwright_page.wait_for_event(
+        "response",
+        predicate=_is_submission_response,
+        timeout=15000,
+    ))
+    try:
+        initial = _decode_script_result(await page.evaluate(SUBMIT_ANSWERS_SCRIPT))
+        if initial.get("failed") or not initial.get("clicked") or initial.get("confirmed"):
+            return initial
+
+        confirmed_dialog = {}
+        for _ in range(20):
+            if any(item["accepted"] for item in dialogs):
+                confirmed_dialog = {"clicked": True, "text": "浏览器确认框"}
+                break
+            for frame in list(playwright_page.frames):
+                try:
+                    result = _decode_script_result(await frame.evaluate(CONFIRM_SUBMIT_SCRIPT))
+                except Exception:
+                    continue
+                if result.get("clicked"):
+                    confirmed_dialog = result
+                    break
+            if confirmed_dialog:
+                break
+            await asyncio.sleep(0.25)
+
+        deadline = asyncio.get_running_loop().time() + 12
+        pending = False
+        while asyncio.get_running_loop().time() < deadline:
+            if response_task.done():
+                try:
+                    outcome = await _submission_response_result(response_task.result())
+                except Exception:
+                    outcome = {}
+                if outcome.get("failed"):
+                    return {**initial, **outcome}
+                if outcome.get("confirmed"):
+                    for frame in list(playwright_page.frames):
+                        try:
+                            follow_up = _decode_script_result(await frame.evaluate(CONFIRM_SUBMIT_SCRIPT))
+                        except Exception:
+                            continue
+                        if follow_up.get("clicked"):
+                            break
+                    return {**initial, **outcome, "pending": False, "dialog": confirmed_dialog}
+
+            current = await _submission_snapshots(list(playwright_page.frames))
+            messages = [
+                message
+                for frame_id, snapshot in current.items()
+                for message in snapshot.get("messages", [])
+                if message not in before.get(frame_id, {}).get("messages", [])
+            ]
+            dialog_messages = [item["message"] for item in dialogs if item["message"]]
+            error = next((message for message in [*messages, *dialog_messages]
+                          if re.search(r"提交失败|交卷失败|保存失败|答案错误|回答错误|未完成全部题目|请完成.*题|账号发生异常", message)), "")
+            if error:
+                return {**initial, "clicked": True, "confirmed": False, "failed": True, "reason": error}
+            success = next((message for message in messages
+                            if re.search(r"提交成功|交卷成功|已提交|已完成测验|测验已完成|保存成功", message)), "")
+            if success:
+                return {
+                    **initial,
+                    "confirmed": True,
+                    "pending": False,
+                    "reason": success,
+                    "dialog": confirmed_dialog,
+                }
+
+            page_snapshot = current.get(id(page), {})
+            if before.get(id(page), {}).get("questions", 0) > 0 and page_snapshot.get("questions") == 0:
+                pending = True
+            if initial.get("before_url") and page_snapshot.get("url") not in {"", initial.get("before_url")}:
+                pending = True
+            if pending:
+                reason = "已确认提交，题目页面已离开" if confirmed_dialog else "提交请求已发出，页面已离开题目状态"
+                return {
+                    **initial,
+                    "confirmed": False,
+                    "pending": True,
+                    "reason": reason,
+                    "dialog": confirmed_dialog,
+                }
+            await asyncio.sleep(0.3)
+
+        reason = (
+            "已确认平台提交弹窗，等待平台目录或回执确认"
+            if confirmed_dialog else
+            "提交请求已发出，等待平台目录或回执确认"
+        )
+        return {
+            **initial,
+            "confirmed": False,
+            "pending": True,
+            "reason": reason,
+            "dialog": confirmed_dialog,
+            "dialogs": dialogs,
+        }
+    finally:
+        playwright_page.remove_listener("dialog", handle_dialog)
+        if not response_task.done():
+            response_task.cancel()
+        try:
+            await response_task
+        except (asyncio.CancelledError, TimeoutError):
+            pass
+        except Exception:
+            pass
 
 
 async def generate_answers(
@@ -614,11 +831,58 @@ async def generate_answers(
         "请完成下面的全部题目，并严格按给定结构返回：\n"
         + json.dumps({"units": units}, ensure_ascii=False)
     )
-    result = await llm.ainvoke(
-        [
-            SystemMessage(content=system),
+    messages = [
+        SystemMessage(content=system),
+        UserMessage(content=user),
+    ]
+    try:
+        result = await llm.ainvoke(messages, output_format=QuizAnswerSheet)
+    except Exception as error:
+        if "tool_calls" not in str(error).lower():
+            raise
+        fallback = await llm.ainvoke([
+            SystemMessage(content=system + "\n8. 直接返回 JSON 对象，不使用 Markdown 代码块或解释文字。"),
             UserMessage(content=user),
-        ],
-        output_format=QuizAnswerSheet,
-    )
+        ])
+        return _answer_sheet_from_completion(fallback.completion)
     return result.completion
+
+
+def _answer_sheet_from_completion(value: Any) -> QuizAnswerSheet:
+    if isinstance(value, QuizAnswerSheet):
+        return value
+    if isinstance(value, dict):
+        payload = value
+    else:
+        text = str(value or "").strip()
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I)
+        text = re.sub(r"\s*```$", "", text)
+        start, end = text.find("{"), text.rfind("}")
+        if start >= 0 and end > start:
+            text = text[start:end + 1]
+        payload = json.loads(text)
+    answers = payload.get("answers") if isinstance(payload, dict) else None
+    units = payload.get("units") if isinstance(payload, dict) else None
+    if answers is None and isinstance(units, list):
+        answers = units
+    if answers is None and isinstance(payload, dict):
+        answers = [{"unit_id": key, "values": answer} for key, answer in payload.items()]
+    normalized = []
+    for item in answers or []:
+        if not isinstance(item, dict) or not item.get("unit_id"):
+            continue
+        values = item.get("values")
+        if values is None:
+            values = item.get("answer", item.get("answers", item.get("value")))
+        if isinstance(values, (list, tuple)):
+            values = [str(value).strip() for value in values if str(value).strip()]
+        else:
+            value = str(values or "").strip()
+            if re.fullmatch(r"[A-F](?:\s*[,，]\s*[A-F])+", value, flags=re.I):
+                values = [part.strip().upper() for part in re.split(r"\s*[,，]\s*", value)]
+            elif re.fullmatch(r"[A-F]{2,}", value, flags=re.I):
+                values = list(value.upper())
+            else:
+                values = [value] if value else []
+        normalized.append({"unit_id": str(item["unit_id"]), "values": values})
+    return QuizAnswerSheet.model_validate({"answers": normalized})

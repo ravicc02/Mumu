@@ -29,3 +29,15 @@ test("auto launch is a restricted packaged Windows setting", () => {
   assert.match(preload, /getAutoLaunch/);
   assert.match(preload, /setAutoLaunch/);
 });
+
+test("closing the main window keeps Mumu running in the tray", () => {
+  assert.match(source, /requestSingleInstanceLock/);
+  assert.match(source, /new Tray\(/);
+  assert.match(source, /label: "打开 Mumu"/);
+  assert.match(source, /label: "退出 Mumu"/);
+  assert.match(source, /mainWindow\.on\("close", event =>/);
+  assert.match(source, /event\.preventDefault\(\)/);
+  assert.match(source, /mainWindow\.hide\(\)/);
+  assert.match(source, /quitting = true/);
+  assert.match(source, /window-all-closed[\s\S]*?if \(!tray/);
+});

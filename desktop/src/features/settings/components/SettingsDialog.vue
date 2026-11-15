@@ -13,7 +13,7 @@ const descriptions={
   common:"启动与更新",
   account:"本地显示资料，仅保存在此设备",
   model:"模型服务、推理强度与调用顺序",
-  assignments:"提交策略、自动评测与检测计划",
+  assignments:"提交策略与执行边界",
   learning:"课程播放、章节答题与平台核验",
   attendance:"扫码中继连接配置",
   system:"调度并发、现场记录与本地目录",

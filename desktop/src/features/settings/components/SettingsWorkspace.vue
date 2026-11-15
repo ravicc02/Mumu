@@ -2,11 +2,8 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { BookOpen, Check, ClipboardList, Cpu, FolderOpen, Globe2, HardDrive, LoaderCircle, RotateCcw, Save, Settings2 } from "@lucide/vue";
 import { api } from "../../../app/api.js";
-import { accountSchedule, restorePreferenceDraft, scheduleError } from "../lib/preferences.js";
 import ModelConfiguration from "./ModelConfiguration.vue";
 import AttendanceDomainSettings from "./AttendanceDomainSettings.vue";
-import PlatformLogo from "../../platforms/components/PlatformLogo.vue";
-import { accountsForBusiness } from "../../platforms/lib/catalog.js";
 
 const props = defineProps({ accounts: { type: Array, default: () => [] }, info: Object, section: { type: String, default: "model" }, embedded: Boolean });
 const desktopAvailable = Boolean(window.desktopApi);
@@ -14,7 +11,6 @@ const emit = defineEmits(["saved", "model-saved", "update:section", "open-data",
 const tabs = [{ id: "model", label: "模型配置", icon: Cpu }, { id: "assignments", label: "作业配置", icon: ClipboardList }, { id: "learning", label: "网课配置", icon: BookOpen }, { id: "attendance", label: "签到域名", icon: Globe2 }, { id: "system", label: "系统设置", icon: Settings2 }];
 const current = computed(() => tabs.find(item => item.id === props.section) || tabs[0]);
 const preferences = ref(null);
-const schedules = ref([]);
 const originals = ref({});
 const loading = ref(true);
 const loadError = ref("");
@@ -22,30 +18,18 @@ const pending = ref("");
 const messages = ref({});
 const errors = ref({});
 const draftKey = "studio:settings-draft:v1";
-const accountsById = computed(() => new Map(props.accounts.map(account => [account.id, account])));
-const supportedAccounts = computed(() => accountsForBusiness(props.accounts, "assignments"));
-function snapshot(section) { return JSON.stringify({ value: preferences.value?.[section], ...(section === "assignments" ? { schedules: schedules.value } : {}) }); }
+function snapshot(section) { return JSON.stringify(preferences.value?.[section]); }
 function dirty(section) { return Boolean(preferences.value && Object.hasOwn(originals.value, section) && originals.value[section] !== snapshot(section)); }
-const validation = computed(() => {
-  if (!preferences.value) return "";
-  if (current.value.id === "assignments") {
-    for (const schedule of schedules.value) {
-      const issue = scheduleError(schedule);
-      if (issue) return accountsById.value.get(schedule.account_id)?.name + "：" + issue;
-    }
-  }
-  return "";
-});
+const validation = computed(() => "");
 function cache() {
   if (loading.value || !preferences.value) return;
   const draft = {};
   for (const section of ["assignments", "learning", "system"]) {
     if (dirty(section)) draft[section] = preferences.value[section];
   }
-  if (draft.assignments) draft.schedules = schedules.value;
   try { Object.keys(draft).length ? localStorage.setItem(draftKey, JSON.stringify(draft)) : localStorage.removeItem(draftKey); } catch { /* Storage may be unavailable. */ }
 }
-watch([preferences, schedules], cache, { deep: true });
+watch(preferences, cache, { deep: true });
 onMounted(load);
 async function load() {
   loading.value = true; loadError.value = "";
@@ -53,12 +37,17 @@ async function load() {
     const result = await api.preferences();
     result.assignments.interactive = true;
     preferences.value = result;
-    schedules.value = supportedAccounts.value.map(accountSchedule);
     for (const section of ["assignments", "learning", "system"]) originals.value[section] = snapshot(section);
-    let cached;
+    let cached = null;
     try { cached = JSON.parse(localStorage.getItem(draftKey) || "null"); } catch { cached = null; }
-    const restored = restorePreferenceDraft(result, schedules.value, cached);
-    preferences.value = restored.preferences; preferences.value.assignments.interactive = true; schedules.value = restored.schedules;
+    if (cached && typeof cached === "object") {
+      for (const section of ["assignments", "learning", "system"]) {
+        if (cached[section] && typeof cached[section] === "object") {
+          preferences.value[section] = { ...preferences.value[section], ...cached[section] };
+        }
+      }
+      preferences.value.assignments.interactive = true;
+    }
   } catch (error) { loadError.value = error.message; }
   finally { loading.value = false; }
 }
@@ -67,7 +56,7 @@ async function save() {
   if (pending.value || validation.value) return;
   pending.value = section; messages.value[section] = ""; errors.value[section] = "";
   try {
-    const result = await api.savePreferences({ [section]: preferences.value[section], ...(section === "assignments" ? { schedules: schedules.value } : {}) });
+    const result = await api.savePreferences({ [section]: preferences.value[section] });
     originals.value[section] = snapshot(section);
     messages.value[section] = "已保存";
     cache(); emit("saved", { preferences: result, section });
@@ -77,22 +66,8 @@ async function save() {
 function reset() {
   const section = current.value.id;
   const original = JSON.parse(originals.value[section]);
-  preferences.value[section] = original.value;
-  if (section === "assignments") schedules.value = original.schedules;
+  preferences.value[section] = original;
   messages.value[section] = ""; errors.value[section] = ""; cache();
-}
-function disableSchedule(schedule) { if (!schedule.enabled) schedule.auto_execute = false; }
-function scheduleState(account) {
-  if (account.automation?.pending) return account.automation.pending + " 个待执行 · " + (account.automation.reason || "等待调度");
-  if (account.automation?.failed) return account.automation.last_error || "自动任务创建失败";
-  if (account.last_collection_status === "running") return "正在检测";
-  if (account.status !== "ready") return "等待授权";
-  if (account.auto_execute_enabled && !account.automation_baseline_ready) return "下次检测建立基线";
-  if (!account.auto_collect_enabled) return "检测已关闭";
-  const last = new Date(account.last_collection_at).getTime();
-  if (!Number.isFinite(last)) return "等待首次检测";
-  const next = new Date(last + account.auto_collect_interval_seconds * 1000);
-  return account.last_collection_status === "error" ? "上次检测失败" : next.getTime() <= Date.now() ? "等待空闲后检测" : "下次 " + next.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 }
 </script>
 
@@ -150,20 +125,6 @@ function scheduleState(account) {
                     </div>
                   </header>
                   <div class="settings-card-body">
-                    <label class="preference-row">
-                      <span>
-                        <strong>学习通最终提交</strong>
-                        <small>{{ preferences.assignments.auto_submit ? '填写、暂存后提交，以平台核验结果为准。' : '填写并暂存，转入待审核。' }}</small>
-                      </span>
-                      <input v-model="preferences.assignments.auto_submit" class="switch-input" type="checkbox" role="switch" aria-label="允许最终提交">
-                    </label>
-                    <label v-if="Object.hasOwn(preferences.assignments, 'educoder_auto_evaluate')" class="preference-row">
-                      <span>
-                        <strong>头歌自动评测</strong>
-                        <small>保存后自动评测；明确失败时修正代码并再次评测，通过后进入下一关。</small>
-                      </span>
-                      <input v-model="preferences.assignments.educoder_auto_evaluate" class="switch-input" type="checkbox" role="switch" aria-label="头歌自动评测">
-                    </label>
                     <div class="settings-control-grid">
                       <label class="settings-control-cell">
                         <span class="settings-control-copy">
@@ -189,84 +150,6 @@ function scheduleState(account) {
                   </div>
                 </section>
 
-                <section class="settings-card">
-                  <header class="settings-card-heading">
-                    <span class="settings-card-index">02</span>
-                    <div class="settings-card-title">
-                      <h3>自动检测与执行</h3>
-                      <p>仅处理新发现的可提交作业，已有作业和失败任务不会自动重跑</p>
-                    </div>
-                    <div class="settings-card-heading-actions">
-                      <span class="settings-scope">{{ schedules.length }} 个账号</span>
-                    </div>
-                  </header>
-                  <div class="settings-card-body">
-                    <div v-if="!schedules.length" class="settings-empty">
-                      <span>暂无支持作业检测的账号</span>
-                      <button class="button light" type="button" @click="emit('platforms')">添加账号</button>
-                    </div>
-                    <div v-else class="automation-list">
-                      <article v-for="schedule in schedules" :key="schedule.account_id" class="automation-account">
-                        <header class="automation-account-header">
-                          <div class="automation-account-name">
-                            <PlatformLogo :platform="accountsById.get(schedule.account_id)?.platform" :size="30" />
-                            <div>
-                              <strong>{{ accountsById.get(schedule.account_id)?.name }}</strong>
-                              <span class="automation-account-state" :class="{ 'validation-error': scheduleError(schedule) }">
-                                {{ scheduleError(schedule) || scheduleState(accountsById.get(schedule.account_id) || {}) }}
-                              </span>
-                            </div>
-                          </div>
-                          <span v-if="schedule.auto_execute" class="automation-enabled">发现后自动执行</span>
-                        </header>
-                        <div class="automation-controls">
-                          <label class="automation-control">
-                            <span>自动检测</span>
-                            <input
-                              v-model="schedule.enabled"
-                              class="switch-input"
-                              type="checkbox"
-                              role="switch"
-                              :aria-label="accountsById.get(schedule.account_id)?.name + ' 自动检测'"
-                              :disabled="accountsById.get(schedule.account_id)?.status !== 'ready' && !schedule.enabled"
-                              @change="disableSchedule(schedule)"
-                            >
-                          </label>
-                          <div class="automation-control">
-                            <span>检测间隔</span>
-                            <div class="interval-control">
-                              <input
-                                v-model.number="schedule.interval_value"
-                                type="number"
-                                min="1"
-                                max="604800"
-                                step="any"
-                                required
-                                :aria-label="accountsById.get(schedule.account_id)?.name + ' 检测间隔'"
-                              >
-                              <select v-model="schedule.interval_unit" :aria-label="accountsById.get(schedule.account_id)?.name + ' 间隔单位'">
-                                <option value="s">秒</option>
-                                <option value="min">分</option>
-                                <option value="h">时</option>
-                              </select>
-                            </div>
-                          </div>
-                          <label class="automation-control">
-                            <span>自动完成</span>
-                            <input
-                              v-model="schedule.auto_execute"
-                              class="switch-input"
-                              type="checkbox"
-                              role="switch"
-                              :aria-label="accountsById.get(schedule.account_id)?.name + ' 自动完成'"
-                              :disabled="!schedule.enabled || (accountsById.get(schedule.account_id)?.status !== 'ready' && !schedule.auto_execute)"
-                            >
-                          </label>
-                        </div>
-                      </article>
-                    </div>
-                  </div>
-                </section>
               </template>
 
               <template v-else-if="current.id === 'learning'">
@@ -288,13 +171,6 @@ function scheduleState(account) {
                         <small>{{ preferences.learning.headless ? '不弹出窗口，通过软件内实时画面操控。' : '显示独立浏览器窗口，关闭窗口会中断任务。' }}</small>
                       </span>
                       <input v-model="preferences.learning.headless" class="switch-input" type="checkbox" role="switch" aria-label="网课后台运行">
-                    </label>
-                    <label class="preference-row">
-                      <span>
-                        <strong>学习通章节题目自动提交</strong>
-                        <small>{{ preferences.learning.auto_submit_quiz ? '使用作业答题体系填写并提交，平台确认章节完成后继续。' : '填写并核验后等待人工提交，不自动交卷。' }}</small>
-                      </span>
-                      <input v-model="preferences.learning.auto_submit_quiz" class="switch-input" type="checkbox" role="switch" aria-label="学习通章节题目自动提交">
                     </label>
                     <div class="settings-control-grid">
                       <label class="settings-control-cell">

@@ -454,11 +454,28 @@ class LearningTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(stopped.json()["status"], "stopping")
             self.assertEqual((await client.get("/api/learning/runs/missing")).status_code, 404)
 
-    async def test_startup_recovery_releases_old_active_state(self):
+    async def test_startup_recovery_interrupts_running_but_preserves_queued_state(self):
         run = self.service.store.create_run(self.course["id"])
+        self.service.store.update(run["id"], status="running", phase="learning")
         self.service.store.recover()
         self.assertEqual(self.service.store.run(run["id"])["status"], "interrupted")
-        self.assertIsNone(self.service.active(self.account["id"]))
+        queued = self.service.store.create_run(self.course["id"])
+        self.service.store.recover()
+        self.assertEqual(self.service.store.run(queued["id"])["status"], "queued")
+        self.assertEqual(self.service.active(self.account["id"])["id"], queued["id"])
+
+    async def test_queued_learning_controls_work_without_starting_a_runner(self):
+        run = self.service.store.create_run(self.course["id"])
+
+        paused = await self.service.control(run["id"], "pause")
+        self.assertEqual(paused["status"], "paused")
+        self.assertIn("resume", paused["actions"])
+
+        resumed = await self.service.control(run["id"], "resume")
+        self.assertEqual(resumed["status"], "queued")
+
+        stopped = await self.service.control(run["id"], "stop")
+        self.assertEqual(stopped["status"], "stopped")
 
     async def test_restart_marks_exhausted_auto_retry_as_manual_interruption(self):
         run = self.service.store.create_run(self.course["id"])

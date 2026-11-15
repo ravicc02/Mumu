@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -12,6 +13,7 @@ import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -20,8 +22,10 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
+from PIL import Image
 
 from .contracts import AttendanceError, SignInput, is_expired_qr_message
+from .presentation import open_batch_view
 
 
 logger = logging.getLogger('mumu.attendance')
@@ -29,6 +33,9 @@ GROUP_IDLE_POLL_SECONDS = 1.0
 GROUP_ACTIVE_POLL_SECONDS = 0.35
 GROUP_STATUS_CACHE_IDLE_SECONDS = 0.9
 GROUP_STATUS_CACHE_ACTIVE_SECONDS = 0.25
+OFFICIAL_RELAY_BASE_URL = 'https://xxt.raviportfolio.cc'
+RELAY_MODE_OFFICIAL = 'official'
+RELAY_MODE_CUSTOM = 'custom'
 
 
 def _sha256(value) -> str:
@@ -74,6 +81,30 @@ def _qr_payload(text):
     if not re.fullmatch(r'[A-Za-z0-9_-]{8,512}', enc):
         raise ValueError('未识别到有效的签到二维码')
     return {'activeId': active_id, 'enc': enc} if active_id else {'enc': enc}
+
+
+def _avatar_data(account):
+    path = Path(account.get('profile_dir') or '') / 'avatar.bin'
+    if account.get('avatar_mime') not in {'image/png', 'image/jpeg', 'image/webp'} or not path.is_file():
+        return ''
+    try:
+        with Image.open(path) as source:
+            rgba = source.convert('RGBA')
+        if rgba.getchannel('A').getbbox() is None:
+            return ''
+        image = Image.new('RGB', rgba.size, 'white')
+        image.paste(rgba, mask=rgba.getchannel('A'))
+        if all(low == high for low, high in image.getextrema()):
+            return ''
+        side = min(image.width, image.height)
+        left = max(0, (image.width - side) // 2)
+        top = max(0, (image.height - side) // 2)
+        image = image.crop((left, top, left + side, top + side)).resize((96, 96), Image.Resampling.LANCZOS)
+        output = BytesIO()
+        image.save(output, 'WEBP', quality=84, method=6)
+        return 'data:image/webp;base64,' + base64.b64encode(output.getvalue()).decode()
+    except Exception:
+        return ''
 
 
 class RelayStore:
@@ -242,7 +273,10 @@ class RelayStore:
         token = secrets.token_urlsafe(32)
         now = time.time()
         participants = [{
-            'name': str(item.get('name') or '')[:1] + '*',
+            'id': str(item.get('id') or '')[:64],
+            'name': str(item.get('name') or '同学')[:100],
+            'avatar': str(item.get('avatar') or '')[:300000]
+            if str(item.get('avatar') or '').startswith('data:image/') else '',
             'course': str(item.get('course') or '')[:200],
         } for item in items[:100]]
         with self.connect() as database:
@@ -306,7 +340,9 @@ class RelayStore:
         encrypted = self.cipher.encrypt(json.dumps({'text': text, 'source': source}).encode())
         participants = json.loads(group['participants_json'] or '[]')
         items = [{
-            'name': str(item.get('name') or '同')[:1] + '*',
+            'account_id': str(item.get('id') or ''),
+            'name': str(item.get('name') or '同学')[:100],
+            'avatar': str(item.get('avatar') or ''),
             'course': '正在接收二维码',
             'title': '二维码签到',
             'kind': 'qr',
@@ -353,6 +389,21 @@ class RelayStore:
         if run:
             summary = json.loads(run['summary_json'] or '{}')
             items = json.loads(run['items_json'] or '[]')
+            by_id = {str(item.get('id')): item for item in participants if item.get('id')}
+            by_name = {str(item.get('name')): item for item in participants if item.get('name')}
+            items = [{
+                **item,
+                'name': (
+                    by_id.get(str(item.get('account_id') or ''))
+                    or by_name.get(str(item.get('name') or ''))
+                    or {}
+                ).get('name') or str(item.get('name') or '同学'),
+                'avatar': (
+                    by_id.get(str(item.get('account_id') or ''))
+                    or by_name.get(str(item.get('name') or ''))
+                    or {}
+                ).get('avatar') or str(item.get('avatar') or ''),
+            } for item in items]
             active = run['status'] in {'captured','queued','signing'}
             completed = sum(item.get('status') in {'succeeded','already_signed'} for item in items)
             result = {
@@ -366,7 +417,9 @@ class RelayStore:
                 result['capture_text'] = self.group_capture_text(run)
             return result
         items = [{
-            'name': str(item.get('name') or '同')[:1] + '*',
+            'account_id': str(item.get('id') or ''),
+            'name': str(item.get('name') or '同学')[:100],
+            'avatar': str(item.get('avatar') or ''),
             'course': '等待扫码匹配',
             'title': '二维码签到',
             'kind': 'qr',
@@ -380,6 +433,23 @@ class RelayStore:
             'persistent': True, 'group_name': group['name'], 'can_capture': True,
             'revoked': False,
         }
+
+    def update_group_participants(self, identifier, items):
+        participants = [{
+            'id': str(item.get('id') or '')[:64],
+            'name': str(item.get('name') or '同学')[:100],
+            'avatar': str(item.get('avatar') or '')[:300000]
+            if str(item.get('avatar') or '').startswith('data:image/') else '',
+            'course': str(item.get('course') or '')[:200],
+        } for item in items[:100]]
+        with self.connect() as database:
+            changed = database.execute(
+                'UPDATE groups SET participants_json=?,updated_at=? WHERE id=? AND revoked=0',
+                (json.dumps(participants, ensure_ascii=False), time.time(), identifier),
+            ).rowcount
+        if changed != 1:
+            raise KeyError
+        return self.group_by_id(identifier)
 
     def set_group_run_status(self, group_id, run_id, status, items=None, summary=None):
         now = time.time()
@@ -433,6 +503,11 @@ class RelayGroupCreateRequest(BaseModel):
 class RelayGroupUpdateRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     name: str = Field(min_length=1, max_length=80)
+
+
+class RelayGroupMetadataRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    items: list[dict] = Field(default_factory=list, max_length=100)
 
 
 class RelayStatusRequest(BaseModel):
@@ -626,6 +701,19 @@ def relay_app(store: RelayStore, admin_secret: str):
             raise HTTPException(404,'扫码分组不存在或已撤销') from error
         return {'id':identifier,'name':payload.name}
 
+    @app.patch('/api/admin/groups/{identifier}/metadata')
+    async def admin_update_group_metadata(
+        identifier: str,
+        payload: RelayGroupMetadataRequest,
+        x_mumu_share_secret: str = Header(default=''),
+    ):
+        admin_authorized(x_mumu_share_secret)
+        try:
+            store.update_group_participants(identifier, payload.items)
+        except KeyError as error:
+            raise HTTPException(404, '扫码分组不存在或已撤销') from error
+        return {'id': identifier, 'updated': True}
+
     @app.post('/api/admin/sessions')
     async def admin_create(payload: RelayCreateRequest, x_mumu_share_secret: str = Header(default='')):
         admin_authorized(x_mumu_share_secret)
@@ -785,6 +873,15 @@ class RelayClient:
         if response.status_code >= 400:
             raise AttendanceError(self._error(response))
 
+    async def update_group_metadata(self, identifier, items):
+        response = await self.http().patch(
+            self.base_url + '/api/admin/groups/' + identifier + '/metadata',
+            json={'items': items}, headers=self.headers,
+        )
+        if response.status_code >= 400:
+            raise AttendanceError(self._error(response))
+        return response.json()
+
     async def get(self, identifier):
         response = await self.http().get(self.base_url + '/api/admin/sessions/' + identifier, headers=self.headers)
         if response.status_code >= 400:
@@ -822,21 +919,41 @@ class RelayClient:
 
 
 class RemoteShareGateway:
-    def __init__(self, service, base_url, admin_secret):
+    def __init__(self, service, base_url, admin_secret, mode='', official_admin_secret=''):
         self.service = service
         self.base_url = ''
         self.admin_secret = ''
+        self.mode = ''
+        self.official_admin_secret = ''
         self.client = None
         self.link_cipher = None
         self.tasks = {}
         self.status_cache = {}
         self.status_cached_at = 0
         self.status_lock = asyncio.Lock()
-        self.configure_sync(base_url, admin_secret)
+        self.metadata_synced = set()
+        self.configure_sync(
+            base_url,
+            admin_secret,
+            mode=mode,
+            official_admin_secret=official_admin_secret,
+        )
 
-    def configure_sync(self, base_url, admin_secret):
+    def configure_sync(self, base_url, admin_secret, mode='', official_admin_secret=None):
         self.base_url = str(base_url or '').strip().rstrip('/')
         self.admin_secret = str(admin_secret or '').strip()
+        if official_admin_secret is not None:
+            self.official_admin_secret = str(official_admin_secret or '').strip()
+        selected_mode = str(mode or '').strip().lower()
+        if selected_mode not in {RELAY_MODE_OFFICIAL, RELAY_MODE_CUSTOM}:
+            selected_mode = (
+                RELAY_MODE_OFFICIAL
+                if self.base_url == OFFICIAL_RELAY_BASE_URL
+                else RELAY_MODE_CUSTOM
+            )
+        self.mode = selected_mode
+        if self.mode == RELAY_MODE_OFFICIAL:
+            self.base_url = OFFICIAL_RELAY_BASE_URL
         self.client = RelayClient(self.base_url, self.admin_secret) if self.configured else None
         self.link_cipher = _fernet('mumu-attendance-group:' + (self.admin_secret or 'unconfigured'))
 
@@ -848,19 +965,27 @@ class RemoteShareGateway:
         if not self.configured:
             raise AttendanceError('请先在设置中配置签到服务域名和管理密钥')
 
-    async def configure(self, base_url, admin_secret):
+    async def configure(self, base_url, admin_secret, mode='', official_admin_secret=None):
         tasks = [task for task in self.tasks.values() if not task.done()]
         for task in tasks: task.cancel()
         if tasks: await asyncio.gather(*tasks,return_exceptions=True)
         self.tasks.clear()
         if self.client: await self.client.close()
-        self.configure_sync(base_url,admin_secret)
+        self.configure_sync(
+            base_url,
+            admin_secret,
+            mode=mode,
+            official_admin_secret=official_admin_secret,
+        )
         self.status_cache = {}
         self.status_cached_at = 0
+        self.metadata_synced.clear()
 
     def settings(self):
         return {
             'base_url':self.base_url,
+            'mode':self.mode,
+            'official':self.mode == RELAY_MODE_OFFICIAL,
             'admin_secret_configured':bool(self.admin_secret),
             'configured':self.configured,
         }
@@ -872,6 +997,18 @@ class RemoteShareGateway:
             try: account_ids = json.loads(record.get('account_ids_json') or '[]')
             except (TypeError, ValueError): account_ids = []
             key = ('group',record['remote_group_id'])
+            if key not in self.metadata_synced:
+                try:
+                    await self.client.update_group_metadata(
+                        record['remote_group_id'],
+                        self._group_participants(record['name'], account_ids),
+                    )
+                    self.metadata_synced.add(key)
+                except Exception:
+                    logger.warning('Attendance group metadata sync failed', exc_info=True, extra={
+                        'diagnostic_code': 'attendance.group_metadata_error',
+                        'diagnostic_data': {'group_id': record['id'], 'remote_group_id': record['remote_group_id']},
+                    })
             if key in self.tasks and not self.tasks[key].done():
                 continue
             task = asyncio.create_task(self._monitor_group(record['id'],record['remote_group_id'],account_ids))
@@ -883,11 +1020,7 @@ class RemoteShareGateway:
         account_ids = list(dict.fromkeys(account_ids or []))
         if not account_ids:
             raise AttendanceError('扫码链接至少需要一个账号')
-        items = []
-        database = self.service.database_provider()
-        for account_id in account_ids:
-            account = database.get_account(account_id)
-            items.append({'name':(account['name'] or '同')[:1]+'*','course':name})
+        items = self._group_participants(name, account_ids)
         remote = await self.client.create_group({
             'name':str(name or '').strip(), 'items':items, 'pin':pin,
         })
@@ -900,6 +1033,27 @@ class RemoteShareGateway:
         self.tasks[key] = task
         task.add_done_callback(lambda _, current=key: self.tasks.pop(current, None))
         return self._public_group(local, remote['url'])
+
+    def _group_participants(self, name, account_ids):
+        items = []
+        database = self.service.database_provider()
+        for account_id in account_ids:
+            account = database.get_account(account_id)
+            items.append({
+                'id': self._member_id(account_id),
+                'name': account.get('name') or '同学',
+                'avatar': _avatar_data(account),
+                'course': name,
+            })
+        return items
+
+    def _member_id(self, account_id):
+        digest = hmac.new(
+            self.admin_secret.encode(),
+            ('attendance-member:' + str(account_id)).encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return 'member-' + digest[:32]
 
     def _public_group(self, record, url=''):
         return {
@@ -931,7 +1085,15 @@ class RemoteShareGateway:
         return self._public_group(self.service.store.qr_group(identifier))
 
     def _group_items(self, batch, account_ids):
-        return self._public(batch,'open',account_ids)
+        view = open_batch_view(
+            self.service,
+            batch,
+            account_ids,
+            include_account_ids=True,
+            full_names=True,
+            account_id_resolver=self._member_id,
+        )
+        return {**view,'summary':{'completed':view['completed'],'total':view['total']}}
 
     async def _polled_group(self, remote_group_id):
         async with self.status_lock:
@@ -1034,6 +1196,7 @@ class RemoteShareGateway:
                         await self.service.resolve_open_qr_batch(batch_id,capture_text,account_ids)
                     except AttendanceError as error:
                         failed = [{
+                            'account_id':self._member_id(account_id),
                             'name':(self.service.database_provider().get_account(account_id)['name'] or '同')[:1]+'*',
                             'course':'未匹配到活动','title':'二维码签到','kind':'qr',
                             'status':'failed','message':str(error)[:240],
@@ -1104,27 +1267,27 @@ class RemoteShareGateway:
         return value
 
     def _public(self, batch, mode='activity', account_ids=None):
+        if mode == 'open':
+            view = open_batch_view(
+                self.service,
+                batch,
+                account_ids,
+                full_names=True,
+            )
+            return {**view,'summary':{'completed':view['completed'],'total':view['total']}}
         items = [{
             'name': item['account_name'][:1] + '*', 'course': item['course_name'],
             'title': item['title'], 'kind': item['kind'], 'status': item['status'],
             'message': item['message'],
         } for item in batch['items']]
-        if mode == 'open' and not items:
-            for account_id in dict.fromkeys(account_ids or []):
-                try: name = self.service.database_provider().get_account(account_id)['name']
-                except KeyError: name = '同'
-                items.append({
-                    'name':name[:1]+'*', 'course':'等待扫码匹配', 'title':'二维码签到',
-                    'kind':'qr', 'status':'waiting', 'message':'等待同学扫描教师二维码',
-                })
         return {
             'items': items,
-            'status': 'waiting' if mode == 'open' and not batch['items'] else 'signing' if batch['status'] == 'running' else (
+            'status': 'signing' if batch['status'] == 'running' else (
                 'completed' if batch['status'] == 'completed' else
                 'partial' if batch['status'] == 'needs_review' else
                 'queued' if batch['status'] == 'awaiting_input' else 'failed'
             ),
-            'summary': {'completed':batch['completed'],'total':len(items) if mode == 'open' and not batch['items'] else batch['total']},
+            'summary': {'completed':batch['completed'],'total':batch['total']},
         }
 
     @staticmethod

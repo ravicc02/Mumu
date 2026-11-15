@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
 import random
 import uuid
 from typing import Any
 
 import httpx
 from ...version import __version__
+from ..agents.eventing import OutboxService
 from .weixin import check_response
 
 
@@ -16,6 +19,55 @@ DEFAULT_PREFERENCES = {"new_assignments_enabled": False, "completion_enabled": T
 def notification_preferences(database: Any) -> dict[str, bool]:
     stored = database.get_setting("notification_preferences", {}) or {}
     return {key: bool(stored.get(key, value)) for key, value in DEFAULT_PREFERENCES.items()}
+
+
+def enqueue_completion_notification(
+    database: Any,
+    settings: Any,
+    payload: dict[str, Any],
+    *,
+    preferences: dict[str, bool] | None = None,
+) -> dict[str, bool]:
+    result = {"webhook": False, "weixin": False}
+    preferences = {**DEFAULT_PREFERENCES, **(preferences or {})}
+    event = payload.get("event", "")
+    if event == "assignments_discovered" and not preferences["new_assignments_enabled"]:
+        return result
+    if event.startswith(("assignment_", "learning_")) and not preferences["completion_enabled"]:
+        return result
+    outbox = OutboxService(database, settings)
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    dedupe = (
+        f"task-notification:{event}:"
+        f"{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
+    )
+    if getattr(settings, "webhook_url", ""):
+        outbox.enqueue(
+            channel="webhook",
+            external_user_id="default",
+            dedupe_key=dedupe,
+            payload={"kind": "task_notification", "event": payload},
+        )
+        result["webhook"] = True
+    binding = database.get_setting("weixin_binding", {}) or {}
+    if binding.get("token") and binding.get("user_id"):
+        outbox.enqueue(
+            channel="weixin",
+            external_user_id=str(binding["user_id"]),
+            dedupe_key=dedupe,
+            payload={
+                "kind": "task_notification",
+                "text": _weixin_text(payload),
+            },
+        )
+        result["weixin"] = True
+    return result
 
 
 async def send_completion_notification(
@@ -66,7 +118,7 @@ async def send_completion_notification(
                 },
                 "base_info": {
                     "channel_version": "2.4.10",
-                    "bot_agent": f"AIAssignmentStudio/{__version__}",
+                    "bot_agent": f"Mumu/{__version__}",
                 },
             }
             response = await client.post(

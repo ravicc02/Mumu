@@ -140,8 +140,8 @@ class StateTests(unittest.TestCase):
                 {"id": "later", "account_id": "a", "status": "queued", "created_at": "2026-11-11T10:00:00Z"},
                 {"id": "earlier", "account_id": "a", "status": "queued", "created_at": "2026-11-11T17:00:00+08:00"},
             ])
-            self.assertEqual(queue[0]["queue_position"], 0)
-            self.assertEqual(queue[1]["queue_position"], 0)
+            self.assertEqual(queue[0]["queue_position"], 2)
+            self.assertEqual(queue[1]["queue_position"], 1)
             self.assertTrue(all(item["blocked_by_job_id"] is None for item in queue))
 
     def test_stop_and_complete_cannot_both_win(self):
@@ -417,7 +417,7 @@ class ApiWorkflowTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(response.status_code, 200, response.text)
                     job = response.json()
                     self.assertIn("pause", job["actions"])
-                    self.assertEqual(job["queue_position"], 0)
+                    self.assertEqual(job["queue_position"], 1)
                     duplicate = await client.post("/api/jobs", json={"assignment_id": original["assignment_id"]})
                     self.assertEqual(duplicate.status_code, 409)
                     paused = await client.post(f"/api/jobs/{job['id']}/pause")

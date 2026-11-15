@@ -13,7 +13,8 @@ import {
   Pause, Play, PlugZap, Plus, RefreshCw, RotateCcw, Save,
   Settings2, Square, X, CircleHelp,
   Search, ArrowUpRight, ChevronLeft, ChevronRight, ArrowDownUp,
-  Maximize2, Minimize2, PanelRightClose, PanelRightOpen
+  Maximize2, Minimize2, PanelRightClose, PanelRightOpen,
+  ShieldCheck, Trash2
 } from "@lucide/vue";
 import { api } from "./api.js";
 import { buildWorkflowStages, canJobAction, mergeJobState, reconcileEvents } from "../features/tasks/lib/state.js";
@@ -36,10 +37,11 @@ import AccountAuthorization from "../features/accounts/components/AccountAuthori
 import LearningTaskDetails from "../features/learning/components/LearningTaskDetails.vue";
 import { createAccountAuthorization } from "../features/accounts/lib/authorization.js";
 import { assignmentBrowserTask, activeAssignmentBrowserTask } from "../features/tasks/lib/browser.js";
-import { assignmentReadiness, requiresMaterials } from "../features/assignments/lib/readiness.js";
+import { assignmentReadiness, directlyAnswerable, requiresMaterials } from "../features/assignments/lib/readiness.js";
 import { finalScreenshotSections } from "../features/tasks/lib/screenshots.js";
 import { createCollectionController } from "../features/assignments/lib/collection-controller.js";
 import { collectAccountBatch } from "../features/assignments/lib/collection-batch.js";
+import AssignmentAutomation from "../features/assignments/components/AssignmentAutomation.vue";
 import { assignmentDeadline, assignmentExpired } from "../features/assignments/lib/availability.js";
 import { buildTaskOverview } from "../features/tasks/lib/overview.js";
 import { accountsForBusiness, businessAccountId, supportsBusiness } from "../features/platforms/lib/catalog.js";
@@ -79,6 +81,8 @@ const collectionBatchRows = ref([]);
 const assignmentQuery = ref("");
 const assignmentFilter = ref("all");
 const assignmentSort = ref("course");
+const assignmentWorkspaceView = ref(["list", "automation"].includes(preference("assignment-view", "list")) ? preference("assignment-view", "list") : "list");
+watch(assignmentWorkspaceView, value => remember("assignment-view", value));
 const listWidth = ref(Math.max(300, Math.min(520, Number(preference("list-width", 370)) || 370)));
 const logPanelOpen = ref(preference("log-open", true));
 const browserExpanded = ref(false);
@@ -166,6 +170,9 @@ const weixinMode = ref("loading");
 const weixinConfig = ref(null);
 const weixinPreferencesBusy = ref(false);
 const weixinSessionBusy = ref(false);
+const weixinUsers = ref([]);
+const weixinUserBusy = ref("");
+const weixinUserMessage = ref("");
 const verificationBusy = ref(false);
 const setupOpen = ref(!onboardingPreviouslyCompleted());
 const setupDismissible = ref(false);
@@ -287,6 +294,7 @@ const filteredAssignments = computed(() => {
       && (!query || `${assignment.title} ${assignment.course_name}`.toLocaleLowerCase().includes(query))
       && (assignmentFilter.value === "all"
         || (assignmentFilter.value === "new" && !job)
+        || (assignmentFilter.value === "answerable" && directlyAnswerable(assignment))
         || (assignmentFilter.value === "attention" && (requiresMaterials(assignment) || (job && ["needs_intervention", "incomplete", "interrupted", "failed"].includes(job.status)))));
   }).sort((left, right) => assignmentSort.value === "title"
     ? left.title.localeCompare(right.title, "zh-CN")
@@ -312,8 +320,13 @@ const batchCollectionDone = computed(() => collectionBatchRows.value.filter(row 
 const assignmentFilterItems = computed(() => [
   { value: "all", label: "全部作业" },
   { value: "new", label: "未执行" },
+  { value: "answerable", label: "可直接作答" },
   { value: "attention", label: "待处理" }
 ]);
+const assignmentWorkspaceItems = [
+  { value: "list", label: "作业列表" },
+  { value: "automation", label: "自动处理" },
+];
 const selectedCount = computed(() => selectedAssignmentIds.value.length);
 const browserShowsCapture = computed(() => Boolean(platformLiveJob.value && (selectedAccountActiveJob.value || captureMode.value === "task")));
 
@@ -1680,6 +1693,104 @@ async function preferencesSaved({ preferences, section }) {
   try { await loadAccounts(); } catch (loadError) { setError(loadError); }
 }
 
+function syncWeixinUsers(config) {
+  weixinUsers.value = (config?.channel_users || []).map(user => ({
+    ...user,
+    account_scope: [...(user.account_scope || [])],
+    readonly_account_ids: [...(user.readonly_account_ids || [])]
+  }));
+  weixinUserMessage.value = "";
+}
+
+function applyWeixinConfig(config) {
+  weixinConfig.value = config;
+  syncWeixinUsers(config);
+  if (settingsInfo.value) {
+    settingsInfo.value = {
+      ...settingsInfo.value,
+      weixin_configured: Boolean(config.configured),
+      weixin_ready: Boolean(config.ready)
+    };
+  }
+}
+
+function maskWeixinUser(identifier) {
+  const value = String(identifier || "");
+  if (value.length <= 8) return value.slice(0, 2) + "***";
+  return value.slice(0, 4) + "***" + value.slice(-4);
+}
+
+function weixinAccountSelected(user, accountId) {
+  return user.account_scope.includes("*") || user.account_scope.includes(accountId);
+}
+
+function toggleWeixinGlobal(user, enabled) {
+  user.account_scope = enabled ? ["*"] : [];
+  user.readonly_account_ids = [];
+  weixinUserMessage.value = "";
+}
+
+function toggleWeixinAccount(user, accountId, enabled) {
+  const scope = new Set(user.account_scope.filter(item => item !== "*"));
+  if (enabled) scope.add(accountId);
+  else {
+    scope.delete(accountId);
+    user.readonly_account_ids = user.readonly_account_ids.filter(item => item !== accountId);
+  }
+  user.account_scope = [...scope];
+  weixinUserMessage.value = "";
+}
+
+function toggleWeixinReadonly(user, accountId, enabled) {
+  const readonly = new Set(user.readonly_account_ids);
+  if (enabled) readonly.add(accountId);
+  else readonly.delete(accountId);
+  user.readonly_account_ids = [...readonly];
+  weixinUserMessage.value = "";
+}
+
+async function saveWeixinUser(user) {
+  if (weixinUserBusy.value) return;
+  if (!user.account_scope.length) {
+    weixinUserMessage.value = "至少选择一个账号范围。";
+    return;
+  }
+  weixinUserBusy.value = user.external_user_id;
+  weixinUserMessage.value = "";
+  try {
+    await api.saveChannelUser(user.external_user_id, {
+      role: user.role,
+      account_scope: user.account_scope,
+      readonly_account_ids: user.readonly_account_ids,
+      enabled: user.enabled,
+      display_name: user.display_name || ""
+    });
+    const config = await api.weixinConnector();
+    applyWeixinConfig(config);
+    notice.value = "微信用户权限已保存";
+  } catch (saveError) {
+    weixinUserMessage.value = saveError.message;
+  } finally {
+    weixinUserBusy.value = "";
+  }
+}
+
+async function removeWeixinUser(user) {
+  if (weixinUserBusy.value) return;
+  weixinUserBusy.value = user.external_user_id;
+  weixinUserMessage.value = "";
+  try {
+    await api.deleteChannelUser(user.external_user_id);
+    const config = await api.weixinConnector();
+    applyWeixinConfig(config);
+    notice.value = "微信用户授权已移除";
+  } catch (removeError) {
+    weixinUserMessage.value = removeError.message;
+  } finally {
+    weixinUserBusy.value = "";
+  }
+}
+
 async function openWeixinConnector() {
   const generation = ++weixinGeneration;
   clearInterval(weixinTimer);
@@ -1691,7 +1802,7 @@ async function openWeixinConnector() {
   try {
     const config = await api.weixinConnector();
     if (generation !== weixinGeneration) return;
-    weixinConfig.value = config;
+    applyWeixinConfig(config);
     if (config.configured) weixinMode.value = "settings";
     else await openWeixinBinding();
   } catch (configError) {
@@ -1773,7 +1884,7 @@ async function pollWeixinStatus() {
       weixinTimer = null;
       const config = await api.weixinConnector();
       if (generation !== weixinGeneration) return;
-      weixinConfig.value = config;
+      applyWeixinConfig(config);
       weixinMode.value = "settings";
       weixinQr.value = "";
       weixinMessage.value = "";
@@ -1793,7 +1904,7 @@ async function refreshWeixinSession() {
   try {
     const result = await api.weixinRefresh();
     weixinMessage.value = result.message;
-    weixinConfig.value = await api.weixinConnector();
+    applyWeixinConfig(await api.weixinConnector());
     await loadSettings();
   } catch (refreshError) {
     weixinMessage.value = refreshError.message;
@@ -2161,7 +2272,16 @@ onUnmounted(() => {
       <PlatformWorkspace v-else-if="activePage === 'platforms'" key="platforms" v-model="selectedPlatformId" :platforms="platforms" :accounts="accounts" :selected-account-id="selectedAccountId" :menu-id="accountMenuId" :login-account-id="loginAccountId" :is-busy="accountOperationBusy" @add="addPlatformAccount" @authorize="authorizeAccount" @confirm-authorization="confirmPlatformAuthorization" @refresh-cookie="refreshAccountCookie" @delete="openDeleteAccount" @menu="toggleAccountMenu" @menu-keydown="navigateAccountMenu" @assignments="goToAssignments" @learning="goToLearning" />
       <AttendanceWorkspace v-else-if="activePage === 'attendance'" key="attendance" :accounts="accounts" @authorize="id => id ? goToAccount(id) : goToPage('platforms')"/>
 
-      <main v-else-if="activePage === 'assignments'" key="assignments" class="platform-layout" :class="{ 'logs-open': logPanelOpen }" :style="{ '--assignment-width': `${listWidth}px` }">
+      <main
+        v-else-if="activePage === 'assignments'"
+        key="assignments"
+        class="platform-layout"
+        :class="{
+          'logs-open': assignmentWorkspaceView === 'list' && logPanelOpen,
+          'assignment-automation-mode': assignmentWorkspaceView === 'automation'
+        }"
+        :style="assignmentWorkspaceView === 'list' ? { '--assignment-width': `${listWidth}px` } : undefined"
+      >
         <aside class="account-rail assignment-account-rail">
           <div class="section-title account-title">
             <span>账号</span>
@@ -2197,11 +2317,14 @@ onUnmounted(() => {
 
         <section class="assignment-board">
           <div class="board-heading">
-            <div>
-              <h2>作业 <span class="heading-count">{{ filteredAssignments.length }}</span></h2>
-              <span v-if="selectedAccount" class="board-account-name"><PlatformLogo :platform="selectedAccount.platform" :size="15" />{{ selectedAccount.name }}</span>
+            <div class="assignment-heading-line">
+              <div>
+                <h2>{{ assignmentWorkspaceView === 'automation' ? '自动处理' : '作业列表' }} <span v-if="assignmentWorkspaceView === 'list'" class="heading-count">{{ filteredAssignments.length }}</span></h2>
+                <span v-if="assignmentWorkspaceView === 'list' && selectedAccount" class="board-account-name"><PlatformLogo :platform="selectedAccount.platform" :size="15" />{{ selectedAccount.name }}</span>
+              </div>
+              <Tabs v-model="assignmentWorkspaceView" :items="assignmentWorkspaceItems" label="作业视图" />
             </div>
-            <div class="filters">
+            <div v-if="assignmentWorkspaceView === 'list'" class="filters">
               <label v-if="selectedAccount?.platform !== 'educoder'" class="semester-filter">
                 <span>学期</span>
                 <select v-model="selectedSemester" aria-label="学期">
@@ -2225,6 +2348,7 @@ onUnmounted(() => {
               </button>
             </div>
           </div>
+          <template v-if="assignmentWorkspaceView === 'list'">
           <EducoderCourses v-if="selectedAccount?.platform === 'educoder'" :key="selectedAccount.id" :account="selectedAccount" @changed="loadAssignments" />
           <div class="assignment-tools">
             <label class="search-field"><Search :size="14" /><input v-model="assignmentQuery" aria-label="搜索作业" placeholder="搜索作业、课程"><button v-if="assignmentQuery" type="button" class="icon-button" aria-label="清除作业搜索" @click="assignmentQuery = ''"><X :size="13" /></button></label>
@@ -2384,9 +2508,12 @@ onUnmounted(() => {
               </div>
             </article>
           </section>
+          </template>
+          <AssignmentAutomation v-else :accounts="assignmentAccounts" />
         </section>
-        <ResizeHandle v-model="listWidth" :min="300" :max="520" @commit="remember('list-width', listWidth)" />
+        <ResizeHandle v-if="assignmentWorkspaceView === 'list'" v-model="listWidth" :min="300" :max="520" @commit="remember('list-width', listWidth)" />
         <aside
+          v-if="assignmentWorkspaceView === 'list'"
           class="profile-preview-panel platform-browser-panel"
           :class="{
             'live-task-panel': browserShowsCapture,
@@ -2477,7 +2604,7 @@ onUnmounted(() => {
             </div>
           </template>
         </aside>
-        <aside v-if="logPanelOpen" class="platform-log-panel">
+        <aside v-if="assignmentWorkspaceView === 'list' && logPanelOpen" class="platform-log-panel">
           <div class="platform-log-heading">
             <div>
               <h2><FileText :size="16" aria-hidden="true" />执行日志</h2>
@@ -2903,7 +3030,7 @@ onUnmounted(() => {
         @mousedown.self="weixinModalOpen = false"
       >
         <div
-          class="modal-card modal-narrow"
+          class="modal-card modal-narrow modal-weixin"
           role="dialog"
           aria-modal="true"
           aria-labelledby="weixin-modal-title"
@@ -2923,6 +3050,57 @@ onUnmounted(() => {
               <button class="text-button" type="button" @click="openCollectionSettings">检测设置<ArrowUpRight :size="13" /></button>
             </div>
             <div class="weixin-preference-row"><label><span>任务结果</span><input class="switch-input" type="checkbox" role="switch" aria-label="任务结果" :checked="weixinConfig.preferences.completion_enabled" :disabled="weixinPreferencesBusy || weixinSessionBusy" @change="updateWeixinPreference('completion_enabled', $event.target.checked)"></label></div>
+            <details class="weixin-permissions">
+              <summary><ShieldCheck :size="15" aria-hidden="true" /><span>微信用户权限</span><small>{{ weixinUsers.length }}</small></summary>
+              <div v-if="weixinUsers.length" class="weixin-user-list">
+                <article v-for="user in weixinUsers" :key="user.external_user_id" class="weixin-user-row">
+                  <div class="weixin-user-heading">
+                    <div class="weixin-user-identity">
+                      <strong>{{ user.display_name || maskWeixinUser(user.external_user_id) }}</strong>
+                      <small title="微信用户稳定标识">{{ maskWeixinUser(user.external_user_id) }}</small>
+                    </div>
+                    <label class="weixin-user-enabled">
+                      <input class="switch-input" type="checkbox" role="switch" :aria-label="`${user.display_name || '微信用户'}授权`" v-model="user.enabled">
+                      <span>{{ user.enabled ? "已授权" : "待授权" }}</span>
+                    </label>
+                    <select v-model="user.role" class="weixin-role-select" :aria-label="`${user.display_name || '微信用户'}角色`">
+                      <option value="viewer">只读</option>
+                      <option value="operator">操作</option>
+                      <option value="admin">管理</option>
+                    </select>
+                  </div>
+                  <div class="weixin-user-scope">
+                    <label class="weixin-scope-global">
+                      <input type="checkbox" :checked="user.account_scope.includes('*')" @change="toggleWeixinGlobal(user, $event.target.checked)">
+                      <span>全部账号</span>
+                    </label>
+                    <div v-for="account in accounts" :key="account.id" class="weixin-scope-account">
+                      <label class="weixin-scope-main">
+                        <input
+                          type="checkbox"
+                          :checked="weixinAccountSelected(user, account.id)"
+                          :disabled="user.account_scope.includes('*')"
+                          @change="toggleWeixinAccount(user, account.id, $event.target.checked)"
+                        >
+                        <span>{{ account.name }}</span>
+                        <small>{{ platformLabel(account.platform) }}</small>
+                      </label>
+                      <label v-if="!user.account_scope.includes('*') && user.account_scope.includes(account.id)" class="weixin-scope-readonly">
+                        <input type="checkbox" :checked="user.readonly_account_ids.includes(account.id)" @change="toggleWeixinReadonly(user, account.id, $event.target.checked)">
+                        <span>只读</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="weixin-user-actions">
+                    <span v-if="!user.account_scope.length">至少选择一个账号</span>
+                    <button class="text-button" type="button" :disabled="Boolean(weixinUserBusy)" @click="saveWeixinUser(user)"><Save :size="13" />{{ weixinUserBusy === user.external_user_id ? "保存中" : "保存" }}</button>
+                    <button class="icon-button danger" type="button" title="移除授权" aria-label="移除授权" :disabled="Boolean(weixinUserBusy)" @click="removeWeixinUser(user)"><Trash2 :size="14" aria-hidden="true" /></button>
+                  </div>
+                </article>
+              </div>
+              <p v-else class="weixin-user-empty">微信用户发送第一条消息后会出现在这里，默认不授权。</p>
+              <p v-if="weixinUserMessage" class="weixin-user-error" role="alert">{{ weixinUserMessage }}</p>
+            </details>
             <details v-if="weixinConfig.examples" class="weixin-message-preview"><summary>消息预览</summary><pre>{{ weixinConfig.examples.new_assignment }}</pre><pre>{{ weixinConfig.examples.completion }}</pre></details>
             <p v-if="weixinConfig.preferences.new_assignments_enabled && weixinConfig.pending_new_assignments" class="modal-message" role="status">{{ weixinConfig.pending_new_assignments }} 个新增作业待推送。{{ weixinConfig.last_delivery_error || '下次定时采集时重试。' }}</p>
             <p v-if="!weixinConfig.ready" class="modal-message">在微信中向机器人发送一条消息，再刷新会话。</p>

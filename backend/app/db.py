@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import random
 import sqlite3
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -147,6 +149,9 @@ class Database:
                   verification_note TEXT,
                   started_at TEXT,
                   finished_at TEXT,
+                  queue_priority INTEGER NOT NULL DEFAULT 0,
+                  waiting_reason TEXT,
+                  not_before TEXT,
                   FOREIGN KEY(account_id) REFERENCES accounts(id),
                   FOREIGN KEY(assignment_id) REFERENCES assignments(id)
                 );
@@ -196,12 +201,255 @@ class Database:
                   FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS model_calls (
+                  id TEXT PRIMARY KEY,
+                  attempt_id TEXT NOT NULL,
+                  role TEXT NOT NULL,
+                  provider_id TEXT NOT NULL,
+                  model TEXT NOT NULL,
+                  request_hash TEXT NOT NULL,
+                  usage_json TEXT,
+                  status TEXT NOT NULL,
+                  latency_ms INTEGER,
+                  failure_class TEXT,
+                  http_status INTEGER,
+                  candidate_index INTEGER NOT NULL DEFAULT 0,
+                  fallback_from TEXT,
+                  idempotency_key TEXT,
+                  estimated_tokens INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL,
+                  finished_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS task_checkpoints (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  attempt_id TEXT NOT NULL,
+                  attempt_kind TEXT NOT NULL,
+                  version INTEGER NOT NULL,
+                  phase TEXT NOT NULL,
+                  goal_json TEXT NOT NULL DEFAULT '[]',
+                  completed_json TEXT NOT NULL DEFAULT '[]',
+                  blockers_json TEXT NOT NULL DEFAULT '[]',
+                  evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+                  next_action_id TEXT,
+                  created_at TEXT NOT NULL,
+                  UNIQUE(attempt_id, version)
+                );
+
+                CREATE TABLE IF NOT EXISTS resource_leases (
+                  resource_key TEXT PRIMARY KEY,
+                  owner_id TEXT NOT NULL,
+                  owner_kind TEXT NOT NULL,
+                  acquired_at TEXT NOT NULL,
+                  heartbeat_at TEXT NOT NULL,
+                  expires_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS model_provider_health (
+                  provider_id TEXT PRIMARY KEY,
+                  state TEXT NOT NULL DEFAULT 'closed',
+                  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                  opened_until REAL,
+                  last_failure_class TEXT,
+                  last_failure_at TEXT,
+                  last_success_at TEXT,
+                  adaptive_concurrency INTEGER NOT NULL DEFAULT 2,
+                  cooldown_seconds REAL NOT NULL DEFAULT 30,
+                  probe_started_at REAL,
+                  updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS agent_sessions (
+                  id TEXT PRIMARY KEY,
+                  agent_kind TEXT NOT NULL,
+                  channel TEXT NOT NULL,
+                  external_user_ref TEXT,
+                  status TEXT NOT NULL DEFAULT 'active',
+                  title TEXT,
+                  metadata_json TEXT NOT NULL DEFAULT '{}',
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  deleted_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS agent_messages (
+                  id TEXT PRIMARY KEY,
+                  session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+                  sequence INTEGER NOT NULL,
+                  role TEXT NOT NULL,
+                  content_json TEXT NOT NULL,
+                  model_call_id TEXT,
+                  kind TEXT NOT NULL DEFAULT 'message',
+                  sensitive INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL,
+                  UNIQUE(session_id, sequence)
+                );
+
+                CREATE TABLE IF NOT EXISTS agent_summaries (
+                  id TEXT PRIMARY KEY,
+                  session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+                  from_sequence INTEGER NOT NULL,
+                  to_sequence INTEGER NOT NULL,
+                  summary TEXT NOT NULL,
+                  model_call_id TEXT,
+                  created_at TEXT NOT NULL,
+                  UNIQUE(session_id, to_sequence)
+                );
+
+                CREATE TABLE IF NOT EXISTS memory_items (
+                  id TEXT PRIMARY KEY,
+                  scope TEXT NOT NULL,
+                  kind TEXT NOT NULL,
+                  content TEXT NOT NULL,
+                  source_ref TEXT NOT NULL,
+                  source_kind TEXT NOT NULL,
+                  confidence REAL NOT NULL DEFAULT 1,
+                  sensitive INTEGER NOT NULL DEFAULT 0,
+                  expires_at TEXT,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  deleted_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS memory_tombstones (
+                  id TEXT PRIMARY KEY,
+                  target_kind TEXT NOT NULL,
+                  target_id TEXT NOT NULL,
+                  scope TEXT,
+                  reason TEXT NOT NULL,
+                  created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS channel_messages (
+                  id TEXT PRIMARY KEY,
+                  channel TEXT NOT NULL,
+                  external_message_id TEXT NOT NULL,
+                  session_id TEXT,
+                  sender_id TEXT NOT NULL,
+                  message_type TEXT NOT NULL,
+                  content_json TEXT NOT NULL,
+                  processed_at TEXT,
+                  created_at TEXT NOT NULL,
+                  UNIQUE(channel, external_message_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS channel_users (
+                  channel TEXT NOT NULL,
+                  external_user_id TEXT NOT NULL,
+                  role TEXT NOT NULL DEFAULT 'viewer',
+                  account_scope_json TEXT NOT NULL DEFAULT '[]',
+                  readonly_account_ids_json TEXT NOT NULL DEFAULT '[]',
+                  enabled INTEGER NOT NULL DEFAULT 0,
+                  display_name TEXT,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  PRIMARY KEY(channel, external_user_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS channel_contexts (
+                  channel TEXT NOT NULL,
+                  external_user_id TEXT NOT NULL,
+                  context_token TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  PRIMARY KEY(channel, external_user_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS pending_actions (
+                  id TEXT PRIMARY KEY,
+                  channel TEXT NOT NULL,
+                  external_user_id TEXT NOT NULL,
+                  session_id TEXT NOT NULL,
+                  inbound_message_id TEXT NOT NULL,
+                  action_kind TEXT NOT NULL,
+                  payload_json TEXT NOT NULL,
+                  action_hash TEXT NOT NULL,
+                  token_hash TEXT NOT NULL UNIQUE,
+                  expires_at TEXT NOT NULL,
+                  state TEXT NOT NULL DEFAULT 'pending',
+                  idempotency_key TEXT NOT NULL UNIQUE,
+                  created_at TEXT NOT NULL,
+                  consumed_at TEXT,
+                  cancelled_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS tool_calls (
+                  id TEXT PRIMARY KEY,
+                  attempt_id TEXT,
+                  channel TEXT,
+                  external_user_id TEXT,
+                  tool TEXT NOT NULL,
+                  arguments_json TEXT NOT NULL DEFAULT '{}',
+                  receipt_json TEXT NOT NULL DEFAULT '{}',
+                  idempotency_key TEXT,
+                  status TEXT NOT NULL,
+                  error_code TEXT,
+                  created_at TEXT NOT NULL,
+                  finished_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS incidents (
+                  id TEXT PRIMARY KEY,
+                  dedupe_key TEXT NOT NULL UNIQUE,
+                  severity TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  title TEXT NOT NULL,
+                  details TEXT NOT NULL,
+                  source_ref TEXT,
+                  next_action TEXT,
+                  opened_at TEXT NOT NULL,
+                  last_seen_at TEXT NOT NULL,
+                  resolved_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS outbox_messages (
+                  id TEXT PRIMARY KEY,
+                  channel TEXT NOT NULL,
+                  external_user_id TEXT NOT NULL,
+                  dedupe_key TEXT NOT NULL,
+                  payload_json TEXT NOT NULL,
+                  state TEXT NOT NULL DEFAULT 'pending',
+                  attempts INTEGER NOT NULL DEFAULT 0,
+                  next_attempt_at TEXT NOT NULL,
+                  last_error TEXT,
+                  created_at TEXT NOT NULL,
+                  sent_at TEXT,
+                  UNIQUE(channel, dedupe_key)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_assignments_account
                   ON assignments(account_id, academic_year, status);
                 CREATE INDEX IF NOT EXISTS idx_job_events_job
                   ON job_events(job_id, id);
                 CREATE INDEX IF NOT EXISTS idx_collection_runs_account
                   ON collection_runs(account_id, started_at);
+                CREATE INDEX IF NOT EXISTS idx_model_calls_attempt
+                  ON model_calls(attempt_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_model_calls_health
+                  ON model_calls(provider_id, model, status, created_at);
+                CREATE INDEX IF NOT EXISTS idx_task_checkpoints_attempt
+                  ON task_checkpoints(attempt_id, version);
+                CREATE INDEX IF NOT EXISTS idx_resource_leases_expiry
+                  ON resource_leases(expires_at);
+                CREATE INDEX IF NOT EXISTS idx_resource_leases_owner
+                  ON resource_leases(owner_id);
+                CREATE INDEX IF NOT EXISTS idx_agent_messages_session
+                  ON agent_messages(session_id, sequence);
+                CREATE INDEX IF NOT EXISTS idx_agent_summaries_session
+                  ON agent_summaries(session_id, to_sequence);
+                CREATE INDEX IF NOT EXISTS idx_memory_items_scope
+                  ON memory_items(scope, deleted_at, expires_at, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_memory_tombstones_target
+                  ON memory_tombstones(target_kind, target_id);
+                CREATE INDEX IF NOT EXISTS idx_channel_messages_sender
+                  ON channel_messages(channel, sender_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_pending_actions_actor
+                  ON pending_actions(channel, external_user_id, state, expires_at);
+                CREATE INDEX IF NOT EXISTS idx_tool_calls_attempt
+                  ON tool_calls(attempt_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_incidents_status
+                  ON incidents(status, severity, last_seen_at);
+                CREATE INDEX IF NOT EXISTS idx_outbox_dispatch
+                  ON outbox_messages(state, next_attempt_at);
                 DROP INDEX IF EXISTS idx_jobs_active_assignment;
                 """
             )
@@ -222,9 +470,20 @@ class Database:
                 "completed_units": "INTEGER NOT NULL DEFAULT 0",
                 "total_units": "INTEGER NOT NULL DEFAULT 0",
                 "deleted_at": "TEXT",
+                "queue_priority": "INTEGER NOT NULL DEFAULT 0",
+                "waiting_reason": "TEXT",
+                "not_before": "TEXT",
             }.items():
                 if column not in job_columns:
                     connection.execute(f"ALTER TABLE jobs ADD COLUMN {column} {definition}")
+            model_call_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(model_calls)").fetchall()
+            }
+            if "estimated_tokens" not in model_call_columns:
+                connection.execute(
+                    "ALTER TABLE model_calls ADD COLUMN estimated_tokens INTEGER NOT NULL DEFAULT 0"
+                )
             connection.execute(
                 """
                 CREATE UNIQUE INDEX idx_jobs_active_assignment ON jobs(assignment_id)
@@ -376,9 +635,48 @@ class Database:
                 state TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', job_id TEXT,
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             )""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS assignment_auto_groups (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                account_ids_json TEXT NOT NULL,
+                course_filters_json TEXT NOT NULL,
+                windows_json TEXT NOT NULL,
+                auto_submit INTEGER NOT NULL DEFAULT 0,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                baseline_ready INTEGER NOT NULL DEFAULT 0,
+                last_scan_at TEXT,
+                last_status TEXT NOT NULL DEFAULT 'waiting',
+                last_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS assignment_auto_group_items (
+                group_id TEXT NOT NULL REFERENCES assignment_auto_groups(id) ON DELETE CASCADE,
+                assignment_id TEXT NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                state TEXT NOT NULL,
+                reason TEXT NOT NULL DEFAULT '',
+                job_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(group_id, assignment_id)
+            )""")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS assignment_auto_group_items_state "
+                "ON assignment_auto_group_items(state,created_at)"
+            )
             job_columns = {row["name"] for row in connection.execute("PRAGMA table_info(jobs)")}
             if "trigger" not in job_columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN trigger TEXT NOT NULL DEFAULT 'manual'")
+            connection.execute(
+                """
+                UPDATE jobs SET queue_priority = CASE
+                  WHEN trigger = 'manual' THEN 100
+                  ELSE 10
+                END
+                WHERE queue_priority = 0
+                """
+            )
             if "entry_url" not in account_columns:
                 connection.execute("ALTER TABLE accounts ADD COLUMN entry_url TEXT")
             if "last_login_error" not in account_columns:
@@ -539,6 +837,37 @@ class Database:
 
     def delete_account(self, account_id: str) -> None:
         with self.connect() as connection:
+            owner_ids = [
+                row["id"]
+                for row in connection.execute(
+                    "SELECT id FROM jobs WHERE account_id = ?",
+                    (account_id,),
+                ).fetchall()
+            ]
+            if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='learning_runs'"
+            ).fetchone():
+                owner_ids.extend(
+                    row["id"]
+                    for row in connection.execute(
+                        "SELECT id FROM learning_runs WHERE account_id = ?",
+                        (account_id,),
+                    ).fetchall()
+                )
+            if owner_ids:
+                connection.executemany(
+                    "DELETE FROM resource_leases WHERE owner_id = ?",
+                    ((owner_id,) for owner_id in owner_ids),
+                )
+            self.forget_attempt_records(
+                connection,
+                owner_ids,
+                reason="account_deleted",
+                scopes=[
+                    f"account:{account_id}",
+                    *(f"attempt:{owner_id}" for owner_id in owner_ids),
+                ],
+            )
             connection.execute(
                 "DELETE FROM jobs WHERE account_id = ?",
                 (account_id,),
@@ -894,6 +1223,7 @@ class Database:
     ) -> dict[str, Any]:
         job_id = uuid.uuid4().hex
         created_at = utc_now()
+        queue_priority = 100 if trigger == "manual" else 10
         try:
             with self.connect() as connection:
                 if trigger == "scheduled":
@@ -909,8 +1239,8 @@ class Database:
                     INSERT INTO jobs(
                       id, account_id, assignment_id, parent_job_id, attempt,
                       status, submission_status, auto_submit, interactive,
-                      created_at, updated_at, trigger
-                    ) VALUES (?, ?, ?, ?, ?, 'queued', 'not_started', ?, ?, ?, ?, ?)
+                      created_at, updated_at, trigger, queue_priority
+                    ) VALUES (?, ?, ?, ?, ?, 'queued', 'not_started', ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job_id,
@@ -923,6 +1253,7 @@ class Database:
                         created_at,
                         created_at,
                         trigger,
+                        queue_priority,
                     ),
                 )
         except sqlite3.IntegrityError as error:
@@ -989,7 +1320,97 @@ class Database:
                 "UPDATE jobs SET deleted_at=? WHERE account_id=? AND assignment_id=? AND deleted_at IS NULL",
                 (utc_now(), job["account_id"], job["assignment_id"]),
             )
+            self.forget_attempt_records(
+                connection,
+                [row["id"] for row in attempts],
+                reason="assignment_task_deleted",
+                scopes=[f"attempt:{row['id']}" for row in attempts],
+            )
+            for row in attempts:
+                connection.execute(
+                    "DELETE FROM resource_leases WHERE owner_id = ?",
+                    (row["id"],),
+                )
         return {"deleted_ids": [row["id"] for row in attempts], "task_kind": "assignment"}
+
+    def forget_attempt_records(
+        self,
+        connection: sqlite3.Connection,
+        attempt_ids: list[str],
+        *,
+        reason: str,
+        scopes: list[str] | None = None,
+    ) -> dict[str, int]:
+        identifiers = list(dict.fromkeys(str(item) for item in attempt_ids if item))
+        scope_values = list(dict.fromkeys(str(item) for item in (scopes or []) if item))
+        if not identifiers and not scope_values:
+            return {"checkpoints": 0, "memories": 0}
+        now = utc_now()
+        memory_clauses: list[str] = []
+        memory_values: list[Any] = []
+        if identifiers:
+            source_refs = []
+            for identifier in identifiers:
+                source_refs.extend([
+                    identifier,
+                    f"task:{identifier}",
+                    f"assignment:{identifier}",
+                    f"learning:{identifier}",
+                ])
+            placeholders = ",".join("?" for _ in source_refs)
+            memory_clauses.append(f"source_ref IN ({placeholders})")
+            memory_values.extend(source_refs)
+        if scope_values:
+            placeholders = ",".join("?" for _ in scope_values)
+            memory_clauses.append(f"scope IN ({placeholders})")
+            memory_values.extend(scope_values)
+        memory_rows = connection.execute(
+            f"""
+            SELECT id, scope FROM memory_items
+            WHERE deleted_at IS NULL AND ({' OR '.join(memory_clauses)})
+            """,
+            memory_values,
+        ).fetchall()
+        for row in memory_rows:
+            connection.execute(
+                "UPDATE memory_items SET deleted_at = ?, updated_at = ? WHERE id = ?",
+                (now, now, row["id"]),
+            )
+            connection.execute(
+                """
+                INSERT INTO memory_tombstones(
+                  id, target_kind, target_id, scope, reason, created_at
+                ) VALUES (?, 'memory_item', ?, ?, ?, ?)
+                """,
+                (uuid.uuid4().hex, row["id"], row["scope"], reason, now),
+            )
+        checkpoint_count = 0
+        if identifiers:
+            placeholders = ",".join("?" for _ in identifiers)
+            cursor = connection.execute(
+                f"DELETE FROM task_checkpoints WHERE attempt_id IN ({placeholders})",
+                identifiers,
+            )
+            checkpoint_count = int(cursor.rowcount)
+            for identifier in identifiers:
+                connection.execute(
+                    """
+                    INSERT INTO memory_tombstones(
+                      id, target_kind, target_id, scope, reason, created_at
+                    ) VALUES (?, 'task_attempt', ?, ?, ?, ?)
+                    """,
+                    (
+                        uuid.uuid4().hex,
+                        identifier,
+                        f"attempt:{identifier}",
+                        reason,
+                        now,
+                    ),
+                )
+        return {
+            "checkpoints": checkpoint_count,
+            "memories": len(memory_rows),
+        }
 
     def next_attempt_for_assignment(
         self,
@@ -1175,12 +1596,7 @@ class Database:
             rows = connection.execute(
                 """
                 SELECT id, status FROM jobs
-                WHERE status IN (
-                  'queued',
-                  'running',
-                  'paused',
-                  'stopping'
-                )
+                WHERE status IN ('running', 'paused', 'stopping')
                 """
             ).fetchall()
             for row in rows:
@@ -1260,6 +1676,16 @@ class Database:
                 raise ValueError(f"任务状态不能从 {current} 转换为 {status}")
             fields["status"] = status
             fields.setdefault("updated_at", utc_now())
+            if status in {
+                "completed",
+                "incomplete",
+                "needs_intervention",
+                "failed",
+                "interrupted",
+                "stopped",
+            }:
+                fields.setdefault("waiting_reason", None)
+                fields.setdefault("not_before", None)
             columns = ", ".join(f"{key} = ?" for key in fields)
             values = [*fields.values(), job_id]
             connection.execute(
@@ -1355,6 +1781,567 @@ class Database:
                 (job_id,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def begin_model_call(
+        self,
+        *,
+        attempt_id: str,
+        role: str,
+        provider_id: str,
+        model: str,
+        request_hash: str,
+        candidate_index: int = 0,
+        fallback_from: str | None = None,
+        idempotency_key: str | None = None,
+        estimated_tokens: int = 0,
+    ) -> dict[str, Any]:
+        call_id = uuid.uuid4().hex
+        created_at = utc_now()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO model_calls(
+                  id, attempt_id, role, provider_id, model, request_hash,
+                  status, candidate_index, fallback_from, idempotency_key,
+                  estimated_tokens, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)
+                """,
+                (
+                    call_id,
+                    attempt_id,
+                    role,
+                    provider_id,
+                    model,
+                    request_hash,
+                    candidate_index,
+                    fallback_from,
+                    idempotency_key,
+                    max(0, int(estimated_tokens)),
+                    created_at,
+                ),
+            )
+        return {
+            "id": call_id,
+            "attempt_id": attempt_id,
+            "role": role,
+            "provider_id": provider_id,
+            "model": model,
+            "request_hash": request_hash,
+            "status": "running",
+            "candidate_index": candidate_index,
+            "fallback_from": fallback_from,
+            "idempotency_key": idempotency_key,
+            "estimated_tokens": max(0, int(estimated_tokens)),
+            "created_at": created_at,
+        }
+
+    def finish_model_call(
+        self,
+        call_id: str,
+        *,
+        status: str,
+        latency_ms: int,
+        usage: Any = None,
+        failure_class: str | None = None,
+        http_status: int | None = None,
+    ) -> None:
+        if status not in {"succeeded", "error", "cancelled"}:
+            raise ValueError("未知模型调用状态")
+        with self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE model_calls
+                SET status = ?, latency_ms = ?, usage_json = ?,
+                    failure_class = ?, http_status = ?, finished_at = ?
+                WHERE id = ?
+                """,
+                (
+                    status,
+                    max(0, int(latency_ms)),
+                    json.dumps(usage, ensure_ascii=False) if usage is not None else None,
+                    failure_class,
+                    http_status,
+                    utc_now(),
+                    call_id,
+                ),
+            )
+
+    def list_model_calls(
+        self,
+        *,
+        attempt_id: str | None = None,
+        provider_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        values: list[Any] = []
+        if attempt_id:
+            clauses.append("attempt_id = ?")
+            values.append(attempt_id)
+        if provider_id:
+            clauses.append("provider_id = ?")
+            values.append(provider_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        values.append(max(1, min(int(limit), 1000)))
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM model_calls
+                {where}
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?
+                """,
+                values,
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["usage"] = json.loads(item.pop("usage_json", "") or "null")
+            except (TypeError, ValueError):
+                item["usage"] = None
+            result.append(item)
+        return result
+
+    def save_task_checkpoint(
+        self,
+        *,
+        attempt_id: str,
+        attempt_kind: str,
+        phase: str,
+        goal: Any = None,
+        completed: Any = None,
+        blockers: Any = None,
+        evidence_refs: Any = None,
+        next_action_id: str | None = None,
+    ) -> dict[str, Any]:
+        created_at = utc_now()
+        goal_json = json.dumps(goal if goal is not None else [], ensure_ascii=False)
+        completed_json = json.dumps(completed if completed is not None else [], ensure_ascii=False)
+        blockers_json = json.dumps(blockers if blockers is not None else [], ensure_ascii=False)
+        evidence_json = json.dumps(evidence_refs if evidence_refs is not None else [], ensure_ascii=False)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT COALESCE(MAX(version), 0) AS version
+                FROM task_checkpoints WHERE attempt_id = ?
+                """,
+                (attempt_id,),
+            ).fetchone()
+            version = int(row["version"]) + 1
+            cursor = connection.execute(
+                """
+                INSERT INTO task_checkpoints(
+                  attempt_id, attempt_kind, version, phase, goal_json,
+                  completed_json, blockers_json, evidence_refs_json,
+                  next_action_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    attempt_id,
+                    attempt_kind,
+                    version,
+                    phase,
+                    goal_json,
+                    completed_json,
+                    blockers_json,
+                    evidence_json,
+                    next_action_id,
+                    created_at,
+                ),
+            )
+            checkpoint_id = cursor.lastrowid
+        return {
+            "id": checkpoint_id,
+            "attempt_id": attempt_id,
+            "attempt_kind": attempt_kind,
+            "version": version,
+            "phase": phase,
+            "goal": goal if goal is not None else [],
+            "completed": completed if completed is not None else [],
+            "blockers": blockers if blockers is not None else [],
+            "evidence_refs": evidence_refs if evidence_refs is not None else [],
+            "next_action_id": next_action_id,
+            "created_at": created_at,
+        }
+
+    def latest_task_checkpoint(self, attempt_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM task_checkpoints
+                WHERE attempt_id = ?
+                ORDER BY version DESC LIMIT 1
+                """,
+                (attempt_id,),
+            ).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        for source, target in (
+            ("goal_json", "goal"),
+            ("completed_json", "completed"),
+            ("blockers_json", "blockers"),
+            ("evidence_refs_json", "evidence_refs"),
+        ):
+            try:
+                item[target] = json.loads(item.pop(source, "") or "[]")
+            except (TypeError, ValueError):
+                item[target] = []
+        return item
+
+    def cleanup_expired_resource_leases(self, *, now: float | None = None) -> int:
+        current = time.time() if now is None else float(now)
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM resource_leases WHERE expires_at <= ?",
+                (current,),
+            )
+        return int(cursor.rowcount)
+
+    def acquire_resource_leases(
+        self,
+        *,
+        owner_id: str,
+        owner_kind: str,
+        resource_keys: list[str],
+        ttl_seconds: float = 60,
+        now: float | None = None,
+    ) -> tuple[bool, str | None]:
+        keys = list(dict.fromkeys(str(key) for key in resource_keys if str(key)))
+        if not keys:
+            raise ValueError("至少需要一个资源租约键")
+        current = time.time() if now is None else float(now)
+        expires_at = current + max(5.0, float(ttl_seconds))
+        heartbeat_at = utc_now()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "DELETE FROM resource_leases WHERE expires_at <= ?",
+                (current,),
+            )
+            placeholders = ",".join("?" for _ in keys)
+            conflicts = connection.execute(
+                f"""
+                SELECT resource_key FROM resource_leases
+                WHERE resource_key IN ({placeholders}) AND owner_id <> ?
+                ORDER BY resource_key
+                """,
+                (*keys, owner_id),
+            ).fetchall()
+            if conflicts:
+                return False, str(conflicts[0]["resource_key"])
+            for key in keys:
+                connection.execute(
+                    """
+                    INSERT INTO resource_leases(
+                      resource_key, owner_id, owner_kind, acquired_at,
+                      heartbeat_at, expires_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(resource_key) DO UPDATE SET
+                      owner_kind = excluded.owner_kind,
+                      heartbeat_at = excluded.heartbeat_at,
+                      expires_at = excluded.expires_at
+                    WHERE resource_leases.owner_id = excluded.owner_id
+                    """,
+                    (
+                        key,
+                        owner_id,
+                        owner_kind,
+                        heartbeat_at,
+                        heartbeat_at,
+                        expires_at,
+                    ),
+                )
+        return True, None
+
+    def renew_resource_leases(
+        self,
+        owner_id: str,
+        *,
+        ttl_seconds: float = 60,
+        now: float | None = None,
+    ) -> int:
+        current = time.time() if now is None else float(now)
+        expires_at = current + max(5.0, float(ttl_seconds))
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE resource_leases
+                SET heartbeat_at = ?, expires_at = ?
+                WHERE owner_id = ?
+                """,
+                (utc_now(), expires_at, owner_id),
+            )
+        return int(cursor.rowcount)
+
+    def release_resource_leases(
+        self,
+        owner_id: str,
+        *,
+        resource_keys: list[str] | None = None,
+    ) -> int:
+        with self.connect() as connection:
+            if resource_keys:
+                keys = list(dict.fromkeys(str(key) for key in resource_keys if str(key)))
+                if not keys:
+                    return 0
+                placeholders = ",".join("?" for _ in keys)
+                cursor = connection.execute(
+                    f"DELETE FROM resource_leases WHERE owner_id = ? AND resource_key IN ({placeholders})",
+                    (owner_id, *keys),
+                )
+            else:
+                cursor = connection.execute(
+                    "DELETE FROM resource_leases WHERE owner_id = ?",
+                    (owner_id,),
+                )
+        return int(cursor.rowcount)
+
+    def list_resource_leases(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM resource_leases ORDER BY resource_key"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def resource_lease(self, resource_key: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM resource_leases WHERE resource_key = ?",
+                (resource_key,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_model_provider_health(
+        self,
+        provider_id: str,
+        *,
+        default_concurrency: int = 2,
+        cooldown_seconds: float = 30,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO model_provider_health(
+                  provider_id, state, adaptive_concurrency, cooldown_seconds, updated_at
+                ) VALUES (?, 'closed', ?, ?, ?)
+                ON CONFLICT(provider_id) DO NOTHING
+                """,
+                (
+                    provider_id,
+                    max(1, int(default_concurrency)),
+                    max(5.0, float(cooldown_seconds)),
+                    now,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM model_provider_health WHERE provider_id = ?",
+                (provider_id,),
+            ).fetchone()
+        return dict(row)
+
+    def claim_model_provider(
+        self,
+        provider_id: str,
+        *,
+        now: float | None = None,
+        probe_ttl_seconds: float = 45,
+    ) -> tuple[bool, str, float | None]:
+        current = time.time() if now is None else float(now)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT state, opened_until, probe_started_at FROM model_provider_health WHERE provider_id = ?",
+                (provider_id,),
+            ).fetchone()
+            if not row:
+                return True, "closed", None
+            state = row["state"]
+            opened_until = row["opened_until"]
+            if state == "closed":
+                return True, "closed", None
+            if state == "half_open":
+                probe_started = float(row["probe_started_at"] or 0)
+                if probe_started + max(5.0, float(probe_ttl_seconds)) <= current:
+                    connection.execute(
+                        """
+                        UPDATE model_provider_health
+                        SET probe_started_at = ?, updated_at = ?
+                        WHERE provider_id = ? AND state = 'half_open'
+                        """,
+                        (current, utc_now(), provider_id),
+                    )
+                    return True, "half_open", current + max(5.0, float(probe_ttl_seconds))
+                return False, "half_open", opened_until
+            if state == "open" and opened_until and float(opened_until) > current:
+                return False, "open", float(opened_until)
+            cursor = connection.execute(
+                """
+                UPDATE model_provider_health
+                SET state = 'half_open', probe_started_at = ?, updated_at = ?
+                WHERE provider_id = ? AND state = 'open'
+                  AND (opened_until IS NULL OR opened_until <= ?)
+                """,
+                (current, utc_now(), provider_id, current),
+            )
+            if cursor.rowcount:
+                return True, "half_open", current + max(5.0, float(probe_ttl_seconds))
+            return False, "open", opened_until
+
+    def record_model_provider_success(
+        self,
+        provider_id: str,
+        *,
+        max_concurrency: int,
+        cooldown_seconds: float = 30,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        current = time.time() if now is None else float(now)
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT adaptive_concurrency FROM model_provider_health WHERE provider_id = ?",
+                (provider_id,),
+            ).fetchone()
+            adaptive = int(row["adaptive_concurrency"]) if row else max(1, int(max_concurrency))
+            adaptive = min(max(1, int(max_concurrency)), adaptive + 1)
+            connection.execute(
+                """
+                INSERT INTO model_provider_health(
+                  provider_id, state, consecutive_failures, last_success_at,
+                  adaptive_concurrency, cooldown_seconds, updated_at
+                ) VALUES (?, 'closed', 0, ?, ?, ?, ?)
+                ON CONFLICT(provider_id) DO UPDATE SET
+                  state = 'closed',
+                  consecutive_failures = 0,
+                  opened_until = NULL,
+                  last_failure_class = NULL,
+                  last_success_at = excluded.last_success_at,
+                  adaptive_concurrency = ?,
+                  cooldown_seconds = excluded.cooldown_seconds,
+                  probe_started_at = NULL,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    provider_id,
+                    utc_now(),
+                    adaptive,
+                    max(5.0, float(cooldown_seconds)),
+                    utc_now(),
+                    adaptive,
+                ),
+            )
+            result = connection.execute(
+                "SELECT * FROM model_provider_health WHERE provider_id = ?",
+                (provider_id,),
+            ).fetchone()
+        return {**dict(result), "now": current}
+
+    def record_model_provider_failure(
+        self,
+        provider_id: str,
+        failure_class: str,
+        *,
+        threshold: int = 3,
+        base_cooldown: float = 30,
+        max_concurrency: int = 2,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        current = time.time() if now is None else float(now)
+        circuit_failures = {"auth", "rate_limit", "timeout", "network", "upstream_5xx"}
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM model_provider_health WHERE provider_id = ?",
+                (provider_id,),
+            ).fetchone()
+            previous_failures = int(row["consecutive_failures"]) if row else 0
+            failures = (
+                previous_failures + 1
+                if failure_class in circuit_failures
+                else previous_failures
+            )
+            adaptive = (
+                int(row["adaptive_concurrency"])
+                if row
+                else max(1, int(max_concurrency))
+            )
+            previous_state = str(row["state"]) if row else "closed"
+            cooldown = max(
+                float(base_cooldown),
+                float(row["cooldown_seconds"]) if row else 0,
+            )
+            if failure_class in {"rate_limit", "upstream_5xx"}:
+                adaptive = max(1, adaptive // 2)
+            should_open = (
+                failure_class in circuit_failures
+                and (failures >= max(1, int(threshold)) or previous_state == "half_open")
+            )
+            state = "open" if should_open else (previous_state if row else "closed")
+            opened_until = float(row["opened_until"] or 0) if row else 0
+            if should_open:
+                cooldown = min(1800.0, max(5.0, cooldown * (2 if previous_state == "half_open" else 1)))
+                opened_until = current + cooldown * random.uniform(0.9, 1.1)
+            connection.execute(
+                """
+                INSERT INTO model_provider_health(
+                  provider_id, state, consecutive_failures, opened_until,
+                  last_failure_class, last_failure_at, adaptive_concurrency,
+                  cooldown_seconds, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(provider_id) DO UPDATE SET
+                  state = excluded.state,
+                  consecutive_failures = excluded.consecutive_failures,
+                  opened_until = excluded.opened_until,
+                  last_failure_class = excluded.last_failure_class,
+                  last_failure_at = excluded.last_failure_at,
+                  adaptive_concurrency = excluded.adaptive_concurrency,
+                  cooldown_seconds = excluded.cooldown_seconds,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    provider_id,
+                    state,
+                    failures,
+                    opened_until or None,
+                    failure_class,
+                    utc_now(),
+                    max(1, int(adaptive)),
+                    cooldown,
+                    utc_now(),
+                ),
+            )
+            result = connection.execute(
+                "SELECT * FROM model_provider_health WHERE provider_id = ?",
+                (provider_id,),
+            ).fetchone()
+        return {**dict(result), "now": current}
+
+    def model_provider_recent_usage(
+        self,
+        provider_id: str,
+        *,
+        since: float,
+    ) -> dict[str, Any]:
+        since_text = datetime.fromtimestamp(
+            float(since),
+            timezone.utc,
+        ).isoformat()
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS requests,
+                       COALESCE(SUM(estimated_tokens), 0) AS estimated_tokens,
+                       MIN(created_at) AS oldest
+                FROM model_calls
+                WHERE provider_id = ? AND created_at >= ?
+                """,
+                (provider_id, since_text),
+            ).fetchone()
+        return dict(row)
 
     def get_setting(self, key: str, default: Any = None) -> Any:
         with self.connect() as connection:

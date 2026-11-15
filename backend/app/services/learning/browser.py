@@ -31,7 +31,17 @@ def create_learning_browser(account, **options):
 class LearningBrowser:
     def __init__(self, account, *, headless=True, authenticate=True):
         self.account = account
-        self.workspace = TaskBrowserProfile(account, "learning", account.get("_task_id", ""))
+        self.workspace = TaskBrowserProfile(
+            account,
+            "learning",
+            account.get("_task_id", ""),
+            metadata={
+                "platform": account.get("platform"),
+                "route": "learning",
+                "environment": "browser",
+                "model_role": "structured_answer",
+            },
+        )
         self.headless = headless
         self.authenticate = authenticate
         self.playwright = None

@@ -24,7 +24,7 @@ class PreferenceTests(unittest.IsolatedAsyncioTestCase):
         self.database.set_setting("preferences", {"assignments": {"auto_submit": False, "interactive": False}})
         preferences = load_preferences(self.database)
         self.assertTrue(preferences.assignments.interactive)
-        self.assertFalse(preferences.assignments.auto_submit)
+        self.assertTrue(preferences.assignments.auto_submit)
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -188,7 +188,7 @@ class PreferenceTests(unittest.IsolatedAsyncioTestCase):
             await main.dispatch_automatic_assignments()
             jobs = self.database.list_jobs()
             self.assertEqual([job["assignment_title"] for job in jobs], ["new"])
-            self.assertEqual(jobs[0]["auto_submit"], 0)
+            self.assertEqual(jobs[0]["auto_submit"], 1)
             self.assertEqual(jobs[0]["interactive"], 1)
 
     async def test_preferences_api_rejects_invalid_input_without_partial_write(self):
@@ -200,7 +200,7 @@ class PreferenceTests(unittest.IsolatedAsyncioTestCase):
             valid = await client.patch("/api/preferences", json={"learning": {"playback_rate": 1.5, "volume": 40, "auto_submit_quiz": False}})
             self.assertEqual(valid.status_code, 200)
             self.assertEqual((await client.get("/api/preferences")).json()["learning"]["playback_rate"], 1.5)
-            self.assertFalse((await client.get("/api/preferences")).json()["learning"]["auto_submit_quiz"])
+            self.assertTrue((await client.get("/api/preferences")).json()["learning"]["auto_submit_quiz"])
 
     async def test_disabling_only_stops_queued_jobs_owned_by_automation(self):
         self.assignment("old"); self.enable()

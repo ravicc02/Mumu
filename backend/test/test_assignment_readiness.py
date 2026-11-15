@@ -10,7 +10,7 @@ from playwright.async_api import async_playwright
 
 from app.config import Settings
 from app.db import Database
-from app.services.assignments.readiness import assess_questions, execution_block, unit_requirements
+from app.services.assignments.readiness import assess_questions, direct_answerable, execution_block, unit_requirements
 from app.services.runtime.browser import chrome_executable
 from app.services.assignments.quiz_adapter import extract_questions
 from app.services.tasks import runner as runner
@@ -40,6 +40,33 @@ class AssignmentReadinessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["answer_state"], "partial")
         self.assertEqual(result["filled_units"], 1)
         self.assertNotIn("submittable", result)
+
+    def test_automatic_filter_keeps_only_choice_and_fill_units(self):
+        choice = assess_questions({
+            "question_count": 1,
+            "units": [{"unit_id": "q1", "question_no": 1, "kind": "single", "text": "选择", "options": [{"key": "A"}], "filled": False}],
+        })
+        long_answer = assess_questions({
+            "question_count": 1,
+            "units": [{"unit_id": "q1", "question_no": 1, "kind": "long", "type": "简答题", "text": "简述算法", "fields": [{"index": 0}], "filled": False}],
+        })
+        self.assertTrue(choice["automation_supported"])
+        self.assertTrue(direct_answerable({"assessment": choice}))
+        self.assertEqual(long_answer["execution_state"], "direct_fill")
+        self.assertFalse(long_answer["automation_supported"])
+        self.assertIn("简答题", long_answer["unsupported_types"])
+        self.assertFalse(direct_answerable({"assessment": long_answer}))
+
+    def test_page_level_upload_requirement_blocks_choice_units(self):
+        assessment = assess_questions({
+            "question_count": 1,
+            "page_text": "请完成选择题，并上传实验报告和项目源码压缩包。",
+            "file_inputs": 1,
+            "units": [{"unit_id": "q1", "question_no": 1, "kind": "single", "text": "选择", "options": [{"key": "A"}], "filled": False}],
+        })
+        self.assertEqual(assessment["execution_state"], "manual_required")
+        self.assertIn("上传文件", assessment["requirements"])
+        self.assertFalse(direct_answerable({"assessment": assessment}))
 
     def test_assessment_round_trip_survives_collection_updates_without_fabricating_completion(self):
         with tempfile.TemporaryDirectory() as root:

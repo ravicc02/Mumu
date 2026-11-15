@@ -166,6 +166,7 @@ class DatabaseTests(unittest.TestCase):
             assignment_id,
             False,
         )
+        self.database.transition_job(interrupted["id"], "running")
         self.database.mark_interrupted_jobs()
         self.assertEqual(
             self.database.get_job(interrupted["id"])["status"],
@@ -173,6 +174,16 @@ class DatabaseTests(unittest.TestCase):
         )
         events = self.database.list_events(interrupted["id"])
         self.assertEqual(events[-1]["kind"], "interrupted")
+        queued = self.database.create_job(
+            account["id"],
+            assignment_id,
+            False,
+        )
+        self.database.initialize()
+        self.assertEqual(
+            self.database.get_job(queued["id"])["status"],
+            "queued",
+        )
 
         self.database.update_account(account["id"], status="authorizing")
         self.database.initialize()

@@ -66,9 +66,26 @@ def annotate_queues(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_account: dict[str, list[dict[str, Any]]] = {}
     for job in sorted(jobs, key=created_order):
         by_account.setdefault(job["account_id"], []).append(job)
+    queued_order = sorted(
+        (job for job in jobs if job.get("status") == "queued"),
+        key=lambda job: (
+            -int(job.get("queue_priority") or 0),
+            created_order(job),
+            job["id"],
+        ),
+    )
+    queue_positions = {
+        job["id"]: index
+        for index, job in enumerate(queued_order, start=1)
+    }
     result = []
     for job in jobs:
-        item = {**job, "queue_position": 0, "blocked_by_job_id": None, "waiting_reason": ""}
+        item = {
+            **job,
+            "queue_position": queue_positions.get(job["id"], 0),
+            "blocked_by_job_id": None,
+            "waiting_reason": job.get("waiting_reason") or "",
+        }
         account_jobs = by_account[job["account_id"]]
         if job.get("assignment_id") and "actions" in item:
             attempts = [candidate for candidate in account_jobs if candidate.get("assignment_id") == job["assignment_id"]]
@@ -80,6 +97,9 @@ def annotate_queues(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if newer_active:
                 item["actions"] = [action for action in item["actions"] if not action.startswith("confirm_") and action not in {"retry", "continue", "delete"}]
         if job["status"] == "queued":
-            item["waiting_reason"] = "正在准备独立任务浏览器"
+            item["waiting_reason"] = (
+                job.get("waiting_reason")
+                or "正在准备独立任务浏览器"
+            )
         result.append(item)
     return result

@@ -57,6 +57,12 @@ export const api = {
   attendanceRelay: () => request('/api/attendance/relay'),
   testAttendanceRelay: options => request('/api/attendance/relay/test', {method:'POST',body:JSON.stringify(options)}),
   saveAttendanceRelay: options => request('/api/attendance/relay', {method:'PUT',body:JSON.stringify(options)}),
+  assignmentAutoGroups: () => request('/api/assignment-auto-groups'),
+  assignmentAutoGroupCourses: accountIds => request('/api/assignment-auto-groups/courses', {method:'POST',body:JSON.stringify({account_ids:accountIds})}),
+  createAssignmentAutoGroup: options => request('/api/assignment-auto-groups', {method:'POST',body:JSON.stringify(options)}),
+  updateAssignmentAutoGroup: (id, options) => request('/api/assignment-auto-groups/' + encodeURIComponent(id), {method:'PATCH',body:JSON.stringify(options)}),
+  scanAssignmentAutoGroup: id => request('/api/assignment-auto-groups/' + encodeURIComponent(id) + '/scan', {method:'POST'}),
+  deleteAssignmentAutoGroup: id => request('/api/assignment-auto-groups/' + encodeURIComponent(id), {method:'DELETE'}),
   artifactUrl,
   learningRun: id => request("/api/learning/runs/" + encodeURIComponent(id)),
   browserSession: (kind, id) => request(kind === "assignment" ? "/api/jobs/" + id + "/browser/session" : "/api/learning/runs/" + id + "/browser/session", { method: "POST" }),
@@ -124,6 +130,20 @@ export const api = {
   weixinRefresh: () => request("/api/connectors/weixin/refresh", {
     method: "POST"
   }),
+  channelUsers: (channel = "weixin") => request(
+    `/api/agents/channel-users?channel=${encodeURIComponent(channel)}`
+  ),
+  saveChannelUser: (externalUserId, config) => request(
+    `/api/agents/channel-users/${encodeURIComponent(externalUserId)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(config)
+    }
+  ),
+  deleteChannelUser: externalUserId => request(
+    `/api/agents/channel-users/${encodeURIComponent(externalUserId)}`,
+    { method: "DELETE" }
+  ),
   accounts: () => request("/api/accounts"),
   platforms: () => request("/api/platforms"),
   accountAvatarUrl: account => BASE_URL + '/api/accounts/' + encodeURIComponent(account.id) + '/avatar?v=' + encodeURIComponent(account.identity_verified_at || ''),

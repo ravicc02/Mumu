@@ -43,7 +43,49 @@ def environment():
         except importlib.metadata.PackageNotFoundError: versions[name] = "unavailable"
     root = Path(__file__).parents[1]
     hashes = {}
-    for relative in ("services/tasks/runner.py", "services/assignments/quiz_adapter.py", "services/learning/runtime.js", "services/learning/study-runtime.js", "services/learning/platform-runtime.js", "services/learning/multi_platform.py", "services/platforms/catalog.json", "services/educoder/client.py", "services/educoder/contracts.py", "services/educoder/executor.py", "services/tasks/spec.py", "services/educoder/code_contract.py", "services/educoder/evaluation.py", "services/educoder/adapter.py", "services/accounts/identity.py", "diagnostics/recorder.py", "diagnostics/probe.py", "diagnostics/daily.py", "diagnostics/bridge.py", "diagnostics/logging.py", "diagnostics/privacy.py", "diagnostics/layout.py"):
+    for relative in (
+        "services/tasks/runner.py",
+        "services/assignments/quiz_adapter.py",
+        "services/assignments/automation_groups.py",
+        "services/assignments/readiness.py",
+        "services/agents/contracts.py",
+        "services/agents/config.py",
+        "services/agents/gateway.py",
+        "services/agents/quota.py",
+        "services/agents/leases.py",
+        "services/agents/memory.py",
+        "services/agents/orchestrator.py",
+        "services/agents/assistant.py",
+        "services/agents/authorization.py",
+        "services/agents/confirmation.py",
+        "services/agents/eventing.py",
+        "services/agents/tools.py",
+        "services/agents/secrets.py",
+        "services/agents/workspace.py",
+        "services/notifications/weixin.py",
+        "services/notifications/weixin_channel.py",
+        "services/notifications/delivery.py",
+        "services/learning/runtime.js",
+        "services/learning/study-runtime.js",
+        "services/learning/platform-runtime.js",
+        "services/learning/multi_platform.py",
+        "services/platforms/catalog.json",
+        "services/educoder/client.py",
+        "services/educoder/contracts.py",
+        "services/educoder/executor.py",
+        "services/tasks/spec.py",
+        "services/educoder/code_contract.py",
+        "services/educoder/evaluation.py",
+        "services/educoder/adapter.py",
+        "services/accounts/identity.py",
+        "diagnostics/recorder.py",
+        "diagnostics/probe.py",
+        "diagnostics/daily.py",
+        "diagnostics/bridge.py",
+        "diagnostics/logging.py",
+        "diagnostics/privacy.py",
+        "diagnostics/layout.py",
+    ):
         path = root / relative
         if path.is_file(): hashes[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
     version = __version__

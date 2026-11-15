@@ -64,6 +64,15 @@ def start_login(
     existing = _login_jobs.get(account_id)
     if existing and not existing.done():
         return {"status": "running"}
+    lease_owner = f"auth:{account_id}"
+    acquired, _ = database.acquire_resource_leases(
+        owner_id=lease_owner,
+        owner_kind="auth",
+        resource_keys=[f"auth-write:{account_id}"],
+        ttl_seconds=360,
+    )
+    if not acquired:
+        return {"status": "running"}
     database.update_account(
         account_id,
         status="authorizing",
@@ -145,6 +154,7 @@ async def _login_account(database: Database, account_id: str, settings: Any) -> 
             "message": str(error),
         }
     finally:
+        database.release_resource_leases(f"auth:{account_id}")
         if login_context is not None:
             try:
                 await login_context.close()

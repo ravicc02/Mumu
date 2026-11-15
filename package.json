@@ -1,6 +1,6 @@
 {
   "name": "mumu",
-  "version": "0.7.5",
+  "version": "0.8.0",
   "private": true,
   "license": "GPL-3.0-only",
   "repository": {
@@ -25,6 +25,8 @@
     "release:draft": "node scripts/github-release.mjs draft",
     "release:publish": "node scripts/github-release.mjs publish",
     "test:backend": "powershell -Command \"$env:PYTHONPATH='backend'; python -m unittest discover -s backend/test -v\"",
+    "accept:capacity": "python scripts/accept_agent_capacity.py",
+    "accept:weixin": "python scripts/accept_weixin_longpoll.py",
     "desktop:dev": "npm --prefix desktop run dev",
     "desktop:web": "npm --prefix desktop run web",
     "desktop:build": "npm --prefix desktop run build:win"

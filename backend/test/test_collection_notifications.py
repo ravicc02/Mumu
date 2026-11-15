@@ -61,7 +61,7 @@ class CollectionNotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first["status"], "failed")
         self.assertEqual(first["pending_count"], 1)
         second = await self.notify([self.item()], sender)
-        self.assertEqual(second["status"], "sent")
+        self.assertEqual(second["status"], "queued")
         self.assertEqual(second["new_count"], 0)
         self.assertEqual(second["pending_count"], 0)
         await self.notify([self.item()], sender)
@@ -164,7 +164,7 @@ class CollectionNotificationTests(unittest.IsolatedAsyncioTestCase):
         sender = AsyncMock(return_value={"weixin": True})
         with patch.object(main, "database", self.db), patch.object(main, "effective_settings", return_value=self.settings), patch.object(main.platform_registry, "get", return_value=platform), patch.object(main, "send_completion_notification", sender):
             first = await main.perform_collection(self.account["id"], 2026, scheduled=True)
-            self.assertEqual(first["notification"]["status"], "sent")
+            self.assertEqual(first["notification"]["status"], "queued")
             self.assertEqual(first["submittable"], 1)
             second = await main.perform_collection(self.account["id"], 2026, scheduled=True)
             self.assertEqual(second["notification"]["new_count"], 0)

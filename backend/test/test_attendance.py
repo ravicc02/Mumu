@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from datetime import datetime, timezone
+from io import BytesIO
 import json
 import os
 import sqlite3
@@ -15,6 +17,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 from fastapi import FastAPI
+from PIL import Image, ImageDraw
 
 from app.config import Settings
 from app.db import Database, utc_now
@@ -32,12 +35,14 @@ from app.services.attendance.service import (
     auto_group_scan_window_open,
     group_scan_window_open,
 )
-from app.services.attendance.routes import attendance_router
+from app.services.attendance.routes import attendance_router, public_share_batch
 from app.services.attendance.relay import (
     GROUP_IDLE_POLL_SECONDS,
+    OFFICIAL_RELAY_BASE_URL,
     RelayClient,
     RelayStore,
     RemoteShareGateway,
+    _avatar_data,
     relay_app,
     relay_monitor_delay,
 )
@@ -49,6 +54,20 @@ def activity(number='303', kind='normal'): return {**course(),'upstream_id':numb
 
 
 class AttendanceContractTests(unittest.TestCase):
+    def test_share_page_uses_mumu_identity_and_a_single_scanner_entry(self):
+        source=(Path(__file__).parents[1]/'app/services/attendance/share.html').read_text(encoding='utf-8')
+        self.assertIn('data:image/png;base64,',source)
+        self.assertIn('id="scanner"',source)
+        self.assertIn('item.avatar',source)
+        self.assertIn('CAPTURE_HOLD_MS = 1900',source)
+        self.assertNotIn('id="message"',source)
+        self.assertNotIn('id="manual"',source)
+        self.assertNotIn('<textarea',source)
+        self.assertNotIn('<footer',source)
+        self.assertNotIn('可随时在 Mumu 中撤销',source)
+        self.assertNotIn('或上传二维码图片',source)
+        self.assertNotIn('或粘贴二维码内容',source)
+
     def test_location_input_requires_finite_coordinates_and_a_real_address_label(self):
         from pydantic import ValidationError
         valid = {'latitude':30.5,'longitude':114.3,'address':' Test classroom ','source':'browser'}
@@ -845,9 +864,11 @@ class AttendanceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(updated.status_code,200,updated.text); self.assertFalse(updated.json()['enabled'])
             relay=await client.get('/api/attendance/relay')
             self.assertTrue(relay.json()['configured'])
+            self.assertEqual(relay.json()['mode'],'custom')
             self.assertNotIn('txt_value',relay.json())
             self.assertNotIn('cname_target',relay.json())
             self.assertNotIn('multi_domain_ready',relay.json())
+            self.assertNotIn('admin_secret',relay.json())
             self.assertEqual((await client.delete('/api/attendance/auto-groups/'+group_id)).status_code,200)
 
     async def test_relay_domain_settings_are_tested_before_saving(self):
@@ -865,9 +886,41 @@ class AttendanceTests(unittest.IsolatedAsyncioTestCase):
                 })
         self.assertEqual(response.status_code,200,response.text)
         saved=self.db.get_setting('attendance_relay')
+        self.assertEqual(saved['mode'],'custom')
         self.assertEqual(saved['base_url'],'https://sign.example.com')
         self.assertEqual(saved['admin_secret'],'s'*32)
-        gateway.configure.assert_awaited_once_with('https://sign.example.com','s'*32)
+        gateway.configure.assert_awaited_once_with(
+            'https://sign.example.com','s'*32,mode='custom',official_admin_secret='',
+        )
+
+    async def test_official_relay_uses_backend_secret_without_exposing_it(self):
+        secret='o'*32
+        state={'base_url':OFFICIAL_RELAY_BASE_URL,'mode':'official','official':True,'configured':True,'admin_secret_configured':True}
+        gateway=SimpleNamespace(
+            groups=AsyncMock(return_value=[]),create_group=AsyncMock(),revoke_group=AsyncMock(),
+            base_url=OFFICIAL_RELAY_BASE_URL,admin_secret=secret,mode='official',
+            official_admin_secret=secret,settings=lambda:state,configure=AsyncMock(),ensure_started=AsyncMock(),
+        )
+        app=FastAPI(); app.include_router(attendance_router(self.service,gateway))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://owner') as client:
+            current=await client.get('/api/attendance/relay')
+            self.assertEqual(current.status_code,200,current.text)
+            self.assertEqual(current.json()['mode'],'official')
+            self.assertTrue(current.json()['official'])
+            self.assertNotIn('admin_secret',current.json())
+            self.assertNotIn(secret,current.text)
+            with patch('app.services.attendance.relay.RelayClient.health',AsyncMock(return_value={'ok':True})), \
+                 patch('app.services.attendance.relay.RelayClient.close',AsyncMock(return_value=None)):
+                response=await client.put('/api/attendance/relay',json={'mode':'official'})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertNotIn(secret,response.text)
+        saved=self.db.get_setting('attendance_relay')
+        self.assertEqual(saved['mode'],'official')
+        self.assertEqual(saved['base_url'],OFFICIAL_RELAY_BASE_URL)
+        self.assertEqual(saved['admin_secret'],secret)
+        gateway.configure.assert_awaited_once_with(
+            OFFICIAL_RELAY_BASE_URL,secret,mode='official',official_admin_secret=secret,
+        )
 
     async def test_cancellation_preserves_unconfirmed_submit(self):
         entered=asyncio.Event()
@@ -1225,6 +1278,84 @@ class AttendanceTests(unittest.IsolatedAsyncioTestCase):
             headers={'X-Mumu-Share-Secret':'s'*32},
         )
 
+    async def test_avatar_snapshot_is_small_webp_with_full_names(self):
+        profile=Path(self.temp.name)/'avatar-account'; profile.mkdir()
+        source=Image.new('RGB',(180,120),(30,120,210))
+        ImageDraw.Draw(source).ellipse((45,20,135,100),fill=(250,220,90))
+        source.save(profile/'avatar.bin','JPEG')
+        avatar=_avatar_data({
+            **self.accounts[0],
+            'profile_dir':str(profile),
+            'avatar_mime':'image/jpeg',
+        })
+        self.assertTrue(avatar.startswith('data:image/webp;base64,'))
+        image=Image.open(BytesIO(base64.b64decode(avatar.split(',',1)[1])))
+        self.assertEqual(image.size,(96,96))
+
+        store=RelayStore(Path(self.temp.name)/'avatar-relay.sqlite3','x'*32)
+        group=store.create_group(
+            name='计算机科学',
+            items=[{
+                'id':self.accounts[0]['id'],
+                'name':'郭一铭',
+                'avatar':avatar,
+                'course':'计算机科学',
+            }],
+            base_url='https://xxt.example',
+        )
+        waiting=store.public_group(store.group_by_id(group['id']))
+        self.assertEqual(waiting['items'][0]['account_id'],self.accounts[0]['id'])
+        self.assertEqual(waiting['items'][0]['name'],'郭一铭')
+        self.assertEqual(waiting['items'][0]['avatar'],avatar)
+
+    async def test_avatar_snapshot_ignores_platform_placeholder_images(self):
+        profile=Path(self.temp.name)/'placeholder-avatar'; profile.mkdir()
+        Image.new('RGB',(80,80),(12,12,12)).save(profile/'avatar.bin','PNG')
+        self.assertEqual(_avatar_data({
+            **self.accounts[0],
+            'profile_dir':str(profile),
+            'avatar_mime':'image/png',
+        }),'')
+
+    async def test_relay_group_metadata_can_refresh_existing_link_identity(self):
+        directory=tempfile.TemporaryDirectory()
+        path=Path(directory.name)/'relay.sqlite3'
+        store=RelayStore(path,'x'*32)
+        app=relay_app(store,'s'*32)
+        admin={'X-Mumu-Share-Secret':'s'*32}
+        old=os.environ.get('MUMU_PUBLIC_BASE_URL')
+        os.environ['MUMU_PUBLIC_BASE_URL']='https://sign.example'
+        try:
+            created=store.create_group(
+                name='计算机科学',
+                items=[{'id':'one','name':'旧姓名','course':'计算机科学'}],
+                base_url='https://sign.example',
+            )
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://relay') as client:
+                updated=await client.patch(
+                    '/api/admin/groups/'+created['id']+'/metadata',
+                    headers=admin,
+                    json={'items':[{
+                        'id':'one','name':'郭一铭','avatar':'data:image/webp;base64,AAAA',
+                        'course':'计算机科学',
+                    }]},
+                )
+                self.assertEqual(updated.status_code,200,updated.text)
+                token=created['url'].split('#',1)[1]
+                waiting=(await client.get(
+                    '/api/qr/session',
+                    headers={'Authorization':'Bearer '+token},
+                )).json()
+            self.assertEqual(waiting['items'][0]['name'],'郭一铭')
+            self.assertEqual(
+                waiting['items'][0]['avatar'],
+                'data:image/webp;base64,AAAA',
+            )
+        finally:
+            if old is None: os.environ.pop('MUMU_PUBLIC_BASE_URL',None)
+            else: os.environ['MUMU_PUBLIC_BASE_URL']=old
+            directory.cleanup()
+
     async def test_remote_gateway_shares_one_bulk_group_poll_between_monitors(self):
         records=[
             {'remote_group_id':'one'},
@@ -1300,14 +1431,14 @@ class AttendanceTests(unittest.IsolatedAsyncioTestCase):
         gateway.client.status.assert_not_awaited()
 
     async def test_long_link_monitor_creates_a_new_batch_and_starts_next_scan(self):
-        account_ids=[account['id'] for account in self.accounts]
+        account_ids=[self.accounts[0]['id']]
         waiting={
             'id':'local-group','name':'计算机科学 1 组','revoked':False,'last_status':'waiting',
             'last_remote_run_id':None,'last_batch_id':None,
         }
         running={**waiting,'last_status':'captured','last_remote_run_id':'run-one','last_batch_id':'batch-one'}
         empty={'id':'batch-one','status':'finished','items':[],'completed':0,'total':0,'participants':[]}
-        active_item={'account_name':'Alice','course_name':'Course','title':'QR','kind':'qr','status':'queued','message':'waiting'}
+        active_item={'account_id':account_ids[0],'account_name':'Alice','course_name':'Course','title':'QR','kind':'qr','status':'queued','message':'waiting'}
         running_batch={'id':'batch-one','status':'running','items':[active_item],'completed':0,'total':1}
         completed_batch={'id':'batch-one','status':'completed','items':[{**active_item,'status':'succeeded','message':'ok'}],'completed':1,'total':1}
         store=SimpleNamespace(
@@ -1381,6 +1512,51 @@ class AttendanceTests(unittest.IsolatedAsyncioTestCase):
         await self.finished(batch['id'])
         self.assertEqual(len(self.submissions),2)
         self.assertTrue(all(item['kind']=='qr' for item in self.service.store.batch(batch['id'])['items']))
+
+    async def test_open_qr_link_runs_matched_accounts_and_reports_the_unmatched_account(self):
+        for account in self.accounts:
+            self.service.store.save_activities(account['id'],[activity('606','qr')],[('101','202')])
+        outsider=self.db.create_account('Outsider','chaoxing',self.settings)
+        self.db.update_account(outsider['id'],status='ready',platform_user_id='9999')
+        account_ids=[account['id'] for account in self.accounts]+[outsider['id']]
+        batch=self.service.store.create_open_qr_batch(account_ids)
+        self.service.collect=AsyncMock()
+        text='https://mobilelearn.chaoxing.com/widget/sign/e?id=606&enc=abcdefgh1234'
+        matched=await self.service.resolve_open_qr_batch(batch['id'],text,account_ids)
+        self.assertCountEqual(
+            [item['account_id'] for item in matched['items']],
+            [account['id'] for account in self.accounts],
+        )
+        self.service.start(batch['id'],SignInput(qr=text),source='long_link')
+        result=await self.finished(batch['id'])
+        self.assertEqual(result['completed'],2)
+        self.assertEqual(len(self.submissions),2)
+
+        gateway=RemoteShareGateway(self.service,'https://share.example','s'*32)
+        public=gateway._public(result,'open',account_ids)
+        self.assertEqual(public['status'],'partial')
+        self.assertEqual(public['summary'],{'completed':2,'total':3})
+        unmatched=next(item for item in public['items'] if item['course']=='未匹配到活动')
+        self.assertEqual(unmatched['status'],'failed')
+        self.assertIn('不在当前二维码对应的班级中',unmatched['message'])
+
+        share=public_share_batch(self.service,{
+            'batch_id':result['id'],'mode':'open','account_ids_json':json.dumps(account_ids),
+        })
+        self.assertEqual(share['status'],'partial')
+        self.assertEqual(share['total'],3)
+
+    async def test_open_qr_link_rejects_the_batch_only_when_no_account_matches(self):
+        account_ids=[account['id'] for account in self.accounts]
+        batch=self.service.store.create_open_qr_batch(account_ids)
+        self.service.collect=AsyncMock()
+        with self.assertRaises(AttendanceError):
+            await self.service.resolve_open_qr_batch(
+                batch['id'],
+                'https://mobilelearn.chaoxing.com/widget/sign/e?id=999&enc=abcdefgh1234',
+                account_ids,
+            )
+        self.assertEqual(self.service.store.batch(batch['id'])['items'],[])
 
     async def test_open_qr_link_reuses_matched_batch_after_expired_enc_rescan(self):
         for account in self.accounts:

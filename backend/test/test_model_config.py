@@ -36,6 +36,14 @@ class ModelConfigTests(unittest.TestCase):
                     "fallback-model",
                 )
                 self.assertEqual(effective.reasoning_effort, "high")
+                self.assertEqual(
+                    len(list(settings.secrets_root.glob("*.bin"))),
+                    1,
+                )
+                self.assertNotIn(
+                    "api_key",
+                    database.get_setting("model_config"),
+                )
             finally:
                 main.database = original_database
 
