@@ -15,8 +15,10 @@ const documents = [
   'CONTRIBUTING.md',
   'CHANGELOG.md',
   '.github/SECURITY.md',
+  '.github/LICENSING.md',
 ];
-const legalFiles = ['LICENSES.txt', 'desktop/public/licenses/OPEN_SOURCE_LICENSES.txt'];
+const legalFiles = ['LICENSE', 'LICENSES.txt', 'desktop/public/licenses/OPEN_SOURCE_LICENSES.txt'];
+const thirdPartyLegalFiles = legalFiles.slice(1);
 const readmeAssets = [
   'assets/brand/mumu.png',
   'assets/brand/banner.svg',
@@ -78,7 +80,7 @@ export function checkRelease(root = projectRoot, { strict = false, tag = '' } = 
     if (!fs.existsSync(full) || !fs.statSync(full).isFile()) throw new Error('Required file missing: ' + file);
     if (documents.includes(file)) documentLinks(root, file, fs.readFileSync(full, 'utf8'));
   }
-  if (!fs.readFileSync(path.join(root, legalFiles[0])).equals(fs.readFileSync(path.join(root, legalFiles[1])))) throw new Error('Packaged license text differs from LICENSES.txt');
+  if (!fs.readFileSync(path.join(root, thirdPartyLegalFiles[0])).equals(fs.readFileSync(path.join(root, thirdPartyLegalFiles[1])))) throw new Error('Packaged license text differs from LICENSES.txt');
   const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
   if (!/^## \[Unreleased\]$/m.test(changelog)) throw new Error('CHANGELOG.md requires an Unreleased section');
   let commit = '', dirty = null;

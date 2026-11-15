@@ -5,4 +5,4 @@ contact_links:
     about: 先查看设置、平台能力和已知限制。
   - name: 私密安全报告
     url: https://github.com/ravicc02/Mumu/security/advisories/new
-    about: 凭据泄漏和越权问题请勿公开发布。
+    about: 凭据泄漏、越权、远程执行等问题请勿通过公开 Issue 发布。

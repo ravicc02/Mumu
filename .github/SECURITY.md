@@ -1,15 +1,110 @@
-# 安全与隐私
+# 安全策略
 
-应用在本机保存账号授权、模型配置和执行记录。公开 Issue、Pull Request 和截图中不要包含 Cookie、API Key、二维码凭据或授权文件。
+Mumu 在本机保存账号授权、模型密钥、任务记录、截图和日志。请勿在公开 Issue、Pull Request、Discussion 或截图中披露真实凭据和个人数据。
 
-## 报告问题
+## 报告漏洞
 
-涉及凭据泄漏、越权操作或远程访问的问题，请使用仓库 Security 页面的私密报告入口。报告包含版本、操作系统、复现步骤和脱敏证据即可，不需要提供真实账号密码。
+请不要通过公开渠道报告安全漏洞，也不要提交可直接利用的复现细节。
 
-普通功能问题使用问题反馈模板。当天执行线索保存在 main.log；提供前再次检查是否包含不适合公开的课程内容。
+请使用 GitHub 私密漏洞报告入口：
+
+[提交私密安全报告](https://github.com/ravicc02/Mumu/security/advisories/new)
+
+报告仅维护者可见。后续验证、修复和公告可以在安全公告中完成。
+
+如果入口无法使用，可以创建公开 Issue，但只能请求私密联系方式。公开内容不得包含组件细节、版本组合、复现步骤、影响说明或凭据。
+
+### 报告内容
+
+一份有效报告应包含：
+
+- 受影响的组件、版本标签或提交。
+- 攻击者能够执行的操作及所需权限。
+- 最小复现步骤或脱敏后的 PoC（Proof of Concept，概念验证）。
+- 触发问题所需的非默认配置。
+- 实际影响及可能受影响的用户范围。
+- 已脱敏的日志、截图或错误信息。
+- 可行的修复建议。
+
+请勿提供真实账号密码、Cookie、API Key、二维码凭据、授权文件或未脱敏课程内容。
 
 ## 支持范围
 
-当前重点维护最新发行候选版本和 main 分支。Windows 安装包尚未配置代码签名，发布附件提供 SHA-256 校验和、来源清单和冒烟结果。
+安全修复优先进入最新发行版本和 `main` 分支。是否回移到旧版本，以安全公告和实际维护能力为准。
 
-模型请求会发送题目及必要上下文到使用者配置的模型服务。账号授权保留在本机；分享签到链接只授予对应批次、有效期内的访问能力。
+| 版本 | 支持状态 |
+| --- | --- |
+| 最新 GitHub Release | 支持 |
+| `main` 最新提交 | 修复目标分支，用于验证尚未发布的修复 |
+| 更早版本 | 不承诺回移 |
+
+报告前请先确认问题可以在最新 Release 或 `main` 上复现。
+
+## 范围
+
+范围内的组件包括：
+
+- Electron 桌面壳和 Vue 前端。
+- FastAPI 后端、本地数据库和任务执行器。
+- 浏览器自动化、实时查看和文件产物边界。
+- 模型路由、密钥存储和请求账本。
+- 签到中继、分享链接、PIN 和二维码捕获流程。
+- 构建脚本、安装包、更新检查和发行附件。
+
+通常不在范围内的问题包括：
+
+- 需要已失陷的操作系统、管理员权限或真实平台账号才能利用。
+- 学习通、头歌、智慧树等第三方平台自身的问题。
+- 模型服务商或普通第三方依赖自身的问题，且没有 Mumu 特有影响。
+- 主动关闭文档中的安全边界后产生的风险。
+- 仅来自扫描器的提示，但没有证明可执行影响。
+- 使用不属于自己的账号、干扰真实课堂或破坏第三方服务。
+
+第三方依赖问题如果会通过 Mumu 形成新的越权、凭据泄漏或远程执行路径，仍可在报告中说明。
+
+## 安全边界
+
+### 本地服务
+
+桌面端默认只连接 `127.0.0.1` 上的本地 API。公开签到服务使用 HTTPS 域名，并通过独立管理密钥和分享 token 限制访问。
+
+不要将本地管理端口直接暴露到公网。需要远程分享时，只部署签到中继所需的独立服务。
+
+### 凭据与日志
+
+模型密钥、平台授权和 Cookie 不应进入普通日志、公开 Issue 或安装包。日志可能包含课程标题、任务状态和脱敏后的执行线索；提交前仍需人工检查。
+
+### 数据发送
+
+模型请求会把完成任务所需的题目、页面上下文或图片发送到使用者配置的模型服务。平台操作会访问对应平台。使用者应确认学校规则、平台条款和数据处理边界。
+
+### 测试限制
+
+安全研究应使用自己的测试账号、隔离数据和最小影响范围。不要对真实课堂执行签到、提交、答题或其他不可重复操作。
+
+生成 PoC 时，优先使用本地夹具、模拟响应或临时数据目录。需要真实平台页面时，应避免影响其他用户。
+
+## 披露流程
+
+1. 维护者确认收到报告，并进行初步分级。
+2. 在私密公告中复现问题，确认影响范围。
+3. 私下开发修复和回归测试，必要时请报告者验证。
+4. 发布包含修复的新版本。
+5. 发布 GitHub Security Advisory（安全公告），适用时申请 CVE。
+6. 在报告者同意后致谢；报告者可以要求匿名。
+
+在公告发布前，请保持漏洞细节私密。本项目由维护者利用业余时间维护，确认、修复和发布时间尽力而为，不承诺固定 SLA（Service Level Agreement，服务等级协议）。
+
+## 许可证
+
+安全报告、漏洞 PoC 和测试代码不改变项目现有许可证。第三方代码的许可证与分发义务见[许可证与第三方声明](LICENSING.md)。
+
+## English Summary
+
+Do not disclose security vulnerabilities through public issues, pull requests, or discussions.
+
+Use [GitHub private vulnerability reporting](https://github.com/ravicc02/Mumu/security/advisories/new). Reports should include the affected version, impact, minimal reproduction, required configuration, sanitized evidence, and a suggested fix when available.
+
+The latest release and `main` are the supported security targets. Please use your own test accounts and isolated data. Do not perform destructive or irreversible actions against real courses or third-party services.
+
+Security reports and proof-of-concept code do not change the repository's current licensing status. See [Licensing](LICENSING.md) for third-party license obligations.

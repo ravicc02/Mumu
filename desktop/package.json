@@ -3,6 +3,7 @@
   "version": "0.7.5",
   "description": "Mumu local Windows learning task workspace",
   "author": "Mumu Contributors",
+  "license": "GPL-3.0-only",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -54,6 +55,10 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE"
       }
     ],
     "win": {

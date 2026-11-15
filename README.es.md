@@ -4,7 +4,7 @@
 
 <h1>Mumu</h1>
 
-**Un cliente integral que ayuda a los universitarios con su vida universitaria y sus estudios.**
+**Desbloquea tus dificultades de aprendizaje con un clic**
 
 [简体中文](README.md) · [English](README.en.md) · [繁體中文](README.zh-TW.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · **Español**
 
@@ -12,13 +12,10 @@
 [![Release](https://img.shields.io/github/v/release/ravicc02/Mumu?include_prereleases&label=release&color=4054d8)](https://github.com/ravicc02/Mumu/releases)
 ![Windows x64](https://img.shields.io/badge/Windows-x64-1e293b?logo=windows)
 
-[Descargar](https://github.com/ravicc02/Mumu/releases) · [Cambios](CHANGELOG.md) · [Incidencias](https://github.com/ravicc02/Mumu/issues/new/choose)
-
+[Descargar](https://github.com/ravicc02/Mumu/releases) · [Cambios](CHANGELOG.md) · [Incidencias](https://github.com/ravicc02/Mumu/issues/new/choose) · [Guía de contribución](CONTRIBUTING.md)
 <a href="assets/demo/demo.mp4">
   <img src="assets/demo/demo.gif" width="100%" alt="Demostración del espacio de trabajo de Mumu">
 </a>
-
-[Ver la demostración completa de 23 segundos](assets/demo/demo.mp4)
 
 </div>
 
@@ -46,57 +43,73 @@
 | **Tareas** | Recopila tareas sin terminar y actualmente entregables; identifica tipos de pregunta, genera respuestas, completa de forma determinista, guarda borradores, evalúa y verifica la entrega |
 | **Cursos** | Lee cursos y puntos de tarea, omite contenido completado, ejecuta flujos compatibles de medios y lectura, y conserva la evidencia de progreso de la plataforma |
 | **Asistencia** | Procesa varias cuentas por lotes; admite códigos, gestos, códigos QR y ubicación, con enlaces de lote revocables |
-| **Navegador de tareas en vivo** | Asigna a cada tarea un navegador aislado y una copia de la autorización; permite visualización en vivo, pausa, reintento e intervención sin detener la tarea al cerrar el visor |
-
-Las tareas se ejecutan en navegadores independientes y pueden procesar cuentas distintas en paralelo. Mumu solo marca una tarea como completada cuando existe un resultado verificable de la plataforma; las afirmaciones del modelo, las capturas y la finalización parcial no se consideran pruebas de finalización.
 
 ## Plataformas compatibles
 
-| Plataforma | Tareas | Cursos | Asistencia |
-| :---: | :---: | :---: | :---: |
-| <img src="assets/platforms/xuexitong.png" height="28" alt="Logotipo de Xuexitong"><br>**Xuexitong** | Sí | Sí | Sí |
-| <img src="assets/platforms/educoder.png" height="28" alt="Logotipo de EduCoder"><br>**EduCoder** | Sí | — | — |
-| <img src="assets/platforms/zhihuishu.ico" height="28" alt="Logotipo de Zhihuishu"><br>**Zhihuishu** | — | Sí | — |
-| <img src="assets/platforms/icourse.ico" height="28" alt="Logotipo de ICourse163"><br>**ICourse163** | — | Sí | — |
-| <img src="assets/platforms/icve.ico" height="28" alt="Logotipo de ICVE"><br>**ICVE** | — | Sí | — |
-| <img src="assets/platforms/zjy.ico" height="28" alt="Logotipo de ZJY"><br>**ZJY** | — | Sí | — |
-| <img src="assets/platforms/yuketang.ico" height="28" alt="Logotipo de Yuketang"><br>**Yuketang** | — | Sí | — |
+<table width="100%">
+<thead>
+<tr>
+<th align="center">Plataforma</th>
+<th align="center">Tareas</th>
+<th align="center">Cursos</th>
+<th align="center">Asistencia</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="center"><img src="assets/platforms/xuexitong.png" height="28" alt="Logotipo de Xuexitong"><br><strong>Xuexitong</strong></td>
+<td align="center">Sí</td>
+<td align="center">Sí</td>
+<td align="center">Sí</td>
+</tr>
+<tr>
+<td align="center"><img src="assets/platforms/educoder.png" height="28" alt="Logotipo de EduCoder"><br><strong>EduCoder</strong></td>
+<td align="center">Sí</td>
+<td align="center">—</td>
+<td align="center">—</td>
+</tr>
+<tr>
+<td align="center"><img src="assets/platforms/zhihuishu.ico" height="28" alt="Logotipo de Zhihuishu"><br><strong>Zhihuishu</strong></td>
+<td align="center">—</td>
+<td align="center">Sí</td>
+<td align="center">—</td>
+</tr>
+<tr>
+<td align="center"><img src="assets/platforms/icourse.ico" height="28" alt="Logotipo de ICourse163"><br><strong>ICourse163</strong></td>
+<td align="center">—</td>
+<td align="center">Sí</td>
+<td align="center">—</td>
+</tr>
+<tr>
+<td align="center"><img src="assets/platforms/icve.ico" height="28" alt="Logotipo de ICVE"><br><strong>ICVE</strong></td>
+<td align="center">—</td>
+<td align="center">Sí</td>
+<td align="center">—</td>
+</tr>
+<tr>
+<td align="center"><img src="assets/platforms/zjy.ico" height="28" alt="Logotipo de ZJY"><br><strong>ZJY</strong></td>
+<td align="center">—</td>
+<td align="center">Sí</td>
+<td align="center">—</td>
+</tr>
+<tr>
+<td align="center"><img src="assets/platforms/yuketang.ico" height="28" alt="Logotipo de Yuketang"><br><strong>Yuketang</strong></td>
+<td align="center">—</td>
+<td align="center">Sí</td>
+<td align="center">—</td>
+</tr>
+</tbody>
+</table>
 
 ## Primeros pasos
 
-1. Descarga el instalador de Windows x64 desde [Releases](https://github.com/ravicc02/Mumu/releases). Las versiones candidatas aparecen como Pre-release.
+1. Descarga el instalador de Windows x64 desde [Releases](https://github.com/ravicc02/Mumu/releases).
 2. En el primer inicio, revisa la comprobación del entorno. Instala las dependencias que falten cuando sea posible o utiliza el comando manual mostrado si falla la instalación.
-3. Configura el endpoint del modelo, la API Key, el modelo y el esfuerzo de razonamiento; después autoriza una cuenta de plataforma. Ambos pasos pueden omitirse y completarse más tarde en Configuración.
-4. Selecciona una tarea para ejecutarla. Cuando Mumu solicite intervención, revisa la página en el navegador original y continúa.
-5. Comprueba el resultado de verificación de la plataforma. La entrega final de Xuexitong y la evaluación automática de EduCoder se configuran por separado en los ajustes de tareas.
-
-**Ejecutar desde el código fuente**
-
-Entorno compatible: Windows 10/11 x64, Node.js 24, Python 3.13 y Chrome o Edge.
-
-~~~powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-npm --prefix desktop ci
-$env:MUMU_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
-npm start
-~~~
-
-Para previsualizar la aplicación web, utiliza dos terminales:
-
-~~~powershell
-# Terminal 1: raíz del repositorio
-.\.venv\Scripts\python.exe backend\run_server.py --host 127.0.0.1 --port 8877
-
-# Terminal 2: raíz del repositorio
-npm run desktop:web
-~~~
-
-El frontend se ejecuta en http://127.0.0.1:5174/ y la API local en http://127.0.0.1:8877/. Consulta [CONTRIBUTING.md](CONTRIBUTING.md) para el desarrollo y la compilación.
+3. Configura el endpoint del modelo, la API Key, el modelo y el esfuerzo de razonamiento; después autoriza una cuenta de plataforma.
 
 ## Datos y privacidad
 
-El directorio de datos predeterminado es `.mumu` dentro del perfil del usuario, por ejemplo `%USERPROFILE%/.mumu`, y guarda autorizaciones, tareas, datos SQLite y capturas. Al actualizar, Mumu copia el directorio antiguo `%LOCALAPPDATA%/AIAssistantStudio` a la nueva ubicación sin borrar los datos anteriores. Las solicitudes al modelo envían las preguntas y el contexto necesario al servicio configurado por el usuario.
+El directorio de datos predeterminado es `.mumu` dentro del perfil del usuario, por ejemplo `%USERPROFILE%/.mumu`, y guarda autorizaciones, tareas, datos SQLite y capturas
 
 ~~~text
 logs/
@@ -105,20 +118,6 @@ logs/
 ~~~
 
 Si aparece un problema, abre el directorio de registros desde Configuración y facilita un main.log con los datos sensibles eliminados. Las incidencias públicas no deben incluir cookies, API Keys, credenciales QR ni archivos de autorización. Consulta [Seguridad y privacidad](.github/SECURITY.md).
-
-## Estructura del proyecto
-
-~~~text
-desktop/       Vue y Electron; src/app es la entrada, src/features agrupa dominios de negocio y src/shared contiene controles compartidos
-backend/       FastAPI, adaptadores de plataforma y ejecución de tareas; services se divide por cuenta, tarea, ejecución y notificaciones
-scripts/       Versionado, auditoría de código, empaquetado, pruebas de humo y herramientas de publicación
-assets/        Marca, demostración y logotipos de plataformas usados por README
-.github/       CI, Releases, plantillas de incidencias y mantenimiento de dependencias
-~~~
-
-## Contribución
-
-[Guía de contribución](CONTRIBUTING.md) · [Registro de cambios](CHANGELOG.md)
 
 ## Star History
 

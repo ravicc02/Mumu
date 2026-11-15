@@ -2,7 +2,7 @@
   "name": "mumu",
   "version": "0.7.5",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/ravicc02/Mumu.git"

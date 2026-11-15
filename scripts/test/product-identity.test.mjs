@@ -20,6 +20,7 @@ test('product metadata is shared by package, installer, backend and update surfa
   assert.equal(desktopPackage.build.appId, product.appId);
   assert.equal(desktopPackage.build.productName, product.name);
   assert.equal(desktopPackage.build.extraResources[0].from, '../backend/dist/mumu-backend');
+  assert.ok(desktopPackage.build.extraResources.some(resource => resource.from === '../LICENSE' && resource.to === 'LICENSE'));
   assert.equal(desktopPackage.build.win.artifactName, 'Mumu-${version}-windows-${arch}-setup.${ext}');
   assert.ok(desktopPackage.build.files.includes('product.json'));
 });
@@ -41,6 +42,25 @@ test('current user-facing README does not advertise the legacy repository', () =
   const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
   assert.doesNotMatch(readme, /github\.com\/ravicc02\/ai-quiz-assistant/);
   assert.match(readme, /github\.com\/ravicc02\/Mumu/);
+});
+
+test('security and licensing documents define private reporting and license boundaries', () => {
+  const security = fs.readFileSync(path.join(root, '.github/SECURITY.md'), 'utf8');
+  const licensing = fs.readFileSync(path.join(root, '.github/LICENSING.md'), 'utf8');
+  const rootPackage = json('package.json');
+  const desktopPackage = json('desktop/package.json');
+
+  assert.match(security, /github\.com\/ravicc02\/Mumu\/security\/advisories\/new/);
+  assert.match(security, /支持范围/);
+  assert.match(security, /披露流程/);
+  assert.equal(rootPackage.license, 'GPL-3.0-only');
+  assert.equal(desktopPackage.license, 'GPL-3.0-only');
+  assert.match(licensing, /GPL-3\.0-only/);
+  assert.match(licensing, /商业使用/);
+  assert.match(licensing, /闭源/);
+  assert.doesNotMatch(licensing, /UNLICENSED|PolyForm/);
+  assert.doesNotMatch(security, /sub2api|Wei-Shaw/i);
+  assert.doesNotMatch(licensing, /sub2api|Wei-Shaw/i);
 });
 
 test('reused implementations live in business modules without a source tree or provenance documents', () => {

@@ -1,5 +1,9 @@
 MUMU APPLICABLE LICENSE TEXTS
 
+This file contains applicable third-party license texts and notices only.
+Mumu source code is licensed separately under GPL-3.0-only in the root LICENSE
+file. This file does not change that license.
+
 
 ================================================================================
 MIT License

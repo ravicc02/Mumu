@@ -4,7 +4,7 @@
 
 <h1>Mumu</h1>
 
-**辅助大学生校园生活以及学习的一体式客户端**
+**学有卡点，一键打通**
 
 **简体中文** · [English](README.en.md) · [繁體中文](README.zh-TW.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md)
 
@@ -12,13 +12,10 @@
 [![Release](https://img.shields.io/github/v/release/ravicc02/Mumu?include_prereleases&label=release&color=4054d8)](https://github.com/ravicc02/Mumu/releases)
 ![Windows x64](https://img.shields.io/badge/Windows-x64-1e293b?logo=windows)
 
-[下载安装](https://github.com/ravicc02/Mumu/releases) · [更新记录](CHANGELOG.md) · [反馈问题](https://github.com/ravicc02/Mumu/issues/new/choose)
-
+[下载安装](https://github.com/ravicc02/Mumu/releases) · [更新记录](CHANGELOG.md) · [反馈问题](https://github.com/ravicc02/Mumu/issues/new/choose) · [贡献指南](CONTRIBUTING.md)
 <a href="assets/demo/demo.mp4">
   <img src="assets/demo/demo.gif" width="100%" alt="Mumu 任务公司实录演示">
 </a>
-
-[观看完整 23 秒实录](assets/demo/demo.mp4)
 
 </div>
 
@@ -51,45 +48,71 @@
 
 ## 支持的平台
 
-| 平台 | 作业 | 网课 | 签到 |
-| :---: | :---: | :---: | :---: |
-| <img src="assets/platforms/xuexitong.png" height="28" alt="学习通 Logo"><br>**学习通** | 支持 | 支持 | 支持 |
-| <img src="assets/platforms/educoder.png" height="28" alt="头歌 Logo"><br>**头歌** | 支持 | — | — |
-| <img src="assets/platforms/zhihuishu.ico" height="28" alt="知到智慧树 Logo"><br>**知到智慧树** | — | 支持 | — |
-| <img src="assets/platforms/icourse.ico" height="28" alt="中国大学 MOOC Logo"><br>**中国大学 MOOC** | — | 支持 | — |
-| <img src="assets/platforms/icve.ico" height="28" alt="智慧职教 Logo"><br>**智慧职教** | — | 支持 | — |
-| <img src="assets/platforms/zjy.ico" height="28" alt="职教云 Logo"><br>**职教云** | — | 支持 | — |
-| <img src="assets/platforms/yuketang.ico" height="28" alt="雨课堂 Logo"><br>**雨课堂** | — | 支持 | — |
+<table width="100%">
+<thead>
+<tr>
+<th align="center">平台</th>
+<th align="center">作业</th>
+<th align="center">网课</th>
+<th align="center">签到</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="center"><img src="assets/platforms/xuexitong.png" height="28" alt="学习通 Logo"><br><strong>学习通</strong></td>
+<td align="center">支持</td>
+<td align="center">支持</td>
+<td align="center">支持</td>
+</tr>
+<tr>
+<td align="center"><img src="assets/platforms/educoder.png" height="28" alt="头歌 Logo"><br><strong>头歌</strong></td>
+<td align="center">支持</td>
+<td align="center">—</td>
+<td align="center">—</td>
+</tr>
+<tr>
+<td align="center"><img src="assets/platforms/zhihuishu.ico" height="28" alt="知到智慧树 Logo"><br><strong>知到智慧树</strong></td>
+<td align="center">—</td>
+<td align="center">支持</td>
+<td align="center">—</td>
+</tr>
+<tr>
+<td align="center"><img src="assets/platforms/icourse.ico" height="28" alt="中国大学 MOOC Logo"><br><strong>中国大学 MOOC</strong></td>
+<td align="center">—</td>
+<td align="center">支持</td>
+<td align="center">—</td>
+</tr>
+<tr>
+<td align="center"><img src="assets/platforms/icve.ico" height="28" alt="智慧职教 Logo"><br><strong>智慧职教</strong></td>
+<td align="center">—</td>
+<td align="center">支持</td>
+<td align="center">—</td>
+</tr>
+<tr>
+<td align="center"><img src="assets/platforms/zjy.ico" height="28" alt="职教云 Logo"><br><strong>职教云</strong></td>
+<td align="center">—</td>
+<td align="center">支持</td>
+<td align="center">—</td>
+</tr>
+<tr>
+<td align="center"><img src="assets/platforms/yuketang.ico" height="28" alt="雨课堂 Logo"><br><strong>雨课堂</strong></td>
+<td align="center">—</td>
+<td align="center">支持</td>
+<td align="center">—</td>
+</tr>
+</tbody>
+</table>
 
 ## 开始使用
 
 1. 在 [Releases](https://github.com/ravicc02/Mumu/releases) 下载 Windows x64 安装包
 2. 首次打开进入初始化：检测运行环境；缺少依赖时可点击安装，失败时显示手动命令。
-3. 配置模型接口、Key、模型和思考强度，再选择平台授权。两步均可跳过，之后在设置与平台中补充。
+3. 配置模型接口、Key、模型和思考强度，再选择平台授权。
 
-**从源码运行**
-
-环境：Windows 10/11 x64、Node.js 24、Python 3.13、Chrome 或 Edge。
-
-~~~powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-npm --prefix desktop ci
-$env:MUMU_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
-npm start
-~~~
-
-~~~powershell
-# 终端一：仓库根目录
-.\.venv\Scripts\python.exe backend\run_server.py --host 127.0.0.1 --port 8877
-
-# 终端二：仓库根目录
-npm run desktop:web
-~~~
 
 ## 数据与隐私
 
-默认数据目录为用户主目录下的 `.mumu`，例如 `%USERPROFILE%/.mumu`，保存授权、任务、SQLite 和截图。升级时会从旧的 `%LOCALAPPDATA%/AIAssistantStudio` 复制到新目录，旧数据不会被删除。模型请求会将题目及必要上下文发送到使用者配置的模型服务。
+默认数据目录为用户主目录下的 `.mumu`，例如 `%USERPROFILE%/.mumu`，保存授权、任务、SQLite 和截图
 
 ~~~text
 logs/
@@ -99,19 +122,6 @@ logs/
 
 遇到问题，从“设置 → 系统设置”打开日志目录，将脱敏后的 main.log 提供给维护者。公开 Issue 不提交 Cookie、Key、二维码凭据或授权文件，详见[安全与隐私](.github/SECURITY.md)。
 
-## 项目结构
-
-~~~text
-desktop/       Vue 与 Electron；src/app 为入口，src/features 按业务域划分，src/shared 放通用控件
-backend/       FastAPI、平台适配和任务执行；services 按账户、作业、任务、运行时及通知划分
-scripts/       版本、源文件审查、打包、冒烟及发布工具
-assets/        README 品牌、演示和平台标识
-.github/       CI、Release、问题模板和依赖维护
-~~~
-
-## 参与贡献
-
-[贡献指南](CONTRIBUTING.md) · [更新日志](CHANGELOG.md)
 
 ## Star History
 
