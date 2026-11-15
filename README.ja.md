@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/brand/mumu-loop.gif" width="148" alt="Mumu の動くキャラクター">
+<img src="assets/brand/mumu-3d.png" width="148" alt="Mumu キャラクター">
 
 <h1>Mumu</h1>
 
@@ -49,10 +49,10 @@
 <table width="100%">
 <thead>
 <tr>
-<th align="center">プラットフォーム</th>
-<th align="center">課題</th>
-<th align="center">オンライン授業</th>
-<th align="center">出席確認</th>
+<th width="500" align="center">プラットフォーム</th>
+<th width="170" align="center">課題</th>
+<th width="170" align="center">オンライン授業</th>
+<th width="170" align="center">出席確認</th>
 </tr>
 </thead>
 <tbody>

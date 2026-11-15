@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/brand/mumu-loop.gif" width="148" alt="Mascota animada de Mumu">
+<img src="assets/brand/mumu-3d.png" width="148" alt="Mascota de Mumu">
 
 <h1>Mumu</h1>
 
@@ -49,10 +49,10 @@
 <table width="100%">
 <thead>
 <tr>
-<th align="center">Plataforma</th>
-<th align="center">Tareas</th>
-<th align="center">Cursos</th>
-<th align="center">Asistencia</th>
+<th width="500" align="center">Plataforma</th>
+<th width="170" align="center">Tareas</th>
+<th width="170" align="center">Cursos</th>
+<th width="170" align="center">Asistencia</th>
 </tr>
 </thead>
 <tbody>

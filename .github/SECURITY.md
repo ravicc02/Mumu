@@ -98,13 +98,3 @@ Mumu 在本机保存账号授权、模型密钥、任务记录、截图和日志
 ## 许可证
 
 安全报告、漏洞 PoC 和测试代码不改变项目现有许可证。第三方代码的许可证与分发义务见[许可证与第三方声明](LICENSING.md)。
-
-## English Summary
-
-Do not disclose security vulnerabilities through public issues, pull requests, or discussions.
-
-Use [GitHub private vulnerability reporting](https://github.com/ravicc02/Mumu/security/advisories/new). Reports should include the affected version, impact, minimal reproduction, required configuration, sanitized evidence, and a suggested fix when available.
-
-The latest release and `main` are the supported security targets. Please use your own test accounts and isolated data. Do not perform destructive or irreversible actions against real courses or third-party services.
-
-Security reports and proof-of-concept code do not change the repository's current licensing status. See [Licensing](LICENSING.md) for third-party license obligations.

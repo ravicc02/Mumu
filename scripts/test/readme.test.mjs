@@ -7,7 +7,7 @@ const readme = await readFile(new URL("README.md", root), "utf8");
 
 test("README hero keeps the product icon, text name, introduction, language links, and demo", () => {
   const markers = [
-    'src="assets/brand/mumu-loop.gif"',
+    'src="assets/brand/mumu-3d.png"',
     "<h1>Mumu</h1>",
     "学有卡点，一键打通",
     "README.en.md",
@@ -34,7 +34,7 @@ test("README language entry pages and demo media exist", async () => {
     "README.ja.md",
     "README.es.md",
     "assets/brand/mumu.png",
-    "assets/brand/mumu-loop.gif",
+    "assets/brand/mumu-3d.png",
     "assets/demo/demo.gif",
     "assets/demo/demo.mp4"
   ];
@@ -67,6 +67,8 @@ test("README body contains safety notices, features, platform logos, and star hi
   }
   assert.ok(!readme.includes("当前能力"), "platform table should not include the current capability column");
   assert.match(readme, /<table width="100%">/, "supported platforms should span the README content width");
+  assert.match(readme, /<th width="500" align="center">平台<\/th>/);
+  assert.equal((readme.match(/<th width="170" align="center">/g) || []).length, 3);
   assert.equal((readme.match(/assets\/demo\/demo\.mp4/g) || []).length, 1, "README should keep one demo link");
   assert.equal((readme.match(/CONTRIBUTING\.md/g) || []).length, 1, "README should keep one contributing entry");
   assert.doesNotMatch(readme, /~~~powershell|GPL-3\.0-only/, "README should not restore the removed source or license sections");
@@ -86,14 +88,15 @@ test("language README pages stay aligned with the public asset layout", async ()
   };
   for (const [file, disclaimer] of Object.entries(disclaimerHeadings)) {
     const content = await readFile(new URL(file, root), "utf8");
-    for (const marker of ["assets/brand/mumu-loop.gif", "assets/demo/demo.gif", "assets/platforms/xuexitong.png", disclaimer, "## Star History", "CONTRIBUTING.md"]) {
+    for (const marker of ["assets/brand/mumu-3d.png", "assets/demo/demo.gif", "assets/platforms/xuexitong.png", disclaimer, "## Star History", "CONTRIBUTING.md"]) {
       assert.ok(content.includes(marker), `${file} missing ${marker}`);
     }
     assert.ok(!content.includes("<hr>"), `${file} should rely on the GitHub heading rule instead of an extra divider`);
-    assert.ok(!content.includes("assets/brand/mumu.png"), `${file} should use the animated Mumu asset`);
+    assert.ok(!content.includes("assets/brand/mumu.png"), `${file} should use the dedicated Mumu hero asset`);
     assert.equal(content.lastIndexOf("\n## "), content.indexOf("\n## Star History"), `${file} should keep Star History as the final section`);
     assert.doesNotMatch(content, /docs\/|AGENTS\.md/);
     assert.match(content, /<table width="100%">/);
+    assert.equal((content.match(/<th width="(500|170)" align="center">/g) || []).length, 4);
     assert.equal((content.match(/assets\/demo\/demo\.mp4/g) || []).length, 1);
     assert.equal((content.match(/CONTRIBUTING\.md/g) || []).length, 1);
     assert.equal((content.match(/^\| \*\*/gm) || []).length, 4);

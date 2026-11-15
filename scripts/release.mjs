@@ -21,6 +21,7 @@ const legalFiles = ['LICENSE', 'LICENSES.txt', 'desktop/public/licenses/OPEN_SOU
 const thirdPartyLegalFiles = legalFiles.slice(1);
 const readmeAssets = [
   'assets/brand/mumu.png',
+  'assets/brand/mumu-3d.png',
   'assets/brand/banner.svg',
   'assets/brand/logo.svg',
   'assets/brand/mumu-bots.gif',

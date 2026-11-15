@@ -53,6 +53,7 @@ test('security and licensing documents define private reporting and license boun
   assert.match(security, /github\.com\/ravicc02\/Mumu\/security\/advisories\/new/);
   assert.match(security, /支持范围/);
   assert.match(security, /披露流程/);
+  assert.doesNotMatch(security, /English Summary|Do not disclose security vulnerabilities/i);
   assert.equal(rootPackage.license, 'GPL-3.0-only');
   assert.equal(desktopPackage.license, 'GPL-3.0-only');
   assert.match(licensing, /GPL-3\.0-only/);

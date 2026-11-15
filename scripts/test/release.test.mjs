@@ -28,7 +28,7 @@ function fixture(t, gitRepo = false) {
   put('desktop/package-lock.json', JSON.stringify({ version: '1.2.3', packages: { '': { version: '1.2.3' }, 'node_modules/vendor': { version: '9.8.7' } } }));
   for (const file of ['README.md', 'README.en.md', 'README.zh-TW.md', 'README.ko.md', 'README.ja.md', 'README.es.md',
     'CONTRIBUTING.md', '.github/SECURITY.md', '.github/LICENSING.md', 'LICENSE', 'LICENSES.txt', 'desktop/public/licenses/OPEN_SOURCE_LICENSES.txt',
-    'assets/brand/mumu.png', 'assets/brand/banner.svg', 'assets/brand/logo.svg', 'assets/brand/mumu-bots.gif',
+    'assets/brand/mumu.png', 'assets/brand/mumu-3d.png', 'assets/brand/banner.svg', 'assets/brand/logo.svg', 'assets/brand/mumu-bots.gif',
     'assets/brand/mumu-bots.png', 'assets/demo/demo.gif', 'assets/demo/demo.mp4', 'assets/screenshots/workspace.png', 'assets/platforms/xuexitong.png',
     'assets/platforms/educoder.png', 'assets/platforms/zhihuishu.ico', 'assets/platforms/icourse.ico',
     'assets/platforms/icve.ico', 'assets/platforms/zjy.ico', 'assets/platforms/yuketang.ico']) put(file, 'fixture\n');

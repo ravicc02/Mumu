@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/brand/mumu-loop.gif" width="148" alt="Mumu 動態形象">
+<img src="assets/brand/mumu-3d.png" width="148" alt="Mumu 形象">
 
 <h1>Mumu</h1>
 
@@ -49,10 +49,10 @@
 <table width="100%">
 <thead>
 <tr>
-<th align="center">平台</th>
-<th align="center">作業</th>
-<th align="center">網課</th>
-<th align="center">簽到</th>
+<th width="500" align="center">平台</th>
+<th width="170" align="center">作業</th>
+<th width="170" align="center">網課</th>
+<th width="170" align="center">簽到</th>
 </tr>
 </thead>
 <tbody>
