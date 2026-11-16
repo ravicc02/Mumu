@@ -1,4 +1,5 @@
 <script setup>
+import ChoiceInput from "../../../shared/controls/ChoiceInput.vue";
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { BookOpen, Check, LoaderCircle, RefreshCw, X } from "@lucide/vue";
 import { api } from "../../../app/api.js";
@@ -52,7 +53,7 @@ onUnmounted(() => { generation++; });
       <div class="educoder-course-toolbar"><span>{{ account.name }}</span><button class="button light" type="button" :disabled="pending || saving" @click="load(true)"><RefreshCw :size="14" :class="{spinning:pending}" />获取课堂</button></div>
       <div v-if="pending" class="empty-inline" role="status">正在获取课堂…</div>
       <div v-else-if="!records.length" class="empty-inline">{{ discovered ? '当前没有进行中的学习课堂' : '尚未获取课堂' }}</div>
-      <div v-else class="educoder-course-list"><label v-for="course in records" :key="course.id" :class="{unavailable:!course.active || !course.accessible}"><input v-model="draft" type="checkbox" :value="course.id" :disabled="saving || !course.active || !course.accessible"><strong>{{ course.name }}</strong><span v-if="!course.active">已结束</span><span v-else-if="!course.accessible">无权限</span><Check v-else-if="draft.includes(course.id)" :size="14" /></label></div>
+      <div v-else class="educoder-course-list"><label v-for="course in records" :key="course.id" :class="{unavailable:!course.active || !course.accessible}"><ChoiceInput v-model="draft" :value="course.id" :disabled="saving || !course.active || !course.accessible" /><strong>{{ course.name }}</strong><span v-if="!course.active">已结束</span><span v-else-if="!course.accessible">无权限</span><Check v-else-if="draft.includes(course.id)" :size="14" /></label></div>
       <p v-if="error" class="validation-error" role="alert">{{ error }}</p>
       <footer class="modal-actions"><span class="educoder-course-count">已选 {{ draft.length }}</span><button class="button light" type="button" :disabled="saving" @click="opened = false">取消</button><button class="button dark" type="button" :disabled="saving || pending" @click="save"><LoaderCircle v-if="saving" :size="14" class="spinning" />保存选择</button></footer>
     </section>

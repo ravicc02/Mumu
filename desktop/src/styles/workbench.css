@@ -143,8 +143,8 @@ a:hover { text-decoration: underline; }
 .connection-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
 .connection-dot.online { background: var(--green); }
 .app-body { display: grid; grid-template-columns: 80px minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); flex: 1; min-height: 0; }
-.side-nav { display: flex; flex-direction: column; gap: 4px; grid-column: 1; grid-row: 1 / -1; border-right: 1px solid var(--line); background: var(--surface); padding: 16px 8px 12px; }
-.nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 64px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); padding: 8px 4px; font-size: var(--text-xs); transition: color 160ms var(--ease),background 160ms var(--ease); }
+.side-nav { display: flex; flex-direction: column; gap: var(--nav-item-gap); grid-column: 1; grid-row: 1 / -1; border-right: 1px solid var(--line); background: var(--surface); padding: 16px 8px 12px; }
+.nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; height: var(--nav-item-height); flex: none; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); padding: 8px 4px; font-size: var(--text-xs); transition: color 160ms var(--ease),background 160ms var(--ease); }
 .nav-item:hover { background: var(--surface-muted); color: var(--ink); }
 .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 .side-nav-footer { margin-top: auto; color: var(--subtle); text-align: center; padding: 12px 0; font-size: var(--text-xs); }
@@ -619,7 +619,7 @@ select:disabled { background: var(--surface-muted); opacity: .6; cursor: not-all
 
 /* The rail, status capsule and viewport share one state-driven motion vocabulary. */
 .side-nav { position: relative; isolation: isolate; }
-.nav-motion-track { position: absolute; left: 8px; right: 8px; top: 16px; height: 64px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--accent-soft); pointer-events: none; z-index: -1; transition: transform 200ms var(--ease); }
+.nav-motion-track { position: absolute; left: 8px; right: 8px; top: 16px; height: var(--nav-item-height); border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--accent-soft); pointer-events: none; z-index: -1; transition: transform 200ms var(--ease); }
 .nav-item.active { background: transparent; }
 .nav-item.active > svg { color: var(--accent); }
 .task-list-enter-active { transition: opacity 260ms ease,transform 380ms var(--ease); transition-delay: calc(var(--row-index,0) * 24ms); }
@@ -656,4 +656,154 @@ select:disabled { background: var(--surface-muted); opacity: .6; cursor: not-all
 .job-action-feedback,.job-queue-blocker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; border: 1px solid var(--line); border-radius: var(--radius-control); padding: 10px 12px; color: var(--muted); background: var(--bg); font-size: var(--text-xs); }
 .job-queue-blocker { color: var(--orange); background: var(--orange-soft); }
 .job-queue-blocker > span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+
+.choice-control {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.choice-native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.choice-box {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--on-accent);
+  transition: background 160ms var(--ease), border-color 160ms var(--ease);
+}
+
+.choice-box svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
+}
+
+.choice-box path {
+  stroke-dasharray: 25;
+  stroke-dashoffset: 25;
+  transition: stroke-dashoffset 260ms var(--ease);
+}
+
+.choice-native:checked + .choice-box {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.choice-native:checked + .choice-box path,
+.choice-native:indeterminate + .choice-box path {
+  stroke-dashoffset: 0;
+}
+
+.choice-native:focus-visible + .choice-box {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.switch-control {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 24px;
+  flex: none;
+  perspective: 420px;
+}
+
+.switch-native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.switch-track {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  transition: background 160ms var(--ease), border-color 160ms var(--ease);
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  transform-style: preserve-3d;
+  transition: transform 220ms var(--ease);
+}
+
+.switch-face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  backface-visibility: hidden;
+  transition: transform 220ms var(--ease);
+}
+
+.switch-off {
+  background: var(--subtle);
+}
+
+.switch-on {
+  background: var(--accent);
+  color: var(--on-accent);
+  transform: rotateY(180deg);
+}
+
+.switch-on svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.switch-native:checked ~ .switch-track {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.switch-native:checked ~ .switch-thumb {
+  transform: translateX(18px);
+}
+
+.switch-native:checked ~ .switch-thumb .switch-off {
+  transform: rotateY(-180deg);
+}
+
+.switch-native:checked ~ .switch-thumb .switch-on {
+  transform: rotateY(0);
+}
+
+.switch-native:focus-visible ~ .switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (max-width: 1200px) {
+  .app-body { grid-template-columns: 196px minmax(0,1fr); }
+}
 .workflow-stage.paused .workflow-stage-dot,.workflow-stage.stopped .workflow-stage-dot { color: var(--muted); background: var(--surface-muted); }

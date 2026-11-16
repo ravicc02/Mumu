@@ -1,4 +1,6 @@
 <script setup>
+import ChoiceInput from "../../../shared/controls/ChoiceInput.vue";
+import ToggleSwitch from "../../../shared/controls/ToggleSwitch.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   CheckCheck,
@@ -737,7 +739,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); });
             <label v-if="!linkEditingId" class="field-label"><span>PIN（可选）</span><input v-model="linkPin" inputmode="numeric" maxlength="6" placeholder="4 至 6 位数字"></label>
             <section class="attendance-account-picker">
               <header><strong>选择账号</strong><span>{{ linkAccountIds.length }} 个已选</span></header>
-              <label v-for="account in readyAccounts" :key="account.id"><input v-model="linkAccountIds" type="checkbox" :value="account.id" :disabled="Boolean(linkEditingId)"><AccountAvatar :account="account" :size="28" /><span>{{ account.name }}</span></label>
+              <label v-for="account in readyAccounts" :key="account.id"><ChoiceInput v-model="linkAccountIds" :value="account.id" :disabled="Boolean(linkEditingId)" /><AccountAvatar :account="account" :size="28" /><span>{{ account.name }}</span></label>
             </section>
             <section v-if="linkResultUrl" class="attendance-share-result"><img :src="linkResultImage" alt="签到链接二维码"><div><strong>链接已创建</strong><input :value="linkResultUrl" readonly aria-label="签到链接"><button class="button light compact" type="button" @click="copy(linkResultUrl)"><Copy :size="13" />复制</button></div></section>
             <p v-if="linkError" class="attendance-feedback error"><CircleAlert :size="15" />{{ linkError }}</p>
@@ -757,22 +759,22 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); });
             <section class="attendance-window-picker">
               <header><div><strong>检测时段</strong><span>{{ autoWindows.length ? `${autoWindows.length} 个时段 · 开始后 3 分钟提速` : '默认 7:00–22:00' }}</span></div><button class="button light compact" type="button" @click="addAutoWindow"><Plus :size="13" />添加时段</button></header>
               <div v-for="(window, index) in autoWindows" :key="index" class="attendance-window-row">
-                <div class="attendance-weekdays"><label v-for="(label, dayIndex) in weekdayLabels" :key="label" :class="{ selected: window.days.includes(dayIndex + 1) }"><input v-model="window.days" type="checkbox" :value="dayIndex + 1"><span>{{ label }}</span></label></div>
+                <div class="attendance-weekdays"><label v-for="(label, dayIndex) in weekdayLabels" :key="label" :class="{ selected: window.days.includes(dayIndex + 1) }"><ChoiceInput v-model="window.days" :value="dayIndex + 1" /><span>{{ label }}</span></label></div>
                 <div class="attendance-window-time"><input v-model="window.start" type="time"><span>至</span><input v-model="window.end" type="time"><button class="icon-button danger-text" type="button" :aria-label="`删除第 ${index + 1} 个检测时段`" @click="removeAutoWindow(index)"><X :size="14" /></button></div>
               </div>
             </section>
-            <section class="attendance-account-picker"><header><strong>选择账号</strong><span>{{ autoAccountIds.length }} 个已选</span></header><label v-for="account in readyAccounts" :key="account.id"><input v-model="autoAccountIds" type="checkbox" :value="account.id" @change="resetAutoCourseFetch"><AccountAvatar :account="account" :size="28" /><span>{{ account.name }}</span></label></section>
+            <section class="attendance-account-picker"><header><strong>选择账号</strong><span>{{ autoAccountIds.length }} 个已选</span></header><label v-for="account in readyAccounts" :key="account.id"><ChoiceInput v-model="autoAccountIds" :value="account.id" @change="resetAutoCourseFetch" /><AccountAvatar :account="account" :size="28" /><span>{{ account.name }}</span></label></section>
             <section class="attendance-course-picker">
               <header><div><strong>检测课程</strong><span>{{ autoCourseFilters.length ? `已选 ${autoCourseFilters.length} 门` : '未选择时检测当年全部课程' }}</span></div><button class="button light compact" type="button" :disabled="!autoAccountIds.length || autoCourseBusy" @click="fetchAutoCourses"><LoaderCircle v-if="autoCourseBusy" :size="13" class="spin" /><RefreshCw v-else :size="13" />{{ autoCourseBusy ? '获取中' : '获取课程' }}</button></header>
               <div v-if="autoCourseChoices.length" class="attendance-course-options">
-                <label v-for="course in autoCourseChoices" :key="course.name"><input v-model="autoCourseFilters" type="checkbox" :value="course.name"><span>{{ course.name }}</span><small>{{ course.common ? '全部账号' : `${course.account_ids.length}/${autoAccountIds.length} 个账号` }}</small></label>
+                <label v-for="course in autoCourseChoices" :key="course.name"><ChoiceInput v-model="autoCourseFilters" :value="course.name" /><span>{{ course.name }}</span><small>{{ course.common ? '全部账号' : `${course.account_ids.length}/${autoAccountIds.length} 个账号` }}</small></label>
               </div>
               <p v-else class="attendance-course-empty">{{ autoCourseFetched ? '所选账号没有可检测课程' : '选择账号后获取当年课程' }}</p>
               <p v-if="autoCourseError" class="attendance-feedback error"><CircleAlert :size="14" />{{ autoCourseError }}</p>
             </section>
-            <fieldset class="attendance-type-picker"><legend>处理类型</legend><label v-for="(label, kind) in { normal: '普通', photo: '拍照', gesture: '手势码', code: '签到码', location: '位置' }" :key="kind"><input v-model="autoKinds" type="checkbox" :value="kind"><span><strong>{{ label }}</strong><small>{{ attendanceMaterialLabels[kind] }}</small></span></label></fieldset>
+            <fieldset class="attendance-type-picker"><legend>处理类型</legend><label v-for="(label, kind) in { normal: '普通', photo: '拍照', gesture: '手势码', code: '签到码', location: '位置' }" :key="kind"><ChoiceInput v-model="autoKinds" :value="kind" /><span><strong>{{ label }}</strong><small>{{ attendanceMaterialLabels[kind] }}</small></span></label></fieldset>
             <p v-if="autoMaterialIssue" class="attendance-material-alert"><CircleAlert :size="14" /><span>{{ autoMaterialIssue }}</span><button v-if="autoMissingLocation" class="button light compact" type="button" @click="openLocationDialog">设置位置素材</button></p>
-            <label class="preference-row"><span><strong>启用分组</strong></span><input v-model="autoEnabled" class="switch-input" type="checkbox" role="switch" aria-label="启用自动签到分组"></label>
+            <label class="preference-row"><span><strong>启用分组</strong></span><ToggleSwitch v-model="autoEnabled" role="switch" aria-label="启用自动签到分组" /></label>
             <p v-if="autoError" class="attendance-feedback error"><CircleAlert :size="15" />{{ autoError }}</p>
           </div>
           <div class="modal-actions"><button class="button light" type="button" @click="autoOpen = false">取消</button><button class="button dark" type="button" :disabled="!canSaveAuto" @click="saveAutoGroup"><LoaderCircle v-if="autoBusy" :size="14" class="spin" /><Clock3 v-else :size="14" />保存分组</button></div>

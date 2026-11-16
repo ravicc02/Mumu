@@ -9,19 +9,8 @@ import SettingsWorkspace from "./SettingsWorkspace.vue";
 const props=defineProps({open:Boolean,section:{type:String,default:"account"},accounts:{type:Array,default:()=>[]},info:Object,profile:{type:Object,required:true},saveProfile:{type:Function,required:true},update:{type:Object,required:true},autoCheck:Boolean,checkUpdates:Function,setAutoCheck:Function,openExternal:Function,openData:Function,openLogs:Function});
 const emit=defineEmits(["close","update:section","saved","model-saved","platforms"]);
 const icons={common:SlidersHorizontal,account:UserRound,model:Cpu,assignments:ClipboardList,learning:BookOpen,attendance:Globe2,system:Settings2,about:Info};
-const descriptions={
-  common:"启动与更新",
-  account:"本地显示资料，仅保存在此设备",
-  model:"模型服务、推理强度与调用顺序",
-  assignments:"提交策略与执行边界",
-  learning:"课程播放、章节答题与平台核验",
-  attendance:"扫码中继连接配置",
-  system:"调度并发、现场记录与本地目录",
-  about:"版本更新与运行资源",
-};
 const dialog=ref(null),content=ref(null),query=ref(""),initialized=ref(false),configurationSection=ref("model"),feedback=ref(""),feedbackError=ref(false);
 const current=computed(()=>settingsNavigation.find(item=>item.id===props.section)||settingsNavigation[0]);
-const currentDescription=computed(()=>descriptions[current.value.id]||"");
 const filtered=computed(()=>filterSettingsNavigation(query.value));
 const groups=computed(()=>[...new Set(filtered.value.map(item=>item.group))]);
 const isConfiguration=computed(()=>["model","assignments","learning","attendance","system"].includes(current.value.id));
@@ -71,7 +60,6 @@ async function directory(kind){feedback.value="";feedbackError.value=false;try{c
                 <span class="application-settings-title-icon"><component :is="icons[current.id]" :size="19" /></span>
                 <div>
                   <h2 id="application-settings-title">{{current.id==='account'?'本地账户':current.label}}</h2>
-                  <p>{{currentDescription}}</p>
                 </div>
               </div>
               <button class="icon-button settings-close" type="button" aria-label="关闭设置" title="关闭" @click="emit('close')"><X :size="19" /></button>
