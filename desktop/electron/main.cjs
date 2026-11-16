@@ -7,6 +7,7 @@ const { resolveDataRoot } = require("./data-root.cjs");
 const { allowedProjectLink } = require("./external-links.cjs");
 const { createBootstrap, verifyBackendHealth } = require("./bootstrap.cjs");
 const { readWindowsLocation } = require("./windows-location.cjs");
+const { executableName, linuxAutoLaunch, linuxAutoLaunchState } = require("./platform/index.cjs");
 
 let backendProcess = null;
 let mainWindow = null;
@@ -76,7 +77,7 @@ function startBackend(pythonCommand) {
   }
   const command = isDev
     ? (pythonCommand || configuredPythonCommand())
-    : path.join(backendDirectory(), product.backendExecutable);
+    : path.join(backendDirectory(), executableName(product, process.platform));
   const args = isDev
     ? [
         "run_server.py",
@@ -241,7 +242,7 @@ function loginItemOptions() {
 }
 
 function autoLaunchSupported() {
-  return process.platform === "win32" && app.isPackaged;
+  return app.isPackaged && (process.platform === "win32" || process.platform === "linux");
 }
 
 ipcMain.handle("app:get-auto-launch", event => {
@@ -249,6 +250,7 @@ ipcMain.handle("app:get-auto-launch", event => {
     throw new Error("开机自启设置来源无效");
   }
   if (!autoLaunchSupported()) return { supported:false,enabled:false };
+  if (process.platform === "linux") return linuxAutoLaunchState(product);
   const settings = app.getLoginItemSettings(loginItemOptions());
   return { supported:true,enabled:Boolean(settings.openAtLogin) };
 });
@@ -258,7 +260,8 @@ ipcMain.handle("app:set-auto-launch", (event,enabled) => {
     throw new Error("开机自启设置来源无效");
   }
   if (typeof enabled !== "boolean") throw new Error("开机自启设置值无效");
-  if (!autoLaunchSupported()) throw new Error("开机自启仅支持安装后的 Windows 版本");
+  if (!autoLaunchSupported()) throw new Error("开机自启仅支持安装后的桌面版本");
+  if (process.platform === "linux") return linuxAutoLaunch(product, enabled);
   app.setLoginItemSettings({ ...loginItemOptions(),openAtLogin:enabled });
   const settings = app.getLoginItemSettings(loginItemOptions());
   return { supported:true,enabled:Boolean(settings.openAtLogin) };

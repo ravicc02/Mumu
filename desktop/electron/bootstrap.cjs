@@ -2,6 +2,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const defaultProduct = require("../product.json");
+const { browserCandidates: platformBrowserCandidates, executableName } = require("./platform/index.cjs");
 
 const quote = value => "'" + String(value).replaceAll("'", "''") + "'";
 function safeOutput(value) {
@@ -16,12 +17,7 @@ function runFile(file, args, options = {}) {
   }));
 }
 function browserCandidates(env) {
-  return [env.MUMU_CHROME_PATH, env.ANSWER_STUDIO_CHROME_PATH,
-    path.join(env.ProgramFiles || 'C:/Program Files', 'Google/Chrome/Application/chrome.exe'),
-    path.join(env['ProgramFiles(x86)'] || 'C:/Program Files (x86)', 'Google/Chrome/Application/chrome.exe'),
-    path.join(env.LOCALAPPDATA || '', 'Google/Chrome/Application/chrome.exe'),
-    path.join(env.ProgramFiles || 'C:/Program Files', 'Microsoft/Edge/Application/msedge.exe'),
-    path.join(env['ProgramFiles(x86)'] || 'C:/Program Files (x86)', 'Microsoft/Edge/Application/msedge.exe')].filter(Boolean);
+  return platformBrowserCandidates(env, process.platform);
 }
 function verifyBackendHealth(payload, version) {
   if (payload?.ok !== true || typeof payload.version !== 'string') throw new Error('本地服务未返回有效的健康检查。');
@@ -34,7 +30,7 @@ function verifyBackendHealth(payload, version) {
 function createBootstrap({ packaged, backendDirectory, dataRoot, python = 'python', env = process.env, product = defaultProduct, run = runFile, io = fs, onReady = async () => {} }) {
   let state = { status: 'idle', items: [], output: '', error: '', backendReady: false };
   let pending = null;
-  const backendExe = path.join(backendDirectory, product.backendExecutable);
+  const backendExe = path.join(backendDirectory, executableName(product, process.platform));
   const requirements = path.join(backendDirectory, 'requirements.txt');
   const manual = () => packaged ? "Start-Process '" + product.repository + "/releases'"
     : '& ' + quote(python) + ' -m pip install -r ' + quote(requirements);
@@ -60,13 +56,22 @@ function createBootstrap({ packaged, backendDirectory, dataRoot, python = 'pytho
         runtime.command = 'winget install --id Python.Python.3.13 --exact --accept-package-agreements --accept-source-agreements; ' + manual();
       }
     }
-    const browser = { id: 'browser', label: 'Chrome / Edge', status: 'checking', installable: true,
-      command: 'winget install --id Google.Chrome --exact --accept-package-agreements --accept-source-agreements' };
+    const browser = { id: 'browser', label: 'Chrome / Chromium / Edge', status: 'checking', installable: true,
+      command: process.platform === 'linux'
+        ? 'sudo apt update && sudo apt install -y google-chrome-stable chromium-browser'
+        : 'winget install --id Google.Chrome --exact --accept-package-agreements --accept-source-agreements' };
     state.items.push(browser);
     let found = '';
-    for (const candidate of browserCandidates(env)) if (await exists(candidate)) { found = candidate; break; }
-    browser.status = found ? 'ready' : 'missing'; browser.detail = found || '未检测到 Chrome 或 Edge';
-    const storage = { id: 'storage', label: '本地数据目录', status: 'checking', installable: false, command: 'explorer.exe ' + quote(dataRoot) };
+    for (const candidate of browserCandidates(env)) {
+      if (await exists(candidate)) { found = candidate; break; }
+      if (process.platform !== 'win32' && !path.isAbsolute(candidate)) {
+        try { await run('which', [candidate]); found = candidate; break; } catch {}
+      }
+    }
+    browser.status = found ? 'ready' : 'missing';
+    browser.detail = found || (process.platform === 'linux' ? '未检测到 Chrome、Chromium 或 Edge' : '未检测到 Chrome 或 Edge');
+    const storage = { id: 'storage', label: '本地数据目录', status: 'checking', installable: false,
+      command: process.platform === 'linux' ? 'xdg-open ' + quote(dataRoot) : 'explorer.exe ' + quote(dataRoot) };
     state.items.push(storage);
     try {
       await io.mkdir(dataRoot, { recursive: true }); await io.access(dataRoot, require('node:fs').constants.W_OK);

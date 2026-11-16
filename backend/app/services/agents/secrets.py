@@ -3,6 +3,9 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import os
+import subprocess
+import shutil
+import sys
 import tempfile
 from ctypes import wintypes
 from pathlib import Path
@@ -164,5 +167,53 @@ class DpapiSecretStore:
             pass
 
 
-def secret_store_for(settings: Settings) -> DpapiSecretStore:
-    return DpapiSecretStore(settings.secrets_root)
+class SecretServiceStore:
+    """Store credentials through the Linux Secret Service via secret-tool."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        if os.name == "nt":
+            raise SecretStoreError("Secret Service 仅适用于 Linux")
+        if not shutil.which("secret-tool"):
+            raise SecretStoreError("Linux 未检测到 secret-tool，请安装 libsecret-tools 并启动 Secret Service")
+
+    @staticmethod
+    def _run(args: list[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+        try:
+            result = subprocess.run(
+                ["secret-tool", *args], input=input_text, text=True,
+                capture_output=True, timeout=15, check=False,
+            )
+        except OSError as error:
+            raise SecretStoreError("无法调用 Linux Secret Service") from error
+        if result.returncode != 0:
+            message = result.stderr.strip() or "Linux Secret Service 请求失败"
+            raise SecretStoreError(message)
+        return result
+
+    def put(self, reference: str, value: str) -> None:
+        if not value:
+            raise ValueError("密钥不能为空")
+        self._run(["store", "--label", "Mumu model credential", "application", "mumu", "reference", reference], input_text=value)
+
+    def get(self, reference: str) -> str:
+        result = self._run(["lookup", "application", "mumu", "reference", reference])
+        value = result.stdout.rstrip("\n")
+        if not value:
+            raise SecretNotFound("模型密钥不存在")
+        return value
+
+    def delete(self, reference: str) -> None:
+        try:
+            self._run(["clear", "application", "mumu", "reference", reference])
+        except SecretStoreError as error:
+            if "No secret found" not in str(error) and "没有找到" not in str(error):
+                raise
+
+
+def secret_store_for(settings: Settings):
+    if os.name == "nt":
+        return DpapiSecretStore(settings.secrets_root)
+    if sys.platform.startswith("linux"):
+        return SecretServiceStore(settings.secrets_root)
+    raise SecretStoreError("当前系统没有可用的安全密钥存储实现")

@@ -13,9 +13,10 @@
     "test": "node --test test/*.test.mjs",
     "prebuild:web": "node ../scripts/version.mjs check",
     "build:web": "vite build",
-    "build:backend": "powershell -ExecutionPolicy Bypass -File ../scripts/build-backend.ps1",
+    "build:backend": "node ../scripts/build-backend.mjs",
     "prebuild:win": "node ../scripts/release.mjs check",
     "build:win": "vite build && npm run build:backend && electron-builder --win nsis --x64 --publish never",
+    "build:linux": "vite build && npm run build:backend && electron-builder --linux AppImage deb --x64 --publish never",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -67,6 +68,15 @@
       "signAndEditExecutable": false,
       "target": [
         "nsis"
+      ]
+    },
+    "linux": {
+      "artifactName": "Mumu-${version}-linux-${arch}.${ext}",
+      "icon": "build/icon.png",
+      "category": "Utility",
+      "target": [
+        "AppImage",
+        "deb"
       ]
     },
     "nsis": {

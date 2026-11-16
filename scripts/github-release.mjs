@@ -45,7 +45,7 @@ export function manageRelease(action, tag, directory=path.join(projectRoot,'desk
   }
   if(action==='publish') {
     if(!release) throw new Error('Build the release draft first');
-    if(release.assets.length!==names.length || !names.every(name=>release.assets.some(asset=>asset.name===name))) throw new Error('Draft release assets are incomplete');
+    if(release.assets.length<names.length || !names.every(name=>release.assets.some(asset=>asset.name===name))) throw new Error('Draft release assets are incomplete');
     const download=fs.mkdtempSync(path.join(os.tmpdir(),'mumu-release-verify-'));
     try {
       gh(['release','download',tag,'--repo',repository,'--dir',download]);

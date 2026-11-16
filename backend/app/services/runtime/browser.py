@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import shutil
 import logging
 import time
@@ -67,19 +68,37 @@ class TaskBrowserProfile:
 
 
 def chrome_executable() -> Path:
-    candidates = [
-        os.getenv("MUMU_CHROME_PATH", "") or os.getenv("ANSWER_STUDIO_CHROME_PATH", ""),
-        shutil.which("chrome") or "",
-        shutil.which("chrome.exe") or "",
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        os.path.expandvars(
-            r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"
-        ),
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-    ]
+    configured = os.getenv("MUMU_CHROME_PATH", "") or os.getenv("ANSWER_STUDIO_CHROME_PATH", "")
+    if sys.platform.startswith("linux"):
+        candidates = [
+            configured,
+            shutil.which("google-chrome") or "",
+            shutil.which("google-chrome-stable") or "",
+            shutil.which("chromium") or "",
+            shutil.which("chromium-browser") or "",
+            "/opt/google/chrome/chrome",
+            shutil.which("microsoft-edge") or "",
+            shutil.which("microsoft-edge-stable") or "",
+        ]
+    elif sys.platform == "darwin":
+        candidates = [
+            configured,
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ]
+    else:
+        candidates = [
+            configured,
+            shutil.which("chrome") or "",
+            shutil.which("chrome.exe") or "",
+            r"C:\\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+            r"C:\\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\\Program Files\Microsoft\Edge\Application\msedge.exe",
+        ]
     for candidate in candidates:
         if candidate and Path(candidate).is_file():
             return Path(candidate)
-    raise RuntimeError("未找到 Chrome 或 Edge，请先安装 Chromium 浏览器")
+    raise RuntimeError("未找到 Chrome、Chromium 或 Edge，请先安装 Chromium 浏览器")

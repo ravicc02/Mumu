@@ -101,9 +101,92 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: node scripts/github-release.mjs draft $env:RELEASE_TAG
-      - name: Download, verify and publish
+  linux:
+    needs: windows
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      PYTHONPATH: backend
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+      MUMU_DATA: ${{ runner.temp }}/mumu-release-data
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Validate source and install dependencies
+        run: |
+          node scripts/release.mjs check --release --tag "$RELEASE_TAG"
+          npm run audit:source
+          npm --prefix desktop ci
+          python -m pip install -r backend/requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Run cross-platform tests
+        run: |
+          npm test
+          npm run test:desktop
+          python -m unittest discover -s backend/test -v
+      - name: Build Linux packages
+        run: npm --prefix desktop run build:linux
+      - name: Create Linux release evidence
+        run: |
+          node scripts/release.mjs notes --out desktop/release/RELEASE_NOTES.md
+          python -m pip freeze > desktop/release/build-environment.txt
+          node scripts/linux-release.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-${{ inputs.tag || github.ref_name }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            desktop/release/Mumu-*-linux-x64.AppImage
+            desktop/release/Mumu-*-linux-amd64.deb
+            desktop/release/SHA256SUMS-linux-x64.txt
+            desktop/release/release-manifest-linux-x64.json
+            desktop/release/RELEASE_NOTES.md
+            desktop/release/build-environment.txt
+      - name: Attach Linux packages to draft
         env:
           GH_TOKEN: ${{ github.token }}
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
-        shell: pwsh
-        run: node scripts/github-release.mjs publish $env:RELEASE_TAG
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            desktop/release/Mumu-*-linux-x64.AppImage \
+            desktop/release/Mumu-*-linux-amd64.deb \
+            desktop/release/SHA256SUMS-linux-x64.txt \
+            desktop/release/release-manifest-linux-x64.json \
+            --repo "$GH_REPO" --clobber
+
+  publish:
+    needs: [windows, linux]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Publish verified draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/github-release.mjs publish "$RELEASE_TAG"
