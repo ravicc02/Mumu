@@ -10,6 +10,7 @@ import httpx
 from app import main
 from app.config import Settings
 from app.db import Database
+from app.services.agents.responder import GatewayAssistantResponder
 
 
 class AgentRouteTests(unittest.IsolatedAsyncioTestCase):
@@ -96,6 +97,12 @@ class AgentRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_weixin_channel_uses_the_active_database_provider(self):
         with patch.object(main, "database", self.database):
             self.assertIs(main.weixin_channel.database, self.database)
+
+    async def test_application_wires_assistant_to_model_gateway_responder(self):
+        responder = main.mumu_assistant.general_responder
+        self.assertIsInstance(responder, GatewayAssistantResponder)
+        with patch.object(main, "database", self.database):
+            self.assertIs(responder.database_provider(), self.database)
 
 
 if __name__ == "__main__":
