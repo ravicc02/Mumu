@@ -70,6 +70,8 @@ class AssignmentAutoGroupTests(unittest.TestCase):
             identifier,
             {
                 "execution_state": execution_state,
+                "policy_version": 3,
+                "automation_supported": execution_state == "direct_fill",
                 "requirements": [],
                 "supported_kinds": ["fill", "multiple", "single"],
             },
@@ -94,6 +96,8 @@ class AssignmentAutoGroupTests(unittest.TestCase):
         second = self.assignment("Two", course="Algorithms")
         self.database.update_assignment_assessment(first["id"], {
             "execution_state": "direct_fill",
+            "policy_version": 3,
+            "automation_supported": True,
         })
         group = self.group()
         catalog = course_catalog(self.database, [self.account["id"]])

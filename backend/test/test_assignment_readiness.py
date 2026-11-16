@@ -20,6 +20,17 @@ PRACTICE = "认真阅读附件文档，按照综合实践报告模板撰写报�
 
 
 class AssignmentReadinessTests(unittest.IsolatedAsyncioTestCase):
+    def test_bare_task_titles_need_actual_instructions_even_with_an_editor(self):
+        for text in ("实验2", "实验二", "第二次实验", "实验 ２：", "作业一", "第3次作业", "实验"):
+            with self.subTest(text=text):
+                result = assess_questions({"units": [{"unit_id": "q1", "kind": "long", "prompt_text": text, "fields": [{}]}]})
+                self.assertFalse(result["automation_supported"])
+                self.assertIn("缺少具体题目", result["reason"])
+        for text in ("实验二：解释观察到的进程状态。", "作业一：计算 2+3。", "什么是实验？"):
+            with self.subTest(text=text):
+                self.assertTrue(assess_questions({"units": [{"kind": "long", "prompt_text": text, "fields": [{}]}]})["automation_supported"])
+        self.assertFalse(direct_answerable({"assessment": {"policy_version": 2, "execution_state": "direct_fill", "automation_supported": True}}))
+
     def test_material_requirements_are_detected_even_with_a_normal_text_editor(self):
         for text in (EXPERIMENT, PRACTICE):
             assessment = assess_questions({"question_count": 1, "units": [{"unit_id": "q1", "question_no": 1, "kind": "long", "text": text, "fields": [{}], "filled": False}]})
@@ -34,14 +45,14 @@ class AssignmentReadinessTests(unittest.IsolatedAsyncioTestCase):
     def test_normal_theory_questions_and_unknown_pages_are_not_claimed_ready_to_submit(self):
         for text in ("简述操作系统的功能。", "简述源程序如何编译并提交运行。", "什么是视频压缩编码？"):
             self.assertFalse(unit_requirements({"kind": "long", "text": text}))
-        self.assertEqual(assess_questions({"units": []})["execution_state"], "unchecked")
+        self.assertEqual(assess_questions({"units": []})["execution_state"], "manual_required")
         self.assertEqual(assess_questions({"units": []})["answer_state"], "unknown")
         result = assess_questions({"question_count": 2, "units": [{"kind": "long", "text": "简述算法", "filled": True}, {"kind": "fill", "text": "填空", "filled": False}]})
         self.assertEqual(result["answer_state"], "partial")
         self.assertEqual(result["filled_units"], 1)
         self.assertNotIn("submittable", result)
 
-    def test_automatic_filter_keeps_only_choice_and_fill_units(self):
+    def test_automatic_filter_accepts_browser_answerable_short_answers(self):
         choice = assess_questions({
             "question_count": 1,
             "units": [{"unit_id": "q1", "question_no": 1, "kind": "single", "text": "选择", "options": [{"key": "A"}], "filled": False}],
@@ -53,9 +64,8 @@ class AssignmentReadinessTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(choice["automation_supported"])
         self.assertTrue(direct_answerable({"assessment": choice}))
         self.assertEqual(long_answer["execution_state"], "direct_fill")
-        self.assertFalse(long_answer["automation_supported"])
-        self.assertIn("简答题", long_answer["unsupported_types"])
-        self.assertFalse(direct_answerable({"assessment": long_answer}))
+        self.assertTrue(long_answer["automation_supported"])
+        self.assertTrue(direct_answerable({"assessment": long_answer}))
 
     def test_page_level_upload_requirement_blocks_choice_units(self):
         assessment = assess_questions({
@@ -115,6 +125,25 @@ class AssignmentReadinessTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("项目源码", outcome.exception.reason)
                 generate.assert_not_awaited(); fill.assert_not_awaited()
                 self.assertEqual(database.get_assignment(identifier)["assessment"]["execution_state"], "manual_required")
+
+    async def test_blank_and_notification_pages_stop_before_model_or_fallback(self):
+        for extracted in (
+            {"question_count": 0, "unit_count": 0, "units": []},
+            {"question_count": 1, "unit_count": 1, "units": [{"kind": "long", "text": "通知：请同学们明天到教室集合。", "fields": [{}]}]},
+        ):
+            with self.subTest(extracted=extracted), tempfile.TemporaryDirectory() as root:
+                settings = Settings(data_root=Path(root)); settings.ensure_directories()
+                database = Database(settings); database.initialize()
+                account = database.create_account('fixture', 'chaoxing', settings)
+                identifier = database.upsert_assignment(account['id'], 'chaoxing', {'courseId': 'c', 'classId': 'a', 'workId': 'blank', 'title': 'fixture', 'courseName': '课程', 'status': 'unfinished', 'submittable': True, 'taskUrl': 'https://example.test/mooc2/work/task'}, settings)
+                job = database.create_job(account['id'], identifier, False)
+                job = {**job, "task_url": "https://example.test/mooc2/work/task"}
+                session = SimpleNamespace(navigate_to=AsyncMock(), get_current_page=AsyncMock(return_value=object()))
+                with patch.object(runner, 'extract_questions', AsyncMock(return_value=extracted)), patch.object(runner, 'generate_answers', AsyncMock()) as generate, patch.object(runner.asyncio, 'sleep', AsyncMock()):
+                    with self.assertRaises(runner.AgentOperationError):
+                        await runner._run_structured_chaoxing_quiz(database, job, session, object(), AsyncMock())
+                    generate.assert_not_awaited()
+                    self.assertFalse(direct_answerable(database.get_assignment(job['assignment_id'])))
 
     async def test_api_creation_retry_and_continue_respect_material_requirements(self):
         from app import main

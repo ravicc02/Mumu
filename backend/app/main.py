@@ -79,6 +79,7 @@ from .services.agents.config import (
 )
 from .services.agents.gateway import ModelGateway
 from .services.agents.assistant import MumuAssistant
+from .services.agents.responder import GatewayAssistantResponder
 from .services.agents.authorization import AuthorizationService
 from .services.agents.eventing import IncidentCenter, OutboxService
 from .services.agents.memory import MemoryService
@@ -123,6 +124,10 @@ mumu_assistant = MumuAssistant(
     lambda: effective_settings(),
     learning_service=learning_service,
     orchestrator=orchestrator,
+    general_responder=GatewayAssistantResponder(
+        lambda: database,
+        lambda: effective_settings(),
+    ),
 )
 weixin_channel = weixin_channel_service.WeixinChannel(
     lambda: database,
@@ -1463,6 +1468,7 @@ async def list_assignments(
         account_id=account_id,
         academic_year=academic_year,
         submittable_only=submittable,
+        cached=True,
     )
     if account_id and database.get_account(account_id)["platform"] == "educoder":
         from .services.educoder.store import courses
@@ -1477,6 +1483,7 @@ async def list_semesters(account_id: str | None = None) -> list[str]:
     assignments = database.list_assignments(
         account_id=account_id,
         submittable_only=False,
+        cached=True,
     )
     return sorted(
         {
@@ -1749,7 +1756,7 @@ async def dispatch_assignment_group_items() -> None:
                 item["group_id"],
                 item["assignment_id"],
                 state="skipped",
-                reason="仅自动处理选择题和填空题",
+                reason="尚未确认能在浏览器直接完成，请重新检查",
             )
             continue
         if any(job["assignment_id"] == item["assignment_id"] for job in jobs):

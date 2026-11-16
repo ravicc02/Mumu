@@ -146,6 +146,17 @@ class AssignmentAutomationGroupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call.kwargs["trigger"], "auto_group")
         self.assertEqual(main.pending_assignment_auto_group_items(self.database), [])
 
+    async def test_new_inspection_can_release_old_type_only_rejection(self):
+        group = self.group()
+        record_discovery(self.database, group, [], complete=True)
+        item = self.assignment('short-answer', {'execution_state': 'direct_fill', 'automation_supported': False})
+        record_discovery(self.database, group, [item], complete=True)
+        with self.database.connect() as connection:
+            connection.execute("UPDATE assignment_auto_group_items SET reason='仅自动处理选择题和填空题' WHERE assignment_id=?", (item['id'],))
+        self.database.update_assignment_assessment(item['id'], assess_questions({'units': [{'kind': 'long', 'text': '简述进程与线程的区别。', 'fields': [{}]}]}))
+        record_discovery(self.database, group, [self.database.get_assignment(item['id'])], complete=True)
+        self.assertEqual([row['assignment_id'] for row in main.pending_assignment_auto_group_items(self.database)], [item['id']])
+
     async def test_manual_scan_records_completion_and_dispatches_group_queue(self):
         group = self.group()
         with patch.object(

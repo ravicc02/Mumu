@@ -49,6 +49,9 @@ test('assignment page exposes list and grouped automation views', async () => {
   assert.match(app, /自动处理/);
   assert.match(app, /作业列表/);
   assert.match(app, /AssignmentAutomation/);
+  assert.match(app, /label: "可处理"/);
+  assert.match(app, /label: "不可处理"/);
+  assert.doesNotMatch(app, /class="assignment-readiness"/);
   assert.doesNotMatch(app, /自动检测与执行/);
   assert.match(component, /检测时间段/);
   assert.match(component, /处理的课程/);
