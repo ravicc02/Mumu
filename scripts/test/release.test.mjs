@@ -118,7 +118,7 @@ test('Linux release manifest verifies both package formats and the packaged back
   put('desktop/release/Mumu-1.2.3-linux-amd64.deb', 'fixture deb');
   put('desktop/release/RELEASE_NOTES.md', 'fixture notes');
   put('desktop/release/build-environment-linux-x64.txt', 'fixture dependency');
-  const smoke = {version:'1.2.3', packaged_backend_healthy:true, appimage_started:true, deb_started:true, first_run_verified:true, persistence_verified:true, browser_profile_verified:true, secret_service_verified:true, auto_launch_verified:true, close_preserves_backend:true, x11_verified:true, wayland_verified:true, isolated_data:true};
+  const smoke = {version:'1.2.3', packaged_backend_healthy:true, appimage_started:true, deb_started:true, first_run_verified:true, persistence_verified:true, browser_profile_verified:true, secret_service_verified:true, auto_launch_verified:true, close_preserves_backend:true, workspace_views_verified:true, x11_verified:true, wayland_verified:true, isolated_data:true};
   put('desktop/release/smoke-linux-result.json', JSON.stringify({...smoke, deb_started:false}));
   assert.throws(() => writeLinuxReleaseManifest(root, directory), /smoke evidence is incomplete/);
   put('desktop/release/smoke-linux-result.json', JSON.stringify(smoke));

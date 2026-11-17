@@ -67,6 +67,19 @@ async function exercise(executable, name, platform) {
         assert.deepEqual(initial, {supported:true, enabled:false});
         assert.equal((await page.evaluate(() => window.desktopApi.setAutoLaunch(true))).enabled, true);
         assert.equal((await page.evaluate(() => window.desktopApi.setAutoLaunch(false))).enabled, false);
+        const navigation = page.getByRole('navigation', {name:'主导航'});
+        for (const label of ['平台', '作业', '网课', '签到', '面板']) {
+          const button = navigation.getByRole('button', {name:label, exact:true});
+          await button.click();
+          await button.evaluate(element => {
+            if (element.getAttribute('aria-current') !== 'page') throw new Error('Workspace navigation did not select the requested page');
+          });
+          assert.equal(await page.locator('.topbar-breadcrumb strong').innerText(), label);
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        }
+        await page.getByRole('button', {name:'帮助与关于', exact:true}).click();
+        assert.equal(await page.locator('.about-platform').innerText(), 'Linux 桌面端');
+        await page.getByRole('button', {name:'关闭设置', exact:true}).click();
         await page.screenshot({path:path.join(scope, 'workspace.png')});
         const windowId = await application.evaluate(({BrowserWindow}) => BrowserWindow.getAllWindows()[0].id);
         await application.evaluate(({BrowserWindow}, id) => BrowserWindow.fromId(id).close(), windowId);
@@ -128,6 +141,6 @@ async def check():
         await context.close()
 asyncio.run(check())
 `], {cwd:root, env:{...process.env, PYTHONPATH:path.join(root,'backend'), MUMU_DATA:path.join(temporary,'runtime'), MUMU_CHROME_PATH:browserPath}, stdio:'inherit'});
-Object.assign(evidence, {packaged_backend_healthy:true, appimage_started:true, deb_started:true, first_run_verified:true, persistence_verified:true, browser_profile_verified:true, secret_service_verified:true, auto_launch_verified:true, close_preserves_backend:true, x11_verified:true, wayland_verified:true});
+Object.assign(evidence, {packaged_backend_healthy:true, appimage_started:true, deb_started:true, first_run_verified:true, persistence_verified:true, browser_profile_verified:true, secret_service_verified:true, auto_launch_verified:true, close_preserves_backend:true, workspace_views_verified:true, x11_verified:true, wayland_verified:true});
 await fs.writeFile(path.join(release, 'smoke-linux-result.json'), JSON.stringify(evidence, null, 2)+'\n');
 console.log('Linux AppImage, installed deb, X11, headless Weston Wayland, Secret Service, browser profile and persistence verified.');

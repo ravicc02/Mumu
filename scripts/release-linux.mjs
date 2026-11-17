@@ -49,7 +49,7 @@ function readBuildInfo(root, directory, identity) {
 
 function verifySmoke(directory, version, names) {
   const smoke = JSON.parse(fs.readFileSync(path.join(directory, names.smoke), 'utf8'));
-  const checks = ['packaged_backend_healthy', 'appimage_started', 'deb_started', 'first_run_verified', 'persistence_verified', 'browser_profile_verified', 'secret_service_verified', 'auto_launch_verified', 'close_preserves_backend', 'x11_verified', 'wayland_verified', 'isolated_data'];
+  const checks = ['packaged_backend_healthy', 'appimage_started', 'deb_started', 'first_run_verified', 'persistence_verified', 'browser_profile_verified', 'secret_service_verified', 'auto_launch_verified', 'close_preserves_backend', 'workspace_views_verified', 'x11_verified', 'wayland_verified', 'isolated_data'];
   if (smoke.version !== version || checks.some(key => smoke[key] !== true)) throw new Error('Linux installation and runtime smoke evidence is incomplete');
 }
 
