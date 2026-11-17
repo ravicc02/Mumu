@@ -72,6 +72,7 @@ const autoCourseChoices = ref([]), autoCourseBusy = ref(false), autoCourseFetche
 const assetOpen = ref(false), assetAccount = ref(null), assetProfile = ref(null), assetBusy = ref(''), assetError = ref('');
 const assetInput = ref(null), assetKind = ref('photo');
 const locationOpen = ref(false), locationBusy = ref(false), locationLocating = ref(false), locationError = ref(''), locationErrorCode = ref(0);
+const nativeLocationSettings = Boolean(globalThis.desktopApi?.openLocationSettings);
 const locationLatitude = ref(''), locationLongitude = ref(''), locationAddress = ref(''), locationSource = ref('manual');
 const selectedLinkImage = ref('');
 let timer, disposed = false, configurationLoadedAt = 0;
@@ -806,7 +807,7 @@ onUnmounted(() => { disposed = true; clearTimeout(timer); });
               <div v-if="locationLatitude !== '' && locationLongitude !== ''" class="attendance-location-current"><MapPin :size="17" /><div><strong>{{ locationAddress || '当前位置' }}</strong><small>{{ Number(locationLatitude).toFixed(6) }}, {{ Number(locationLongitude).toFixed(6) }}</small></div></div>
             </section>
             <label class="field-label"><span>地点名称</span><input v-model="locationAddress" maxlength="200" placeholder="例如：教学楼 A 区"></label>
-            <p v-if="locationError" class="attendance-feedback error"><CircleAlert :size="15" /><span>{{ locationError }}</span><button v-if="locationErrorCode" class="button light compact" type="button" @click="openLocationSettings">打开定位设置</button></p>
+            <p v-if="locationError" class="attendance-feedback error"><CircleAlert :size="15" /><span>{{ locationError }}</span><button v-if="locationErrorCode && nativeLocationSettings" class="button light compact" type="button" @click="openLocationSettings">打开定位设置</button></p>
           </div>
           <div class="modal-actions"><button v-if="globalLocation" class="button light" type="button" @click="clearLocation"><Trash2 :size="14" />清除</button><button class="button light" type="button" @click="locationOpen = false">取消</button><button class="button dark" type="button" :disabled="!canSaveLocation" @click="saveLocation"><LoaderCircle v-if="locationBusy" :size="14" class="spin" /><MapPin v-else :size="14" />保存位置</button></div>
         </section>

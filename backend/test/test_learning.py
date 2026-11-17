@@ -672,7 +672,7 @@ class LearningRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_live_stream_and_mouse_keyboard_share_the_actual_browser_page(self):
         with tempfile.TemporaryDirectory() as profile:
-            browser = LearningBrowser({"profile_dir": profile}, headless=True, authenticate=False)
+            browser = LearningBrowser({"profile_dir": str(Path(profile) / "profiles" / "fixture")}, headless=True, authenticate=False)
             try:
                 await browser.open()
                 await browser.page.set_content('<input id="answer" style="position:absolute;left:100px;top:100px;width:200px;height:40px"><div style="height:3000px"></div>')

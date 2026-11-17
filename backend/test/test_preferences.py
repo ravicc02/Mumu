@@ -17,6 +17,7 @@ from app.preferences import AccountSchedule, PreferencesUpdate, load_preferences
 from app.services.assignments.automation import save_preferences, record_discovery, pending_assignments, automation_status
 from app.services.notifications.delivery import _weixin_text, notification_examples
 from app.services.learning.browser import LearningBrowser
+from test_agent_control_plane import MemorySecretStore
 
 
 class PreferenceTests(unittest.IsolatedAsyncioTestCase):
@@ -36,6 +37,7 @@ class PreferenceTests(unittest.IsolatedAsyncioTestCase):
         self.database.update_account(self.account["id"], status="ready")
         self.database.set_setting("model_config", {"api_key": "fixture", "models": ["fixture-model"], "base_url": "https://fixture.test/v1"})
         self.overrides = [patch.object(main, "database", self.database),
+                          patch("app.services.agents.config.secret_store_for", return_value=MemorySecretStore()),
                           patch.object(main, "learning_service", SimpleNamespace(active=lambda _: None)),
                           patch.object(main, "platform_login_in_progress", return_value=False),
                           patch.object(main.preview_manager, "is_interactive", AsyncMock(return_value=False)),
