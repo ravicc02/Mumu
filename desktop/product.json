@@ -8,5 +8,10 @@
   "legacyAppId": "local.ai.assignment.studio",
   "dataDirectory": ".mumu",
   "artifactId": "Mumu",
-  "backendExecutable": "mumu-backend.exe"
+  "backendExecutable": "mumu-backend.exe",
+  "backendExecutables": {
+    "win32": "mumu-backend.exe",
+    "linux": "mumu-backend",
+    "darwin": "mumu-backend"
+  }
 }

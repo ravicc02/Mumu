@@ -1,4 +1,6 @@
 <script setup>
+import ChoiceInput from "../shared/controls/ChoiceInput.vue";
+import ToggleSwitch from "../shared/controls/ToggleSwitch.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import QRCode from "qrcode";
 import StartupExperience from "../features/brand/components/StartupExperience.vue";
@@ -37,9 +39,10 @@ import AccountAuthorization from "../features/accounts/components/AccountAuthori
 import LearningTaskDetails from "../features/learning/components/LearningTaskDetails.vue";
 import { createAccountAuthorization } from "../features/accounts/lib/authorization.js";
 import { assignmentBrowserTask, activeAssignmentBrowserTask } from "../features/tasks/lib/browser.js";
-import { assignmentReadiness, directlyAnswerable, requiresMaterials } from "../features/assignments/lib/readiness.js";
+import { assignmentProcessingReason, directlyAnswerable } from "../features/assignments/lib/readiness.js";
 import { finalScreenshotSections } from "../features/tasks/lib/screenshots.js";
 import { createCollectionController } from "../features/assignments/lib/collection-controller.js";
+import { createAssignmentListCache } from "../features/assignments/lib/list-cache.js";
 import { collectAccountBatch } from "../features/assignments/lib/collection-batch.js";
 import AssignmentAutomation from "../features/assignments/components/AssignmentAutomation.vue";
 import { assignmentDeadline, assignmentExpired } from "../features/assignments/lib/availability.js";
@@ -59,6 +62,8 @@ function remember(key, value) {
   catch { /* Storage can be unavailable in private browser sessions. */ }
 }
 
+const navItemHeight = 64;
+const navItemGap = 4;
 const navItems = [
   { id: "dashboard", label: "面板", icon: LayoutDashboard },
   { id: "platforms", label: "平台", icon: Layers3 },
@@ -79,7 +84,8 @@ const availabilityNow = ref(Date.now());
 const collectionBatchBusy = ref(false);
 const collectionBatchRows = ref([]);
 const assignmentQuery = ref("");
-const assignmentFilter = ref("all");
+const initialAssignmentFilter = preference(`assignment-filter:${preference('account', '')}`, 'processable');
+const assignmentFilter = ref(['processable', 'unprocessable'].includes(initialAssignmentFilter) ? initialAssignmentFilter : 'processable');
 const assignmentSort = ref("course");
 const assignmentWorkspaceView = ref(["list", "automation"].includes(preference("assignment-view", "list")) ? preference("assignment-view", "list") : "list");
 watch(assignmentWorkspaceView, value => remember("assignment-view", value));
@@ -110,9 +116,27 @@ const updateState = ref({status:"idle",message:""});
 let executionDefaultsLoaded = false;
 const platforms = ref([]);
 const selectedAccountId = ref(preference("account", ""));
+const assignmentListCache = createAssignmentListCache({
+  fetchAssignments: accountId => api.assignments({ accountId, submittable: false }),
+  changed: (accountId, records) => {
+    if (accountId === selectedAccountId.value) assignments.value = records;
+  },
+});
 const collectionController = createCollectionController({
   fetchRuns: accountId => api.collectionRuns(accountId, 10),
-  changed: states => { accountCollections.value = states; }
+  changed: states => {
+    const completed = Object.entries(states).filter(([accountId, value]) => {
+      const previous = accountCollections.value[accountId]?.run;
+      return value.run?.id && ['success', 'partial'].includes(value.run.status)
+        && (value.run.id !== previous?.id || value.run.status !== previous?.status);
+    });
+    accountCollections.value = states;
+    for (const [accountId] of completed) {
+      void assignmentListCache.refresh(accountId, { fresh: true }).catch(cause => {
+        if (accountId === selectedAccountId.value) setError(cause);
+      });
+    }
+  }
 });
 const collectionRun = computed(() => accountCollections.value[selectedAccountId.value]?.run || null);
 const collecting = computed(() => Boolean(accountCollections.value[selectedAccountId.value]?.pending || collectionRun.value?.status === "running"));
@@ -144,10 +168,11 @@ const previewLoading = ref(false);
 const autoSubmit = ref(false);
 const interactiveBrowser = true;
 const selectedAssignmentIds = ref([]);
+watch(assignmentFilter, () => { selectedAssignmentIds.value = []; });
 const batchCreating = ref(false);
 const openingAssignmentId = ref("");
 const inspectingAssignmentId = ref("");
-const selectableAssignments = computed(() => filteredAssignments.value.filter(item => !requiresMaterials(item)));
+const selectableAssignments = computed(() => filteredAssignments.value.filter(directlyAnswerable));
 const socketConnected = ref(false);
 const launchConfirmOpen = ref(false);
 const pendingLaunch = ref({ kind: "", assignments: [] });
@@ -285,21 +310,20 @@ function ensureBusinessAccount() {
   if (next !== selectedAccountId.value) selectedAccountId.value = next;
 }
 
-const filteredAssignments = computed(() => {
+const matchingAssignments = computed(() => {
   const query = assignmentQuery.value.trim().toLocaleLowerCase();
   return assignments.value.filter((assignment) => {
-    const job = latestJobForAssignment(assignment.id);
-    return !assignmentExpired(assignment, new Date(availabilityNow.value))
+    return ["unfinished", "未交", "未完成"].includes(assignment.status)
+      && !assignmentExpired(assignment, new Date(availabilityNow.value))
       && (!selectedSemester.value || assignment.semester === selectedSemester.value)
-      && (!query || `${assignment.title} ${assignment.course_name}`.toLocaleLowerCase().includes(query))
-      && (assignmentFilter.value === "all"
-        || (assignmentFilter.value === "new" && !job)
-        || (assignmentFilter.value === "answerable" && directlyAnswerable(assignment))
-        || (assignmentFilter.value === "attention" && (requiresMaterials(assignment) || (job && ["needs_intervention", "incomplete", "interrupted", "failed"].includes(job.status)))));
+      && (!query || `${assignment.title} ${assignment.course_name}`.toLocaleLowerCase().includes(query));
   }).sort((left, right) => assignmentSort.value === "title"
     ? left.title.localeCompare(right.title, "zh-CN")
     : left.course_name.localeCompare(right.course_name, "zh-CN"));
 });
+const filteredAssignments = computed(() => matchingAssignments.value.filter(assignment => (
+  assignmentFilter.value === "processable" ? directlyAnswerable(assignment) : !directlyAnswerable(assignment)
+)));
 
 const allFilteredSelected = computed(() => (
   selectableAssignments.value.length > 0
@@ -318,10 +342,8 @@ const batchCollectionDone = computed(() => collectionBatchRows.value.filter(row 
 
 
 const assignmentFilterItems = computed(() => [
-  { value: "all", label: "全部作业" },
-  { value: "new", label: "未执行" },
-  { value: "answerable", label: "可直接作答" },
-  { value: "attention", label: "待处理" }
+  { value: "processable", label: "可处理", count: matchingAssignments.value.filter(directlyAnswerable).length },
+  { value: "unprocessable", label: "不可处理", count: matchingAssignments.value.filter(item => !directlyAnswerable(item)).length }
 ]);
 const assignmentWorkspaceItems = [
   { value: "list", label: "作业列表" },
@@ -752,6 +774,7 @@ async function loadExecutionDefaults() {
 
 async function loadAccounts() {
   accounts.value = await api.accounts();
+  assignmentListCache.retain(accounts.value.map(account => account.id));
   if (["assignments", "learning"].includes(activePage.value)) ensureBusinessAccount();
   else if (!accounts.value.some(account => account.id === selectedAccountId.value)) {
     selectedAccountId.value = accounts.value[0]?.id || "";
@@ -820,12 +843,17 @@ function openConnector(connector) {
   notice.value = `${connector.name} 连接器尚未开放。`;
 }
 
-async function loadAssignments() {
+async function loadAssignments({ fresh = false } = {}) {
   if (!supportsBusiness(selectedAccount.value, "assignments")) { assignments.value = []; return; }
-  const accountId = selectedAccountId.value, semester = selectedSemester.value;
-  const result = await api.assignments({ accountId: accountId || undefined, submittable: true });
-  if (accountId !== selectedAccountId.value || semester !== selectedSemester.value) return;
-  assignments.value = result.filter(item => !assignmentExpired(item) && (!semester || item.semester === semester));
+  const accountId = selectedAccountId.value;
+  assignments.value = assignmentListCache.read(accountId);
+  try {
+    await assignmentListCache.refresh(accountId, { fresh });
+  } catch (cause) {
+    if (accountId === selectedAccountId.value) setError(cause);
+    return;
+  }
+  if (accountId !== selectedAccountId.value) return;
   const ids = new Set(assignments.value.map(item => item.id));
   selectedAssignmentIds.value = selectedAssignmentIds.value.filter(id => ids.has(id));
 }
@@ -839,7 +867,14 @@ async function loadSemesters() {
     semesters.value = []; selectedSemester.value = ""; return;
   }
   const accountId = selectedAccountId.value;
-  const result = await api.semesters(accountId || undefined);
+  let result;
+  try {
+    result = await api.semesters(accountId || undefined);
+    if (!Array.isArray(result)) throw new Error('学期缓存读取失败，请重试');
+  } catch (cause) {
+    if (accountId === selectedAccountId.value) setError(cause);
+    return;
+  }
   if (accountId !== selectedAccountId.value) return;
   semesters.value = result;
   if (semesterAccountId !== accountId) {
@@ -847,9 +882,6 @@ async function loadSemesters() {
     selectedSemester.value = saved === "" || result.includes(saved) ? saved : (result[0] || "");
     semesterAccountId = accountId;
     return;
-  }
-  if (!selectedSemester.value && semesters.value.length > 0) {
-    selectedSemester.value = semesters.value[0];
   }
   if (selectedSemester.value && !semesters.value.includes(selectedSemester.value)) {
     selectedSemester.value = semesters.value[0] || "";
@@ -1146,7 +1178,8 @@ async function collectOneAccount(account, academicYear) {
     const current = await api.assignments({ accountId: account.id, submittable: true });
     const count = current.filter(item => !assignmentExpired(item)).length;
     await loadAccounts();
-    if (selectedAccountId.value === account.id) { await loadSemesters(); await loadAssignments(); }
+    await assignmentListCache.refresh(account.id, { fresh: true });
+    if (selectedAccountId.value === account.id) await loadSemesters();
     return { ...result, submittable: count };
   } finally {
     collectionController.finish(account.id, finishedRun);
@@ -1207,14 +1240,14 @@ async function inspectAssignment(assignment) {
   inspectingAssignmentId.value = assignment.id;
   try {
     const checked = await api.inspectAssignment(assignment.id);
-    assignments.value = assignments.value.map(item => item.id === checked.id ? checked : item);
+    assignmentListCache.patch(checked.account_id, checked);
     notice.value = "作业要求与作答状态已更新";
   } catch (inspectError) { setError(inspectError); }
   finally { inspectingAssignmentId.value = ""; }
 }
 
 async function startAssignmentJob(assignment) {
-  if (requiresMaterials(assignment)) { await openAssignment(assignment); return; }
+  if (!directlyAnswerable(assignment)) { await openAssignment(assignment); return; }
   const existingJob = latestJobForAssignment(assignment.id);
   if (existingJob && assignmentJobLabel(assignment.id) === "查看任务") {
     await openTaskDetails(existingJob.id);
@@ -1287,7 +1320,7 @@ async function createBatchJobs() {
   }
   const selected = candidates.filter((assignment) => (
     !assignmentExpired(assignment)
-    && !requiresMaterials(assignment)
+    && directlyAnswerable(assignment)
     && !isActiveJob(latestJobForAssignment(assignment.id))
     && !latestJobForAssignment(assignment.id)?.browser_available
     && !["needs_intervention", "completed"].includes(latestJobForAssignment(assignment.id)?.status)
@@ -2060,11 +2093,16 @@ watch([activePage, accounts], ensureBusinessAccount, { flush: "sync" });
 
 watch(selectedAccountId, async () => {
   if (!selectedAccountId.value) return;
+  const accountId = selectedAccountId.value;
+  assignments.value = assignmentListCache.read(accountId);
+  const savedFilter = preference(`assignment-filter:${accountId}`, 'processable');
+  assignmentFilter.value = ['processable','unprocessable'].includes(savedFilter) ? savedFilter : 'processable';
+  selectedSemester.value = preference(`semester:${accountId}`, '');
+  semesters.value = [...new Set(assignments.value.map(item => item.semester).filter(Boolean))].sort().reverse();
   selectedAssignmentIds.value = [];
   remember("account", selectedAccountId.value);
   if (["assignments", "learning"].includes(activePage.value)) remember("account:" + activePage.value, selectedAccountId.value);
   assignmentQuery.value = "";
-  assignmentFilter.value = "all";
   profilePreview.value = "";
   profilePreviewUrl.value = "";
   previewLoading.value = false;
@@ -2076,6 +2114,7 @@ watch(selectedAccountId, async () => {
   closeJobSocket();
   batchFailures.value = [];
   await loadSemesters();
+  if (selectedAccountId.value !== accountId) return;
   await Promise.all([
     loadAssignments(),
     loadCollectionRuns()
@@ -2087,7 +2126,17 @@ watch(selectedAccountId, async () => {
 watch(selectedSemester, () => {
   selectedAssignmentIds.value = [];
   if (selectedAccountId.value) remember(`semester:${selectedAccountId.value}`, selectedSemester.value);
-  loadAssignments();
+});
+
+watch(assignmentFilter, value => {
+  if (selectedAccountId.value) remember(`assignment-filter:${selectedAccountId.value}`, value);
+});
+
+watch(setupScope, (scope, previous) => {
+  if (previous && scope !== previous) {
+    assignmentListCache.clear();
+    assignments.value = [];
+  }
 });
 
 watch(activePage, async () => {
@@ -2159,6 +2208,7 @@ onUnmounted(() => {
   if (profilePreviewTimer) clearInterval(profilePreviewTimer);
   if (agentSnapshotTimer) clearInterval(agentSnapshotTimer);
   collectionController.dispose();
+  assignmentListCache.dispose();
   if (launchProgressTimer) clearInterval(launchProgressTimer);
   if (connectionTimer) clearInterval(connectionTimer);
   if (noticeTimer) clearTimeout(noticeTimer);
@@ -2193,8 +2243,8 @@ onUnmounted(() => {
     </div>
 
     <div class="app-body">
-      <nav class="side-nav" aria-label="主导航">
-        <span class="nav-motion-track" :style="{ transform: `translateY(${navItems.findIndex(item => item.id === activePage) * 68}px)` }" aria-hidden="true"></span>
+      <nav class="side-nav" :style="{ '--nav-item-height': `${navItemHeight}px`, '--nav-item-gap': `${navItemGap}px` }" aria-label="主导航">
+        <span class="nav-motion-track" :style="{ transform: `translateY(${navItems.findIndex(item => item.id === activePage) * (navItemHeight + navItemGap)}px)` }" aria-hidden="true"></span>
         <button
           v-for="item in navItems"
           :key="item.id"
@@ -2395,14 +2445,12 @@ onUnmounted(() => {
               </p>
             </details>
           </div>
-          <div v-if="filteredAssignments.length || selectedCount" class="selection-toolbar">
+          <div v-if="assignmentFilter === 'processable' && (filteredAssignments.length || selectedCount)" class="selection-toolbar">
             <label>
-              <input
-                type="checkbox"
+              <ChoiceInput
                 :checked="allFilteredSelected"
                   :disabled="!selectableAssignments.length"
-                @change="toggleSelectAllAssignments"
-              >
+                @change="toggleSelectAllAssignments" />
               <span>全选</span>
             </label>
             <span>{{ selectedCount ? `已选 ${selectedCount}` : `${filteredAssignments.length} 个作业` }}</span>
@@ -2419,8 +2467,8 @@ onUnmounted(() => {
           <details v-if="batchFailures.length" class="batch-failures"><summary><CircleAlert :size="14" />{{ batchFailures.length }} 个任务创建失败</summary><p v-for="failure in batchFailures" :key="failure.id"><strong>{{ failure.title }}</strong>{{ failure.error }}</p></details>
           <div v-if="groupedAssignments.length === 0" class="empty-state">
             <ClipboardList :size="28" :stroke-width="1.4" aria-hidden="true" />
-            <h3>{{ assignmentQuery || assignmentFilter !== 'all' ? '没有匹配的作业' : assignmentEmptyTitle() }}</h3>
-            <button v-if="assignmentQuery || assignmentFilter !== 'all'" type="button" class="button light" @click="assignmentQuery = ''; assignmentFilter = 'all'">清除筛选</button>
+            <h3>{{ assignmentQuery ? '没有匹配的作业' : assignmentFilter === 'unprocessable' ? '暂无不可处理作业' : '暂无可处理作业' }}</h3>
+            <button v-if="assignmentQuery" type="button" class="button light" @click="assignmentQuery = ''">清除搜索</button>
             <p v-if="assignmentEmptyDescription()">{{ assignmentEmptyDescription() }}</p>
             <button
               v-if="selectedAccount && selectedAccount.status !== 'ready'"
@@ -2452,16 +2500,14 @@ onUnmounted(() => {
               class="assignment-row"
               :class="{ selected: selectedAssignmentIds.includes(assignment.id) }"
             >
-              <label class="assignment-select">
-                <input
-                  type="checkbox"
+              <label v-if="directlyAnswerable(assignment)" class="assignment-select">
+                <ChoiceInput
                   :checked="selectedAssignmentIds.includes(assignment.id)"
-                  :disabled="requiresMaterials(assignment)"
-                  @change="toggleAssignmentSelection(assignment.id)"
-                >
+                  :disabled="!directlyAnswerable(assignment)"
+                  @change="toggleAssignmentSelection(assignment.id)" />
               </label>
               <div class="assignment-copy">
-                <strong>{{ assignment.title }}</strong>
+                <strong :title="assignmentProcessingReason(assignment)">{{ assignment.title }}</strong>
                 <p v-if="assignment.deadline_text">
                   {{ assignment.deadline_text }}
                   <span
@@ -2471,7 +2517,6 @@ onUnmounted(() => {
                     {{ deadlineState(assignment).label }}
                   </span>
                 </p>
-                <span v-if="!latestJobForAssignment(assignment.id) || requiresMaterials(assignment)" class="assignment-readiness" :class="assignmentReadiness(assignment).className"><span>{{ assignmentReadiness(assignment).label }}</span><small v-if="assignmentReadiness(assignment).detail">{{ assignmentReadiness(assignment).detail }}</small></span>
                 <span
                   v-if="latestJobForAssignment(assignment.id)"
                   class="assignment-job-state"
@@ -2485,9 +2530,8 @@ onUnmounted(() => {
                 </span>
               </div>
               <div class="assignment-actions">
-                <button v-if="!assignment.assessment?.checked_at" class="icon-button" type="button" title="检查作答状态与材料要求" :aria-label="'检查要求：' + assignment.title" :disabled="inspectingAssignmentId === assignment.id" @click="inspectAssignment(assignment)"><RefreshCw :size="13" :class="{ spinning: inspectingAssignmentId === assignment.id }" /></button>
+                <button class="icon-button" type="button" title="重新检查" :aria-label="'重新检查：' + assignment.title" :disabled="inspectingAssignmentId === assignment.id" @click="inspectAssignment(assignment)"><RefreshCw :size="13" :class="{ spinning: inspectingAssignmentId === assignment.id }" /></button>
                 <button
-                  v-if="!requiresMaterials(assignment)"
                   class="assignment-view"
                   type="button"
                   :disabled="openingAssignmentId === assignment.id"
@@ -2497,13 +2541,14 @@ onUnmounted(() => {
                   {{ openingAssignmentId === assignment.id ? "打开中" : "查看" }}
                 </button>
                 <button
+                  v-if="directlyAnswerable(assignment)"
                   class="button light assignment-start"
                   type="button"
                   :disabled="busy"
                   @click="startAssignmentJob(assignment)"
                 >
-                  <component :is="requiresMaterials(assignment) ? FileText : assignmentJobLabel(assignment.id) === '重试' ? RotateCcw : assignmentJobLabel(assignment.id) === '查看任务' ? ClipboardList : Play" :size="13" aria-hidden="true" />
-                  {{ requiresMaterials(assignment) ? '查看要求' : assignmentJobLabel(assignment.id) }}
+                  <component :is="assignmentJobLabel(assignment.id) === '重试' ? RotateCcw : assignmentJobLabel(assignment.id) === '查看任务' ? ClipboardList : Play" :size="13" aria-hidden="true" />
+                  {{ assignmentJobLabel(assignment.id) }}
                 </button>
               </div>
             </article>
@@ -2701,7 +2746,7 @@ onUnmounted(() => {
             <PlatformLogo :platform="connector.id" :size="44" />
             <span class="connector-copy">
               <strong>{{ connector.name }}</strong>
-              <small>{{ connector.id === 'weixin' ? '接收新作业提醒与任务结果' : '连接到外部服务' }}</small>
+              <small v-if="connector.id === 'weixin'">接收新作业提醒与任务结果</small>
             </span>
             <span class="connector-state">
               <span
@@ -3046,10 +3091,10 @@ onUnmounted(() => {
           <template v-else-if="weixinMode === 'settings' && weixinConfig">
             <div class="weixin-binding-status"><span class="connection-dot" :class="{ online: weixinConfig.ready }"></span>{{ weixinConfig.ready ? '会话就绪' : '已绑定，等待刷新会话' }}<button class="text-button" type="button" :disabled="weixinSessionBusy || weixinPreferencesBusy" @click="refreshWeixinSession"><RefreshCw :size="13" :class="{ spinning: weixinSessionBusy }" />刷新会话</button></div>
             <div class="weixin-preference-row">
-              <label><span>新作业提醒</span><input class="switch-input" type="checkbox" role="switch" aria-label="新作业提醒" :checked="weixinConfig.preferences.new_assignments_enabled" :disabled="weixinPreferencesBusy || weixinSessionBusy" @change="updateWeixinPreference('new_assignments_enabled', $event.target.checked)"></label>
+              <label><span>新作业提醒</span><ToggleSwitch role="switch" aria-label="新作业提醒" :checked="weixinConfig.preferences.new_assignments_enabled" :disabled="weixinPreferencesBusy || weixinSessionBusy" @change="updateWeixinPreference('new_assignments_enabled', $event.target.checked)" /></label>
               <button class="text-button" type="button" @click="openCollectionSettings">检测设置<ArrowUpRight :size="13" /></button>
             </div>
-            <div class="weixin-preference-row"><label><span>任务结果</span><input class="switch-input" type="checkbox" role="switch" aria-label="任务结果" :checked="weixinConfig.preferences.completion_enabled" :disabled="weixinPreferencesBusy || weixinSessionBusy" @change="updateWeixinPreference('completion_enabled', $event.target.checked)"></label></div>
+            <div class="weixin-preference-row"><label><span>任务结果</span><ToggleSwitch role="switch" aria-label="任务结果" :checked="weixinConfig.preferences.completion_enabled" :disabled="weixinPreferencesBusy || weixinSessionBusy" @change="updateWeixinPreference('completion_enabled', $event.target.checked)" /></label></div>
             <details class="weixin-permissions">
               <summary><ShieldCheck :size="15" aria-hidden="true" /><span>微信用户权限</span><small>{{ weixinUsers.length }}</small></summary>
               <div v-if="weixinUsers.length" class="weixin-user-list">
@@ -3060,7 +3105,7 @@ onUnmounted(() => {
                       <small title="微信用户稳定标识">{{ maskWeixinUser(user.external_user_id) }}</small>
                     </div>
                     <label class="weixin-user-enabled">
-                      <input class="switch-input" type="checkbox" role="switch" :aria-label="`${user.display_name || '微信用户'}授权`" v-model="user.enabled">
+                      <ToggleSwitch role="switch" :aria-label="`${user.display_name || '微信用户'}授权`" v-model="user.enabled" />
                       <span>{{ user.enabled ? "已授权" : "待授权" }}</span>
                     </label>
                     <select v-model="user.role" class="weixin-role-select" :aria-label="`${user.display_name || '微信用户'}角色`">
@@ -3071,22 +3116,20 @@ onUnmounted(() => {
                   </div>
                   <div class="weixin-user-scope">
                     <label class="weixin-scope-global">
-                      <input type="checkbox" :checked="user.account_scope.includes('*')" @change="toggleWeixinGlobal(user, $event.target.checked)">
+                      <ChoiceInput :checked="user.account_scope.includes('*')" @change="toggleWeixinGlobal(user, $event.target.checked)" />
                       <span>全部账号</span>
                     </label>
                     <div v-for="account in accounts" :key="account.id" class="weixin-scope-account">
                       <label class="weixin-scope-main">
-                        <input
-                          type="checkbox"
+                        <ChoiceInput
                           :checked="weixinAccountSelected(user, account.id)"
                           :disabled="user.account_scope.includes('*')"
-                          @change="toggleWeixinAccount(user, account.id, $event.target.checked)"
-                        >
+                          @change="toggleWeixinAccount(user, account.id, $event.target.checked)" />
                         <span>{{ account.name }}</span>
                         <small>{{ platformLabel(account.platform) }}</small>
                       </label>
                       <label v-if="!user.account_scope.includes('*') && user.account_scope.includes(account.id)" class="weixin-scope-readonly">
-                        <input type="checkbox" :checked="user.readonly_account_ids.includes(account.id)" @change="toggleWeixinReadonly(user, account.id, $event.target.checked)">
+                        <ChoiceInput :checked="user.readonly_account_ids.includes(account.id)" @change="toggleWeixinReadonly(user, account.id, $event.target.checked)" />
                         <span>只读</span>
                       </label>
                     </div>

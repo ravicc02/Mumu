@@ -143,6 +143,7 @@ jobs:
       - name: Install isolated Chromium and run Linux regressions
         run: |
           python -m playwright install --with-deps chromium
+          export MUMU_CHROME_PATH="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
           npm test
           npm run test:desktop
           MUMU_DATA="$RUNNER_TEMP/mumu-linux-tests" xvfb-run -a npm run test:backend

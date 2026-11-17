@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
@@ -16,10 +17,12 @@ from .authorization import AuthorizationService
 from .confirmation import ConfirmationService
 from .eventing import IncidentCenter, OutboxService
 from .memory import MemoryService
+from .responder import AssistantDecision
 from .tools import ToolLedger
 
 
 WRITE_WORDS = ("创建", "开启", "开始", "执行", "暂停", "继续", "停止", "重试", "删除", "删掉")
+logger = logging.getLogger(__name__)
 
 
 class MumuAssistant:
@@ -30,7 +33,7 @@ class MumuAssistant:
         *,
         learning_service,
         orchestrator,
-        general_responder: Callable[[dict[str, Any]], Awaitable[str]] | None = None,
+        general_responder: Callable[[dict[str, Any]], Awaitable[AssistantDecision]] | None = None,
     ) -> None:
         self.database_provider = database_provider
         self.settings_provider = settings_provider
@@ -105,13 +108,13 @@ class MumuAssistant:
         session = self._memory().find_active_session(
             agent_kind="assistant",
             channel=channel,
-            external_user_ref=external_user_id,
+            external_user_ref=_conversation_user_ref(channel, external_user_id),
         )
         if session is None:
             session = self._memory().create_session(
                 agent_kind="assistant",
                 channel=channel,
-                external_user_ref=external_user_id,
+                external_user_ref=_conversation_user_ref(channel, external_user_id),
                 title="Mumu Assistant",
             )
         session_id = session["id"]
@@ -196,12 +199,12 @@ class MumuAssistant:
             self._memory().archive_active_sessions(
                 agent_kind="assistant",
                 channel=channel,
-                external_user_ref=external_user_id,
+                external_user_ref=_conversation_user_ref(channel, external_user_id),
             )
             new_session = self._memory().create_session(
                 agent_kind="assistant",
                 channel=channel,
-                external_user_ref=external_user_id,
+                external_user_ref=_conversation_user_ref(channel, external_user_id),
                 title="Mumu Assistant",
             )
             return {
@@ -273,6 +276,10 @@ class MumuAssistant:
         if not allowed:
             return {"status": "forbidden", "reply": reason}
 
+        if _is_active_task_query(command):
+            return await self._active_tasks_tool(
+                channel, external_user_id, inbound_message_id, user,
+            )
         lower = command.lower()
         if any(word in command for word in ("总况", "汇报", "概况", "整体情况")):
             return await self._overview_tool(
@@ -393,9 +400,47 @@ class MumuAssistant:
             channel=channel,
             external_user_id=external_user_id,
             session_id=session_id,
+            inbound_message_id=inbound_message_id,
             user=user,
             text=text,
         )
+
+    async def _active_tasks_tool(self, channel, external_user_id, inbound_message_id, user):
+        async def operation():
+            tasks = self._permitted_tasks(user)
+            return [{
+                key: item.get(key)
+                for key in ("id", "kind", "title", "account_name", "status", "phase")
+            } for item in tasks if item["status"] in {
+                "running", "queued", "paused", "stopping", "awaiting_user",
+            }]
+
+        tasks = await self._run_tool(
+            "tasks.list", {"status": "active"}, operation,
+            channel=channel, external_user_id=external_user_id,
+            idempotency_key=f"active-tasks:{channel}:{external_user_id}:{inbound_message_id}",
+        )
+        counts = {
+            status: sum(item["status"] == status for item in tasks)
+            for status in ("running", "queued", "paused", "stopping", "awaiting_user")
+        }
+        lines = [
+            f"当前授权账号范围内，运行中 {counts['running']} 个任务，排队 {counts['queued']} 个。",
+        ]
+        if counts["paused"] or counts["stopping"] or counts["awaiting_user"]:
+            lines.append(
+                f"已暂停 {counts['paused']}，停止中 {counts['stopping']}，待介入 {counts['awaiting_user']}。"
+            )
+        labels = {"running": "运行中", "queued": "排队", "paused": "已暂停",
+                  "stopping": "停止中", "awaiting_user": "待介入"}
+        for item in tasks[:10]:
+            lines.append(
+                f"- {item['title']} [{item['kind']} {item['id'][:8]}]："
+                f"{labels[item['status']]}（{item.get('phase') or '等待更新'}）"
+            )
+        if len(tasks) > 10:
+            lines.append(f"另有 {len(tasks) - 10} 个活动任务。")
+        return {"status": "ok", "reply": "\n".join(lines), "tool": "tasks.list", "data": tasks}
 
     async def _overview_tool(self, channel, external_user_id, inbound_message_id, user):
         async def operation():
@@ -1482,18 +1527,24 @@ class MumuAssistant:
             ).fetchone()
         return int(row["count"])
 
-    async def _general_answer(self, *, channel, external_user_id, session_id, user, text):
+    async def _general_answer(
+        self, *, channel, external_user_id, session_id, inbound_message_id, user, text,
+    ):
         if self.general_responder is None:
-            reply = (
-                "可以查询任务总况、异常、进度和剩余作业，也可以创建或控制任务。\n"
-                "写操作会先给出一次性确认码。使用 /whoami 查看当前权限。"
-            )
-            return {"status": "ok", "reply": reply, "tool": "assistant.help"}
+            return {
+                "status": "unavailable", "tool": "assistant.chat",
+                "reply": "自然语言助手尚未接入模型。可先发送“任务总况”查询；请检查助手模型配置。",
+            }
+        if text.strip().startswith(("确认", "取消")):
+            return {"status": "invalid", "reply": "请使用预览中给出的确认码，例如“确认 ABC234”。"}
         package = self._memory().assemble(
             scope=(
                 "global"
                 if "*" in user["account_scope"]
-                else f"account:{user['account_scope'][0]}"
+                else (
+                    f"account:{user['account_scope'][0]}"
+                    if user["account_scope"] else f"session:{session_id}"
+                )
             ),
             query=text,
             token_budget=5000,
@@ -1508,14 +1559,47 @@ class MumuAssistant:
                 ),
             },
         )
-        reply = await self.general_responder({
-            "text": text,
-            "context": package.model_dump(mode="json"),
-            "channel": channel,
-            "external_user_id": external_user_id,
-            "session_id": session_id,
-        })
-        return {"status": "ok", "reply": reply, "tool": "assistant.chat"}
+        try:
+            decision = AssistantDecision.model_validate(await self.general_responder({
+                "text": text,
+                "context": package.model_dump(mode="json"),
+                "session_id": session_id,
+            }))
+        except Exception:
+            logger.exception("Assistant model request failed for session %s", session_id)
+            return {
+                "status": "unavailable", "tool": "assistant.chat",
+                "reply": "助手模型暂时不可用，未执行任何操作。可先发送“任务总况”直接查询，或检查模型配置后重试。",
+            }
+        # The model proposes an intent. Re-read authorization after model I/O.
+        allowed, reason = self._auth().check(
+            channel=channel, external_user_id=external_user_id, action="read",
+        )
+        if not allowed:
+            return {"status": "forbidden", "reply": reason}
+        current_user = self._auth().get_user(channel, external_user_id)
+        args = (channel, external_user_id, session_id, inbound_message_id, current_user, text)
+        if decision.intent == "active_tasks":
+            return await self._active_tasks_tool(channel, external_user_id, inbound_message_id, current_user)
+        if decision.intent == "overview":
+            return await self._overview_tool(channel, external_user_id, inbound_message_id, current_user)
+        if decision.intent == "errors":
+            return await self._errors_tool(channel, external_user_id, inbound_message_id, current_user)
+        if decision.intent == "progress":
+            return await self._task_progress_tool(*args)
+        if decision.intent == "assignment_count":
+            return await self._remaining_assignment_tool(*args)
+        if decision.intent == "create_learning":
+            return await self._prepare_learning_action(*args)
+        if decision.intent == "create_assignment":
+            return await self._prepare_assignment_action(*args)
+        if decision.intent in {"pause", "resume", "stop", "retry", "delete"}:
+            return await self._prepare_task_action(decision.intent, *args)
+        reply = self._memory().scrubber.text(decision.reply).strip()
+        return {
+            "status": "ok", "reply": reply or "请说明要查询的任务，或要执行的操作。",
+            "tool": "assistant.chat",
+        }
 
     async def _run_tool(
         self,
@@ -1552,6 +1636,19 @@ class MumuAssistant:
 
 def _looks_like_confirmation(text: str) -> bool:
     return bool(re.fullmatch(r"(?:确认|/confirm)\s*[A-Z0-9]{6}", text.strip(), re.I))
+
+
+def _is_active_task_query(text: str) -> bool:
+    return (
+        "任务" in text
+        and any(word in text for word in ("在运行", "运行中", "在跑", "进行中", "执行中", "活跃任务"))
+        and not any(word in text for word in ("暂停", "停止", "结束", "删除", "删掉", "重试", "创建", "开启", "继续"))
+    )
+
+
+def _conversation_user_ref(channel: str, external_user_id: str) -> str:
+    # Raw identities are scrubbed in conversation storage; match on a stable opaque key.
+    return hashlib.sha256(f"{channel}:{external_user_id}".encode("utf-8")).hexdigest()
 
 
 def _confirmation_token(text: str) -> str:

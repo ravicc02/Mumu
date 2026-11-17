@@ -88,7 +88,6 @@ async function perform(kind) {
           <span class="settings-card-index">01</span>
           <div class="settings-card-title">
             <h3>服务连接</h3>
-            <p>兼容 OpenAI 接口协议的模型服务地址与调用凭据</p>
           </div>
           <div class="settings-card-heading-actions">
             <span class="settings-state" :class="{ ready: keyConfigured }">{{ keyConfigured ? '凭据已保存' : '等待配置' }}</span>
@@ -145,7 +144,6 @@ async function perform(kind) {
           <span class="settings-card-index">02</span>
           <div class="settings-card-title">
             <h3>模型顺序</h3>
-            <p>按顺序调用；主模型不可用时自动切换到后续模型</p>
           </div>
           <div class="settings-card-heading-actions">
             <span class="settings-scope">{{ form.models.length }} 个模型</span>

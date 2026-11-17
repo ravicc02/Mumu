@@ -1,4 +1,5 @@
 <script setup>
+import ToggleSwitch from "../../../shared/controls/ToggleSwitch.vue";
 import { onMounted, ref } from "vue";
 import { LoaderCircle } from "@lucide/vue";
 
@@ -81,15 +82,12 @@ onMounted(loadAutoLaunch);
           </span>
           <span class="common-switch">
             <LoaderCircle v-if="loading || pending === 'auto-launch'" class="spinning" :size="14" />
-            <input
-              class="switch-input"
-              type="checkbox"
+            <ToggleSwitch
               role="switch"
               aria-label="开机自启"
               :checked="autoLaunch"
               :disabled="loading || !autoLaunchSupported || Boolean(pending)"
-              @change="toggleAutoLaunch"
-            >
+              @change="toggleAutoLaunch" />
           </span>
         </label>
         <label class="preference-row">
@@ -98,15 +96,12 @@ onMounted(loadAutoLaunch);
           </span>
           <span class="common-switch">
             <LoaderCircle v-if="pending === 'auto-check'" class="spinning" :size="14" />
-            <input
-              class="switch-input"
-              type="checkbox"
+            <ToggleSwitch
               role="switch"
               aria-label="启动时自动检查更新"
               :checked="autoCheck"
               :disabled="Boolean(pending)"
-              @change="toggleAutoCheck"
-            >
+              @change="toggleAutoCheck" />
           </span>
         </label>
       </div>

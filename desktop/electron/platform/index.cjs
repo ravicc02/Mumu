@@ -3,8 +3,8 @@ const os = require("node:os");
 const fs = require("node:fs/promises");
 const crypto = require("node:crypto");
 
-function backendExecutable(product, platform = process.platform) {
-  return platform === "win32" ? product.backendExecutable : product.backendExecutable.replace(/\.exe$/i, "");
+function executableName(product, platform = process.platform) {
+  return product.backendExecutables?.[platform] || (platform === "win32" ? product.backendExecutable : "mumu-backend");
 }
 function browserCandidates(env = process.env, platform = process.platform) {
   const override = [env.MUMU_CHROME_PATH, env.ANSWER_STUDIO_CHROME_PATH];
@@ -13,6 +13,8 @@ function browserCandidates(env = process.env, platform = process.platform) {
     return [...override, ...["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge", "microsoft-edge-stable"].flatMap(name =>
       [...(env.PATH || "/usr/bin:/usr/local/bin").split(":"), "/snap/bin"].filter(Boolean).map(dir => join(dir, name))), "/opt/google/chrome/chrome"].filter(Boolean);
   }
+  if (platform === "darwin") return [...override, "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"].filter(Boolean);
   return [...override,
     path.join(env.ProgramFiles || "C:/Program Files", "Google/Chrome/Application/chrome.exe"),
     path.join(env["ProgramFiles(x86)"] || "C:/Program Files (x86)", "Google/Chrome/Application/chrome.exe"),
@@ -28,7 +30,7 @@ function desktopExec(executable) {
 }
 function createLinuxAutoLaunch({env = process.env, executable = process.execPath, home = os.homedir(), io = fs} = {}) {
   const config = env.XDG_CONFIG_HOME && path.isAbsolute(env.XDG_CONFIG_HOME) ? env.XDG_CONFIG_HOME : path.join(home, ".config");
-  const target = path.join(config, "autostart", "io.github.ravicc02.mumu.desktop");
+  const target = path.join(config, "autostart", "mumu.desktop");
   const launch = env.APPIMAGE || executable;
   const content = `[Desktop Entry]\nType=Application\nName=Mumu\nExec=${desktopExec(launch)}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`;
   async function get() {
@@ -48,4 +50,4 @@ function createLinuxAutoLaunch({env = process.env, executable = process.execPath
   }
   return {get, set};
 }
-module.exports = {backendExecutable, browserCandidates, desktopExec, createLinuxAutoLaunch};
+module.exports = {executableName, browserCandidates, desktopExec, createLinuxAutoLaunch};

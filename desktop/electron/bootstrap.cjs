@@ -2,7 +2,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const defaultProduct = require("../product.json");
-const { browserCandidates, backendExecutable } = require("./platform.cjs");
+const { browserCandidates, executableName } = require("./platform/index.cjs");
 
 const quote = value => "'" + String(value).replaceAll("'", "''") + "'";
 function safeOutput(value) {
@@ -27,7 +27,7 @@ function verifyBackendHealth(payload, version) {
 function createBootstrap({ packaged, backendDirectory, dataRoot, platform = process.platform, python = platform === 'win32' ? 'python' : 'python3', env = process.env, product = defaultProduct, run = runFile, io = fs, onReady = async () => {} }) {
   let state = { status: 'idle', items: [], output: '', error: '', backendReady: false };
   let pending = null;
-  const backendExe = path.join(backendDirectory, backendExecutable(product, platform));
+  const backendExe = path.join(backendDirectory, executableName(product, platform));
   const requirements = path.join(backendDirectory, 'requirements.txt');
   const shellQuote = value => platform === 'win32' ? quote(value) : "'" + String(value).replaceAll("'", "'\"'\"'") + "'";
   const prefix = platform === 'win32' ? '& ' : '';

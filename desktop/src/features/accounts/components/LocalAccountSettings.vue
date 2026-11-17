@@ -44,7 +44,6 @@ async function save() {
           <div class="local-profile-copy">
             <span class="local-profile-kicker">本地账户</span>
             <strong>{{ draft.nickname || '未设置昵称' }}</strong>
-            <p>用于 Mumu 工作区里的头像与称呼，不会同步到学习平台。</p>
           </div>
         </div>
         <div class="local-profile-avatar-actions">
@@ -63,7 +62,6 @@ async function save() {
           <span class="settings-card-index">01</span>
           <div class="settings-card-title">
             <h3>显示资料</h3>
-            <p>只影响本机工作区中的称呼和联系方式</p>
           </div>
         </header>
         <div class="settings-card-body padded">

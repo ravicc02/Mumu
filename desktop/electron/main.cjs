@@ -7,7 +7,7 @@ const { resolveDataRoot } = require("./data-root.cjs");
 const { allowedProjectLink } = require("./external-links.cjs");
 const { createBootstrap, verifyBackendHealth } = require("./bootstrap.cjs");
 const { readWindowsLocation } = require("./windows-location.cjs");
-const { backendExecutable, createLinuxAutoLaunch } = require("./platform.cjs");
+const { executableName, createLinuxAutoLaunch } = require("./platform/index.cjs");
 
 let backendProcess = null;
 let mainWindow = null;
@@ -77,7 +77,7 @@ function startBackend(pythonCommand) {
   }
   const command = isDev
     ? (pythonCommand || configuredPythonCommand())
-    : path.join(backendDirectory(), backendExecutable(product));
+    : path.join(backendDirectory(), executableName(product));
   const args = isDev
     ? [
         "run_server.py",

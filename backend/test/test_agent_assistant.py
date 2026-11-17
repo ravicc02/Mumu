@@ -5,11 +5,13 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 from app.config import Settings
 from app.db import Database
 from app.services.agents.assistant import MumuAssistant
 from app.services.agents.authorization import AuthorizationService
+from app.services.agents.responder import AssistantDecision
 from app.services.learning.store import LearningStore
 
 
@@ -143,6 +145,135 @@ class AssistantTests(unittest.IsolatedAsyncioTestCase):
             text=text,
             inbound_message_id=message_id,
         )
+
+    async def test_original_running_task_question_reads_status_instead_of_help(self):
+        account = self.account("张三")
+        self.authorize("viewer", [account["id"]])
+        responder = AsyncMock(side_effect=AssertionError("Query must work without model"))
+        self.assistant.general_responder = responder
+        empty = await self.send("现在有在运行的任务吗", "running-empty")
+        self.assertEqual(empty["tool"], "tasks.list")
+        self.assertIn("运行中 0", empty["reply"])
+        self.assertIn("排队 0", empty["reply"])
+
+        assignment = self.assignment(account, "实验四", suffix="running")
+        job = self.database.create_job(account["id"], assignment["id"], False)
+        self.database.update_job(job["id"], status="running", phase="agent_running")
+        foreign = self.account("范围外")
+        secret = self.assignment(foreign, "不可泄漏的任务", suffix="foreign")
+        self.database.create_job(foreign["id"], secret["id"], False)
+
+        for index, text in enumerate(("现在有在运行的任务吗", "哪些任务在跑", "列出进行中的任务")):
+            result = await self.send(text, f"running-query-{index}")
+            self.assertEqual(result["status"], "ok")
+            self.assertIn("运行中 1", result["reply"])
+            self.assertIn("实验四", result["reply"])
+            self.assertNotIn("不可泄漏", result["reply"])
+        responder.assert_not_awaited()
+        self.assertEqual(self.orchestrator.dispatch_count, 0)
+
+    async def test_two_weixin_questions_create_two_factual_outbox_replies(self):
+        from app.services.notifications.weixin_channel import WeixinChannel, ingest_updates
+
+        account = self.account("张三")
+        self.authorize("viewer", [account["id"]])
+        ingest_updates(self.database, {"get_updates_buf": "cursor", "msgs": [
+            {"message_id": identifier, "from_user_id": "weixin-user", "text": "现在有在运行的任务吗"}
+            for identifier in ("wx-one", "wx-two")
+        ]})
+        channel = WeixinChannel(self.database, self.assistant)
+        self.assertEqual(await channel.process_pending(), 2)
+        self.assertEqual(await channel.process_pending(), 0)
+        replies = channel.outbox.list_messages()
+        self.assertEqual(len(replies), 2)
+        self.assertTrue(all("运行中 0" in item["payload"]["text"] for item in replies))
+        self.assertEqual(len(self.assistant._tools().list()), 2)
+
+    async def test_model_intent_reads_real_tasks_and_ignores_fabricated_reply(self):
+        account = self.account("张三")
+        self.authorize("viewer", [account["id"]])
+        self.assistant.general_responder = AsyncMock(return_value=AssistantDecision(
+            intent="active_tasks", reply="模型编造：运行中 100 个任务",
+        ))
+        result = await self.send("手头还有什么事在忙？", "model-query")
+        self.assertEqual(result["tool"], "tasks.list")
+        self.assertIn("运行中 0", result["reply"])
+        self.assertNotIn("100", result["reply"])
+
+    async def test_model_write_proposal_still_requires_permission_and_confirmation(self):
+        account = self.account("张三")
+        self.authorize("operator", [account["id"]])
+        assignment = self.assignment(account, "实验四", suffix="model-write")
+        job = self.database.create_job(account["id"], assignment["id"], False)
+        self.assistant.general_responder = AsyncMock(return_value=AssistantDecision(intent="pause"))
+        preview = await self.send(f"让 {job['id']} 先歇一下", "model-pause")
+        self.assertEqual(preview["status"], "confirmation_required")
+        self.assertEqual(self.database.get_job(job["id"])["status"], "queued")
+        self.authorize("viewer", [account["id"]])
+        rejected = await self.send(f"让 {job['id']} 先歇一下", "model-pause-viewer")
+        self.assertEqual(rejected["status"], "forbidden")
+        self.assertEqual(self.database.get_job(job["id"])["status"], "queued")
+
+    async def test_revoked_permission_is_checked_again_after_model_returns(self):
+        account = self.account("张三")
+        self.authorize("viewer", [account["id"]])
+
+        async def revoke(_request):
+            self.auth.delete_user("weixin", "weixin-user")
+            return AssistantDecision(intent="active_tasks")
+
+        self.assistant.general_responder = revoke
+        result = await self.send("手头还有什么事在忙？", "revoked-query")
+        self.assertEqual(result["status"], "forbidden")
+        self.assertEqual(self.assistant._tools().list(), [])
+
+    async def test_general_chat_uses_scrubbed_context_and_reports_model_failure(self):
+        account = self.account("张三")
+        self.authorize("viewer", [account["id"]])
+        self.assistant.general_responder = AsyncMock(return_value=AssistantDecision(
+            intent="chat", reply="你好，我是 Mumu。",
+        ))
+        result = await self.send("你好", "chat-one")
+        self.assertEqual(result["tool"], "assistant.chat")
+        self.assertEqual(result["reply"], "你好，我是 Mumu。")
+        request = self.assistant.general_responder.call_args.args[0]
+        self.assertNotIn("fixture-model-key", str(request))
+        self.assertIn("context", request)
+        self.assistant.general_responder = AsyncMock(side_effect=TimeoutError("fixture"))
+        failed = await self.send("你能帮忙吗", "chat-error")
+        self.assertEqual(failed["status"], "unavailable")
+        self.assertIn("未执行任何操作", failed["reply"])
+
+    async def test_invalid_model_intent_cannot_dispatch_arbitrary_tools(self):
+        account = self.account("张三")
+        self.authorize("admin", [account["id"]])
+        self.assistant.general_responder = AsyncMock(return_value={"intent": "shell", "command": "unsafe"})
+        failed = await self.send("帮我管理电脑", "invalid-model")
+        self.assertEqual(failed["status"], "unavailable")
+        self.assertEqual(self.assistant._tools().list(), [])
+
+    async def test_unknown_confirmation_never_reaches_model(self):
+        account = self.account("张三")
+        self.authorize("admin", [account["id"]])
+        responder = AsyncMock(return_value=AssistantDecision(intent="create_assignment"))
+        self.assistant.general_responder = responder
+        result = await self.send("确认上一个操作", "confirm-no-token")
+        self.assertEqual(result["status"], "invalid")
+        responder.assert_not_awaited()
+
+    async def test_bound_user_keeps_session_after_identity_scrubbing_and_reset(self):
+        account = self.account("张三")
+        self.authorize("operator", [account["id"]])
+        self.assistant.settings_provider = lambda: dataclasses.replace(
+            self.settings, weixin_user_id="weixin-user",
+        )
+        first = await self.send("现在有在运行的任务吗", "session-one")
+        second = await self.send("现在有在运行的任务吗", "session-two")
+        self.assertEqual(first["session_id"], second["session_id"])
+        reset = await self.send("/new", "session-new")
+        self.assertNotEqual(reset["session_id"], first["session_id"])
+        after = await self.send("现在有在运行的任务吗", "session-after")
+        self.assertEqual(after["session_id"], reset["session_id"])
 
     async def test_unauthorized_user_is_rejected_before_conversation_or_tools(self):
         result = await self.send("/whoami", "unauthorized-1", "unknown")

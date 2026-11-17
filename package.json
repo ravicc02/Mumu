@@ -22,6 +22,7 @@
     "release:notes": "node scripts/release.mjs notes",
     "release:manifest": "node scripts/release.mjs manifest",
     "release:verify": "node scripts/release.mjs verify",
+    "release:linux": "node scripts/linux-release.mjs",
     "release:draft": "node scripts/github-release.mjs draft",
     "release:publish": "node scripts/github-release.mjs publish",
     "test:backend": "node scripts/test-backend.mjs",

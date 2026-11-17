@@ -25,6 +25,7 @@ test('product metadata is shared by package, installer, backend and update surfa
   assert.equal(desktopPackage.build.linux.artifactName, 'Mumu-${version}-linux-${arch}.${ext}');
   assert.equal(desktopPackage.build.deb.artifactName, 'Mumu-${version}-linux-amd64.deb');
   assert.deepEqual(desktopPackage.build.linux.target, ['AppImage', 'deb']);
+  assert.deepEqual(product.backendExecutables, { win32: 'mumu-backend.exe', linux: 'mumu-backend', darwin: 'mumu-backend' });
   assert.ok(desktopPackage.build.files.includes('product.json'));
 });
 

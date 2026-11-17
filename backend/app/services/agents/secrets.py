@@ -171,7 +171,8 @@ class SecretServiceStore:
     """Keep Linux credentials in the user's unlocked Secret Service collection."""
 
     def __init__(self, root: Path):
-        self.namespace = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()
+        self.root = root.resolve()
+        self.namespace = hashlib.sha256(str(self.root).encode("utf-8")).hexdigest()
 
     def _run(self, operation: str, reference: str, value: str | None = None):
         executable = shutil.which("secret-tool")
@@ -211,4 +212,6 @@ class SecretServiceStore:
 def secret_store_for(settings: Settings) -> DpapiSecretStore | SecretServiceStore:
     if sys.platform == "linux":
         return SecretServiceStore(settings.secrets_root)
-    return DpapiSecretStore(settings.secrets_root)
+    if sys.platform == "win32":
+        return DpapiSecretStore(settings.secrets_root)
+    raise SecretStoreError("当前系统没有可用的安全密钥存储实现")

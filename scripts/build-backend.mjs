@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -29,3 +30,5 @@ run(python, [path.join(root,'scripts/run_pyinstaller.py'), '--noconfirm','--clea
   ...resources.flatMap(([source,destination])=>['--add-data',source+path.delimiter+destination]),
   ...['app.main','uvicorn.logging','uvicorn.loops.auto','uvicorn.protocols.http.auto','uvicorn.protocols.websockets.auto','uvicorn.lifespan.on'].flatMap(name=>['--hidden-import',name]),
   'run_server.py']);
+const executable = process.platform === 'win32' ? 'mumu-backend.exe' : 'mumu-backend';
+if (!fs.statSync(path.join(backend, 'dist/mumu-backend', executable)).isFile()) throw new Error('Packaged backend executable is missing');

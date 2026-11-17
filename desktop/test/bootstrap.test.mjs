@@ -7,7 +7,7 @@ function fixture(options = {}) {
   const calls = [], ready = [];
   const io = { stat: async value => { if (!files.has(value.replaceAll('\\', '/'))) throw new Error('missing'); return { isFile: () => true }; }, mkdir: async () => {}, access: async () => {}, writeFile: async () => {}, unlink: async () => {} };
   const run = async (...args) => { calls.push(args); return { stdout: '', stderr: '' }; };
-  const bootstrap = createBootstrap({ packaged: true, backendDirectory: '/backend', dataRoot: '/data', env: { MUMU_CHROME_PATH: '/chrome.exe' }, io, run, onReady: async (...args) => ready.push(args), ...options });
+  const bootstrap = createBootstrap({ packaged: true, platform:'win32', backendDirectory: '/backend', dataRoot: '/data', env: { MUMU_CHROME_PATH: '/chrome.exe' }, io, run, onReady: async (...args) => ready.push(args), ...options });
   return { bootstrap, files, calls, ready, io, run };
 }
 test('packaged app uses bundled libraries and never asks users to install Python', async () => {
@@ -85,4 +85,19 @@ test('dependency commands coalesce concurrent requests and redact secrets in out
   const a = bootstrap.check(), b = bootstrap.check(); assert.equal(a, b); release(); await a;
   assert.ok(!safeOutput('https://user:secret@example.test sk-123456789abc').includes('secret'));
   assert.ok(!safeOutput('sk-123456789abc').includes('123456789'));
+});
+
+test('Linux checks its bundled executable and gives manual browser guidance', async () => {
+  const base = fixture();
+  base.files.delete('/backend/mumu-backend.exe');
+  base.files.add('/backend/mumu-backend');
+  const {bootstrap} = fixture({platform:'linux', io:base.io});
+  assert.equal((await bootstrap.check()).status,'ready');
+  base.files.delete('/chrome.exe');
+  const state = await bootstrap.check();
+  assert.equal(state.status,'blocked');
+  const browser = state.items.find(item => item.id === 'browser');
+  assert.equal(browser.installable,false);
+  assert.doesNotMatch(browser.command,/winget/);
+  assert.match(browser.command,/MUMU_CHROME_PATH/);
 });
