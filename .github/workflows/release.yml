@@ -152,21 +152,7 @@ jobs:
       - name: Verify installed deb, AppImage, X11, Wayland and Secret Service
         run: |
           sudo dpkg -i desktop/release/Mumu-*-linux-amd64.deb
-          dbus-run-session -- xvfb-run -a bash -e <<'SH'
-          export XDG_RUNTIME_DIR="$(mktemp -d)"
-          chmod 700 "$XDG_RUNTIME_DIR"
-          export WAYLAND_DISPLAY=mumu-test
-          printf '%s' 'isolated-fixture-password' | gnome-keyring-daemon --unlock --components=secrets
-          weston --backend=headless-backend.so --socket="$WAYLAND_DISPLAY" --idle-time=0 --width=1600 --height=1000 > "$RUNNER_TEMP/mumu-weston.log" 2>&1 &
-          compositor=$!
-          trap 'kill "$compositor" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 50); do
-            if [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then break; fi
-            sleep 0.2
-          done
-          test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
-          node scripts/smoke-linux.mjs
-          SH
+          dbus-run-session -- xvfb-run -a bash scripts/smoke-linux-session.sh
       - name: Create Linux notes, manifest and checksums
         run: |
           node scripts/release-linux.mjs notes --dir desktop/release
@@ -191,8 +177,52 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/github-release.mjs linux-draft "$RELEASE_TAG"
 
+  linux-install-ubuntu24:
+    needs: linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: '1'
+      PYTHONPATH: backend
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt
+      - run: python -m playwright install --with-deps chromium
+      - name: Download the Ubuntu 22.04 build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --name "linux-$RELEASE_TAG" --dir desktop/release
+          node scripts/release-linux.mjs verify --dir desktop/release
+      - name: Install desktop session and deb dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libsecret-tools gnome-keyring dbus-x11 xvfb xauth weston ./desktop/release/Mumu-*-linux-amd64.deb
+          chmod +x desktop/release/Mumu-*-linux-x64.AppImage
+      - name: Verify the published package formats on Ubuntu 24.04
+        run: dbus-run-session -- xvfb-run -a bash scripts/smoke-linux-session.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-ubuntu24-${{ inputs.tag || github.ref_name }}
+          retention-days: 7
+          if-no-files-found: error
+          path: desktop/release/smoke-linux-result.json
+
   publish:
-    needs: [windows, linux]
+    needs: [windows, linux, linux-install-ubuntu24]
     if: github.event_name == 'workflow_dispatch' && inputs.publish
     runs-on: ubuntu-22.04
     permissions:
