@@ -38,7 +38,7 @@ async function exercise(executable, name, platform) {
     await requireFreePort();
     try {
       application = await _electron.launch({executablePath:executable,
-        args:['--no-sandbox', '--user-data-dir='+profile, '--ozone-platform='+platform],
+        args:['--user-data-dir='+profile, '--ozone-platform='+platform],
         env:environment, cwd:scope, timeout:60000});
       const page = await application.firstWindow();
       page.setDefaultTimeout(60000);
