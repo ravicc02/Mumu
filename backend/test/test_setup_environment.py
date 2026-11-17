@@ -17,7 +17,7 @@ class SetupEnvironmentTests(unittest.TestCase):
         self.assertFalse(any(item['installable'] for item in state['items']))
 
     def test_missing_browser_blocks_setup_and_exposes_fixed_manual_command(self):
-        with tempfile.TemporaryDirectory() as root, patch('app.services.runtime.environment.chrome_executable', side_effect=RuntimeError('Browser missing')):
+        with tempfile.TemporaryDirectory() as root, patch('app.services.runtime.environment.sys.platform', 'win32'), patch('app.services.runtime.environment.chrome_executable', side_effect=RuntimeError('Browser missing')):
             state = setup_environment(Settings(data_root=Path(root)))
         self.assertEqual(state['status'], 'blocked')
         self.assertEqual(state['items'][1]['status'], 'missing')
