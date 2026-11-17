@@ -1,6 +1,6 @@
 {
   "name": "mumu",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "license": "GPL-3.0-only",
   "repository": {
@@ -8,7 +8,7 @@
     "url": "https://github.com/ravicc02/Mumu.git"
   },
   "type": "module",
-  "description": "Mumu local Windows workspace for learning tasks, live browsers and multi-account workflows.",
+  "description": "Mumu desktop workspace for learning tasks, live browsers and multi-account workflows.",
   "scripts": {
     "start": "npm run desktop:dev",
     "dev": "npm run desktop:dev",
@@ -24,12 +24,13 @@
     "release:verify": "node scripts/release.mjs verify",
     "release:draft": "node scripts/github-release.mjs draft",
     "release:publish": "node scripts/github-release.mjs publish",
-    "test:backend": "powershell -Command \"$env:PYTHONPATH='backend'; python -m unittest discover -s backend/test -v\"",
+    "test:backend": "node scripts/test-backend.mjs",
     "accept:capacity": "python scripts/accept_agent_capacity.py",
     "accept:weixin": "python scripts/accept_weixin_longpoll.py",
     "desktop:dev": "npm --prefix desktop run dev",
     "desktop:web": "npm --prefix desktop run web",
-    "desktop:build": "npm --prefix desktop run build:win"
+    "desktop:build": "npm --prefix desktop run build:win",
+    "desktop:build:linux": "npm --prefix desktop run build:linux"
   },
   "engines": {
     "node": ">=24"

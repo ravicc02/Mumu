@@ -4,6 +4,9 @@ import ctypes
 import hashlib
 import os
 import tempfile
+import shutil
+import subprocess
+import sys
 from ctypes import wintypes
 from pathlib import Path
 
@@ -164,5 +167,48 @@ class DpapiSecretStore:
             pass
 
 
-def secret_store_for(settings: Settings) -> DpapiSecretStore:
+class SecretServiceStore:
+    """Keep Linux credentials in the user's unlocked Secret Service collection."""
+
+    def __init__(self, root: Path):
+        self.namespace = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()
+
+    def _run(self, operation: str, reference: str, value: str | None = None):
+        executable = shutil.which("secret-tool")
+        if not executable:
+            raise SecretStoreError("请安装 libsecret-tools 并启动桌面密钥环，然后重新保存模型密钥")
+        digest = hashlib.sha256(reference.encode("utf-8")).hexdigest()
+        args = [executable, operation]
+        if operation == "store":
+            args.append("--label=Mumu model credential")
+        args.extend(["application", "io.github.ravicc02.mumu", "namespace", self.namespace, "reference", digest])
+        try:
+            result = subprocess.run(args, input=value, capture_output=True, text=True, encoding="utf-8", timeout=20, check=False)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise SecretStoreError("无法连接桌面密钥环，请解锁密钥环后重试") from error
+        if result.returncode:
+            if operation in {"lookup", "clear"} and result.returncode == 1 and not result.stderr.strip():
+                raise SecretNotFound("模型密钥不存在")
+            # Never include command output: a provider or helper may echo sensitive input.
+            raise SecretStoreError("桌面密钥环未就绪或已锁定，请解锁后重试；密钥没有写入明文文件")
+        return result.stdout.rstrip("\n")
+
+    def put(self, reference: str, value: str) -> None:
+        if not value:
+            raise ValueError("密钥不能为空")
+        self._run("store", reference, value)
+
+    def get(self, reference: str) -> str:
+        return self._run("lookup", reference)
+
+    def delete(self, reference: str) -> None:
+        try:
+            self._run("clear", reference)
+        except SecretNotFound:
+            pass
+
+
+def secret_store_for(settings: Settings) -> DpapiSecretStore | SecretServiceStore:
+    if sys.platform == "linux":
+        return SecretServiceStore(settings.secrets_root)
     return DpapiSecretStore(settings.secrets_root)

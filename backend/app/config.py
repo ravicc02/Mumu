@@ -295,7 +295,9 @@ class Settings:
             self.secrets_root,
             self.logs_root,
         ):
-            path.mkdir(parents=True, exist_ok=True)
+            path.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if os.name != "nt":
+                path.chmod(0o700)
 
 
 settings = Settings()

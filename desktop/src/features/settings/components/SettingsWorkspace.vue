@@ -304,7 +304,7 @@ function reset() {
                     <span class="settings-card-index">03</span>
                     <div class="settings-card-title">
                       <h3>本地存储</h3>
-                      <p>账号、任务和日志保存在当前 Windows 用户目录</p>
+                      <p>账号、任务和日志保存在当前用户目录</p>
                     </div>
                     <div class="settings-card-heading-actions">
                       <span class="settings-scope"><HardDrive :size="13" />本机</span>

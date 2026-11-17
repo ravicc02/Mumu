@@ -1946,10 +1946,11 @@ async def run_job(
                     diagnostics,
                     resume=bool(reused_session),
                     workspace=attempt_workspace,
+                    desktop_llm_factory=lambda: _build_task_llm(database, settings, "desktop_vision", job_id, temperature=0.1, max_retries=0, waiting_callback=model_waiting)[1],
                 )
             except ExperimentError as error:
                 if error.unknown: database.update_job(job_id,submission_status="submission_unknown")
-                raise AgentOperationError("头歌代码实验",str(error),"在实时浏览器核对当前关卡、保存与评测结果后继续。",job_status="interrupted" if error.interrupted else "incomplete") from error
+                raise AgentOperationError("头歌实操",str(error),"在实时浏览器核对当前关卡、保存与评测结果后继续。",job_status="interrupted" if error.interrupted else "incomplete") from error
             except ContractError as error:
                 raise AgentOperationError("头歌接口核验",str(error),"请检查授权与课程范围，并导出诊断包。") from error
             await capture_final_evidence()

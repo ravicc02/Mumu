@@ -10,7 +10,7 @@
 
 [![CI](https://github.com/ravicc02/Mumu/actions/workflows/ci.yml/badge.svg)](https://github.com/ravicc02/Mumu/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ravicc02/Mumu?include_prereleases&label=release&color=4054d8)](https://github.com/ravicc02/Mumu/releases)
-![Windows x64](https://img.shields.io/badge/Windows-x64-1e293b?logo=windows)
+![Windows x64](https://img.shields.io/badge/Windows-x64-1e293b?logo=windows) ![Linux x64](https://img.shields.io/badge/Linux-x64%20experimental-334155?logo=linux)
 
 [Download](https://github.com/ravicc02/Mumu/releases) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/ravicc02/Mumu/issues/new/choose) · [Contributing](CONTRIBUTING.md)
 <a href="assets/demo/demo.mp4">
@@ -22,7 +22,7 @@
 ## Usage Notice
 
 > [!CAUTION]
-> Mumu is a local Windows learning-task client. Use it only with your own accounts or accounts you are explicitly authorized to manage.
+> Mumu is a local Windows and experimental Linux x64 learning-task client. Use it only with your own accounts or accounts you are explicitly authorized to manage.
 >
 > Do not use this project for commercial task farming, account resale, bypassing platform verification, data theft, or other unlawful activity. You are responsible for account restrictions, data loss, and legal consequences caused by use that violates school or platform rules.
 
@@ -103,7 +103,7 @@
 
 ## Getting Started
 
-1. Download the Windows x64 installer from [Releases](https://github.com/ravicc02/Mumu/releases).
+1. Download the Windows x64 installer, or the Linux x64 AppImage / amd64 deb experimental build, from [Releases](https://github.com/ravicc02/Mumu/releases).
 2. On first launch, review the environment check. Install missing dependencies when available, or use the displayed manual command if installation fails.
 3. Configure the model endpoint, API key, model, and reasoning effort, then authorize a platform account.
 

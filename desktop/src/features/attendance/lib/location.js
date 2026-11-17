@@ -29,7 +29,7 @@ function browserPosition(geolocation, options) {
             ? "定位权限被拒绝，请在系统设置中允许 Mumu 使用位置"
             : code === 3
               ? "定位超时，请重试"
-              : "系统定位服务不可用，请检查 Windows 定位设置",
+              : "系统定位服务不可用，请检查系统权限或手动输入位置",
         );
         error.code = code;
         reject(error);

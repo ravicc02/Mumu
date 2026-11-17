@@ -7,6 +7,7 @@ const { resolveDataRoot } = require("./data-root.cjs");
 const { allowedProjectLink } = require("./external-links.cjs");
 const { createBootstrap, verifyBackendHealth } = require("./bootstrap.cjs");
 const { readWindowsLocation } = require("./windows-location.cjs");
+const { backendExecutable, createLinuxAutoLaunch } = require("./platform.cjs");
 
 let backendProcess = null;
 let mainWindow = null;
@@ -24,7 +25,7 @@ function dataRoot() {
 }
 
 function configuredPythonCommand() {
-  return process.env.MUMU_PYTHON || process.env.ANSWER_STUDIO_PYTHON || "python";
+  return process.env.MUMU_PYTHON || process.env.ANSWER_STUDIO_PYTHON || (process.platform === "win32" ? "python" : "python3");
 }
 
 function backendDirectory() {
@@ -76,7 +77,7 @@ function startBackend(pythonCommand) {
   }
   const command = isDev
     ? (pythonCommand || configuredPythonCommand())
-    : path.join(backendDirectory(), product.backendExecutable);
+    : path.join(backendDirectory(), backendExecutable(product));
   const args = isDev
     ? [
         "run_server.py",
@@ -127,7 +128,8 @@ function showMainWindow() {
 function createTray() {
   if (tray) return;
   const icon = nativeImage.createFromPath(path.join(__dirname, "..", "build", "icon.png"));
-  tray = new Tray(icon.resize({ width: 16, height: 16 }));
+  try { tray = new Tray(icon.resize({ width: process.platform === "linux" ? 32 : 16, height: process.platform === "linux" ? 32 : 16 })); }
+  catch (error) { console.warn("Mumu tray unavailable:", error.message); return; }
   tray.setToolTip(product.name);
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "打开 Mumu", click: showMainWindow },
@@ -160,7 +162,8 @@ async function createWindow() {
   mainWindow.on("close", event => {
     if (quitting) return;
     event.preventDefault();
-    mainWindow.hide();
+    if (process.platform === "linux" || !tray) mainWindow.minimize();
+    else mainWindow.hide();
   });
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -241,7 +244,7 @@ function loginItemOptions() {
 }
 
 function autoLaunchSupported() {
-  return process.platform === "win32" && app.isPackaged;
+  return ["win32", "linux"].includes(process.platform) && app.isPackaged;
 }
 
 ipcMain.handle("app:get-auto-launch", event => {
@@ -249,6 +252,7 @@ ipcMain.handle("app:get-auto-launch", event => {
     throw new Error("开机自启设置来源无效");
   }
   if (!autoLaunchSupported()) return { supported:false,enabled:false };
+  if (process.platform === "linux") return createLinuxAutoLaunch().get();
   const settings = app.getLoginItemSettings(loginItemOptions());
   return { supported:true,enabled:Boolean(settings.openAtLogin) };
 });
@@ -258,7 +262,8 @@ ipcMain.handle("app:set-auto-launch", (event,enabled) => {
     throw new Error("开机自启设置来源无效");
   }
   if (typeof enabled !== "boolean") throw new Error("开机自启设置值无效");
-  if (!autoLaunchSupported()) throw new Error("开机自启仅支持安装后的 Windows 版本");
+  if (!autoLaunchSupported()) throw new Error("开机自启仅支持安装后的桌面版本");
+  if (process.platform === "linux") return createLinuxAutoLaunch().set(enabled);
   app.setLoginItemSettings({ ...loginItemOptions(),openAtLogin:enabled });
   const settings = app.getLoginItemSettings(loginItemOptions());
   return { supported:true,enabled:Boolean(settings.openAtLogin) };

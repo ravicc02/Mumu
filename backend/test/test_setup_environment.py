@@ -23,6 +23,14 @@ class SetupEnvironmentTests(unittest.TestCase):
         self.assertEqual(state['items'][1]['status'], 'missing')
         self.assertIn('winget install --id Google.Chrome --exact', state['items'][1]['command'])
 
+    def test_linux_missing_browser_explains_distribution_install_without_winget(self):
+        with tempfile.TemporaryDirectory() as root, patch('app.services.runtime.environment.sys.platform', 'linux'), patch('app.services.runtime.environment.chrome_executable', side_effect=RuntimeError('Browser missing')):
+            state = setup_environment(Settings(data_root=Path(root)))
+        self.assertEqual(state['status'], 'blocked')
+        self.assertFalse(state['items'][1]['installable'])
+        self.assertIn('Chromium', state['items'][1]['command'])
+        self.assertNotIn('winget', state['items'][1]['command'])
+
     def test_missing_storage_cannot_claim_ready(self):
         with tempfile.TemporaryDirectory() as root, patch('app.services.runtime.environment.chrome_executable', return_value=Path('chrome.exe')):
             state = setup_environment(Settings(data_root=Path(root) / 'missing'))

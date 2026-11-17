@@ -1,6 +1,6 @@
 {
   "name": "mumu-desktop",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Mumu local Windows learning task workspace",
   "author": "Mumu Contributors",
   "license": "GPL-3.0-only",
@@ -13,10 +13,12 @@
     "test": "node --test test/*.test.mjs",
     "prebuild:web": "node ../scripts/version.mjs check",
     "build:web": "vite build",
-    "build:backend": "powershell -ExecutionPolicy Bypass -File ../scripts/build-backend.ps1",
+    "build:backend": "node ../scripts/build-backend.mjs",
     "prebuild:win": "node ../scripts/release.mjs check",
     "build:win": "vite build && npm run build:backend && electron-builder --win nsis --x64 --publish never",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "prebuild:linux": "node ../scripts/release.mjs check",
+    "build:linux": "vite build && npm run build:backend && electron-builder --linux AppImage deb --x64 --publish never"
   },
   "dependencies": {
     "@lucide/vue": "^1.72.0",
@@ -73,6 +75,34 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "guid": "eb16fffb-9f96-5004-94a4-fb5b2f48fec9"
+    },
+    "linux": {
+      "artifactName": "Mumu-${version}-linux-${arch}.${ext}",
+      "icon": "build/icon.png",
+      "executableName": "mumu",
+      "category": "Education",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "desktop": {
+        "StartupWMClass": "Mumu"
+      }
+    },
+    "deb": {
+      "artifactName": "Mumu-${version}-linux-amd64.deb",
+      "maintainer": "Mumu",
+      "depends": [
+        "libgtk-3-0",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libsecret-tools",
+        "libnotify4",
+        "libgbm1",
+        "libasound2 | libasound2t64"
+      ]
     }
   }
 }

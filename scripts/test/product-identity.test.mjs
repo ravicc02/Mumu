@@ -22,6 +22,9 @@ test('product metadata is shared by package, installer, backend and update surfa
   assert.equal(desktopPackage.build.extraResources[0].from, '../backend/dist/mumu-backend');
   assert.ok(desktopPackage.build.extraResources.some(resource => resource.from === '../LICENSE' && resource.to === 'LICENSE'));
   assert.equal(desktopPackage.build.win.artifactName, 'Mumu-${version}-windows-${arch}-setup.${ext}');
+  assert.equal(desktopPackage.build.linux.artifactName, 'Mumu-${version}-linux-${arch}.${ext}');
+  assert.equal(desktopPackage.build.deb.artifactName, 'Mumu-${version}-linux-amd64.deb');
+  assert.deepEqual(desktopPackage.build.linux.target, ['AppImage', 'deb']);
   assert.ok(desktopPackage.build.files.includes('product.json'));
 });
 

@@ -71,6 +71,9 @@ def chrome_executable() -> Path:
         os.getenv("MUMU_CHROME_PATH", "") or os.getenv("ANSWER_STUDIO_CHROME_PATH", ""),
         shutil.which("chrome") or "",
         shutil.which("chrome.exe") or "",
+        *[shutil.which(name) or "" for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge", "microsoft-edge-stable")],
+        "/snap/bin/chromium",
+        "/opt/google/chrome/chrome",
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
         os.path.expandvars(

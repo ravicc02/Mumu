@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { projectRoot, checkVersion } from './version.mjs';
 import { checkRelease, readProduct, verifyReleaseAssets } from './release.mjs';
+import { verifyLinuxReleaseAssets } from './release-linux.mjs';
 
 export function assertEditableRelease(release) {
   if (release && release.isDraft !== true) throw new Error('Published releases are immutable; create a new version instead.');
@@ -31,6 +32,7 @@ export function manageRelease(action, tag, directory=path.join(projectRoot,'desk
   assertEditableRelease(release);
   if(action==='guard') return {tag,editable:true};
   const names=[product.artifactId+'-'+version+'-windows-x64-setup.exe','SHA256SUMS.txt','release-manifest.json','RELEASE_NOTES.md','build-environment.txt','smoke-result.json'];
+  const linuxNames=['Mumu-'+version+'-linux-x64.AppImage','Mumu-'+version+'-linux-amd64.deb','SHA256SUMS-linux-x64.txt','release-manifest-linux-x64.json','RELEASE_NOTES.md','build-environment-linux-x64.txt','smoke-linux-result.json'];
   if(action==='draft') {
     verifyReleaseAssets(directory,version);
     const assets=names.map(name=>path.join(directory,name));
@@ -45,19 +47,29 @@ export function manageRelease(action, tag, directory=path.join(projectRoot,'desk
   }
   if(action==='publish') {
     if(!release) throw new Error('Build the release draft first');
-    if(release.assets.length!==names.length || !names.every(name=>release.assets.some(asset=>asset.name===name))) throw new Error('Draft release assets are incomplete');
+    const required = [...new Set([...names, ...linuxNames])];
+    if(release.assets.length!==required.length || !required.every(name=>release.assets.some(asset=>asset.name===name))) throw new Error('Windows and Linux draft release assets are incomplete');
     const download=fs.mkdtempSync(path.join(os.tmpdir(),'mumu-release-verify-'));
     try {
       gh(['release','download',tag,'--repo',repository,'--dir',download]);
       const evidence=verifyReleaseAssets(download,version);
+      const linuxEvidence = verifyLinuxReleaseAssets(download,version);
       const commit=checkRelease(projectRoot,{strict:true,tag}).git_commit;
       if(evidence.git_commit!==commit) throw new Error('Downloaded release was built from another commit');
+      if(linuxEvidence && linuxEvidence.git_commit !== commit) throw new Error('Downloaded Linux release was built from another commit');
       gh(['release','edit',tag,'--repo',repository,'--draft=false',version.includes('-')?'--prerelease':'--prerelease=false',version.includes('-')?'--latest=false':'--latest']);
-      return {...evidence,published:true};
+      return {...evidence,linux:linuxEvidence,published:true};
     } finally {
       if(path.dirname(download)!==path.resolve(os.tmpdir()) || !path.basename(download).startsWith('mumu-release-verify-')) throw new Error('Invalid release verification directory');
       fs.rmSync(download,{recursive:true,force:true});
     }
+  }
+  if(action==='linux-draft') {
+    if(!release || release.isDraft !== true) throw new Error('Build the Windows release draft first');
+    verifyLinuxReleaseAssets(directory,version);
+    const assets=linuxNames.map(name=>path.join(directory,name));
+    gh(['release','upload',tag,...assets,'--repo',repository,'--clobber']);
+    return {tag,draft:true,assets:linuxNames.length};
   }
   throw new Error('Unknown release action');
 }

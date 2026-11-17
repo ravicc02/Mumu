@@ -19,6 +19,10 @@ class ExecutionBudget(BaseModel):
     max_repair_rounds: int = Field(default=3, ge=0, le=3)
     max_model_calls: int = Field(default=4, ge=1, le=4)
     max_evaluations: int = Field(default=4, ge=1, le=4)
+    max_desktop_steps: int = Field(default=60, ge=1, le=60)
+
+
+CODE_EXTENSIONS = frozenset({".java", ".py", ".c", ".cpp", ".cc", ".h", ".hpp", ".js", ".ts", ".cs", ".go", ".rs", ".rb", ".sh", ".sql", ".html", ".css", ".ipynb"})
 
 
 class TaskSpec(BaseModel):
@@ -62,12 +66,14 @@ def educoder_task_spec(data, *, instance_id, challenge_id, paths, auto_submit, h
     shixun = data.get("shixun") or {}
     desktop = has_canvas and not has_editor or any(shixun.get(key) is True for key in ("vnc", "windows_vnc", "linux_vnc"))
     if desktop:
-        route, environment, blocker = "desktop", "remote_desktop_canvas", "当前任务是远程桌面实操；首轮尚未开放桌面执行工具，未写入或评测。"
-    elif paths and has_editor and all(PurePosixPath(path).suffix.lower() == ".java" for path in paths):
+        route, environment, blocker = "desktop", "remote_desktop_canvas", None if has_canvas else "远程桌面画面尚未就绪，未发送输入。"
+    elif paths and (has_editor or all(PurePosixPath(path).suffix.lower() == ".ipynb" for path in paths)) and all(PurePosixPath(path).suffix.lower() in CODE_EXTENSIONS for path in paths):
         route, environment, blocker = "code", "web_code_editor", None
     else:
-        route, environment, blocker = "unsupported", "unknown", "当前环境不属于已验证的 Java/JUnit 网页代码实操，未写入或评测。"
+        route, environment, blocker = "unsupported", "unknown", "当前环境没有可验证的代码文件或远程桌面输入通道，未写入或评测。"
     return TaskSpec(route=route, environment=environment, instance_id=instance_id, challenge_id=challenge_id,
-        editable_files=paths, capabilities=["read_file", "save_and_readback", "evaluate_and_verify"] if route == "code" else ["observe"],
-        goals=["在授权区域实现当前关卡要求", "完整保存并回读代码", "按权限核验关卡和课堂结果"],
-        permissions=ExecutionPermissions(save=route == "code", evaluate=bool(auto_submit) and route == "code"), blocker=blocker)
+        editable_files=paths, capabilities=(["observe", "pointer", "keyboard", "evaluate_and_verify"] if route == "desktop" else
+            ["read_file", "save_and_readback", "evaluate_and_verify"] if route == "code" else ["observe"]),
+        goals=["在授权区域实现当前关卡要求", "保存并核验实际产物", "按权限核验关卡和课堂结果"],
+        model_role="desktop_vision" if route == "desktop" else "code",
+        permissions=ExecutionPermissions(save=route in {"code", "desktop"}, evaluate=bool(auto_submit) and route in {"code", "desktop"}), blocker=blocker)

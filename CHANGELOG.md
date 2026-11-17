@@ -2,9 +2,30 @@
 
 记录面向使用者和维护者的变化。产品采用 SemVer，标签使用 v 前缀；VERSION 内不带 v。Unreleased 表示工作区已实现或正在收敛的变化，不代表已经提供对应安装包。
 
-当前开发版本为 0.8.0。此前已发布版本继续保留，实际发布状态以 GitHub Releases 为准。
+当前开发版本为 0.9.0。此前已发布版本继续保留，实际发布状态以 GitHub Releases 为准。
 
 ## [Unreleased]
+
+## [0.9.0] - 2026-11-17
+
+### Added
+
+- Linux x64 实验版发布链，输出 AppImage 与 amd64 deb，提供独立的构建指纹、校验和、许可证和启动冒烟证据。
+- Linux 桌面端平台适配，支持发行版浏览器发现、Secret Service 密钥环、POSIX 数据路径、XDG 自启动和无托盘环境下的窗口最小化。
+- 头歌远程桌面 Canvas 执行链，使用同一任务页面的截图、受限鼠标键盘动作、焦点检查、过期画面保护、检查点和真实评测回执。
+- 头歌代码任务支持 Python、C/C++、JavaScript/TypeScript、C#、Go、Rust、Ruby、Shell、SQL、HTML/CSS 和 Notebook 的受限文件合同；Notebook 保留非代码单元、元数据和输出。
+
+### Changed
+
+- Electron、后端构建和测试入口改为跨平台 Node/Python 脚本，Windows 构建继续使用原有 NSIS 产物和升级 GUID。
+- 发布工作流拆分为 Windows 和 Linux 原生 runner，Linux 资产在 Windows 草稿创建后加入同一 GitHub Release，发布前下载并复核两个平台的校验和与提交身份。
+- Linux 缺少浏览器时显示发行版安装提示，不再向 Linux 用户提供 WinGet 命令；未检测到 Secret Service 时拒绝保存模型密钥，不回退到明文文件。
+
+### Known Limitations
+
+- Linux 首版支持 Ubuntu 22.04/24.04、Debian 12 的 x64 桌面环境，X11 作为必须通过项，Wayland 差异以发行验收记录为准；不包含 ARM64、Flatpak、Snap 和无桌面服务器。
+- macOS arm64 平台、服务端签到托管与多用户隔离仍在待办方案中，现有长期扫码中继仍依赖本地后端领取并执行。
+- 远程桌面执行依赖任务页面提供唯一 Canvas、视觉模型能力和真实平台回执，遇到缺少工具、登录验证或未知评测结果会停在待介入状态。
 
 ## [0.8.0] - 2026-11-16
 
