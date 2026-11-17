@@ -62,6 +62,8 @@ class CodeContractTests(unittest.TestCase):
         self.assertFalse(manual.permissions.evaluate)
         desktop = educoder_task_spec({},instance_id="instance",challenge_id="task",paths=[],auto_submit=True,has_editor=False,has_canvas=True)
         self.assertEqual(desktop.route,"desktop"); self.assertTrue(desktop.permissions.save)
+        self.assertEqual(code.budget.max_model_calls,4)
+        self.assertEqual(desktop.budget.max_model_calls,60)
         python = educoder_task_spec({},instance_id="instance",challenge_id="task",paths=["main.py"],auto_submit=True)
         self.assertEqual(python.route,"code")
         unknown = educoder_task_spec({},instance_id="instance",challenge_id="task",paths=["file.bin"],auto_submit=True)

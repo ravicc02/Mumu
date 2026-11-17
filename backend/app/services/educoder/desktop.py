@@ -156,7 +156,8 @@ async def execute_desktop_stage(database, job, runtime, llm, emit, control, diag
         if not report.repairable:
             raise ExperimentError(report.summary, category=report.kind)
         feedback = report.as_dict()
-    for step in range(start_step, spec.budget.max_desktop_steps):
+    step_limit = min(spec.budget.max_desktop_steps, spec.budget.max_model_calls)
+    for step in range(start_step, step_limit):
         await control.wait_if_paused()
         frame = await control.run(driver.observe)
         checkpoint(database, job, runtime, workspace, "planning", {"step":step+1, "frame_sha256":frame.digest, "evaluations":evaluations, "recent_actions":history}, "observe_desktop")
@@ -169,7 +170,7 @@ async def execute_desktop_stage(database, job, runtime, llm, emit, control, diag
                 "先在远端保存作品，再evaluate申请平台核验；不得从画面或自我判断宣称完成。"
                 "evaluate不会直接完成任务，程序会核验平台回执。summary只描述下一步动作。"),
             UserMessage(content=[ContentPartTextParam(text=json.dumps({"task":description, "task_spec":spec.model_dump(mode="json"), "step":step+1,
-                "remaining_steps":spec.budget.max_desktop_steps-step, "evaluation_feedback":feedback, "recent_actions":history, "allowed_keys":sorted(ALLOWED_KEYS)}, ensure_ascii=False)),
+                "remaining_steps":step_limit-step, "evaluation_feedback":feedback, "recent_actions":history, "allowed_keys":sorted(ALLOWED_KEYS)}, ensure_ascii=False)),
                 ContentPartImageParam(image_url=ImageURL(url="data:image/png;base64,"+base64.b64encode(frame.image).decode(), detail="high"))])
         ], output_format=DesktopAction))
         action = response.completion

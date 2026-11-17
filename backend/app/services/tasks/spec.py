@@ -17,7 +17,7 @@ class ExecutionPermissions(BaseModel):
 class ExecutionBudget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     max_repair_rounds: int = Field(default=3, ge=0, le=3)
-    max_model_calls: int = Field(default=4, ge=1, le=4)
+    max_model_calls: int = Field(default=4, ge=1, le=60)
     max_evaluations: int = Field(default=4, ge=1, le=4)
     max_desktop_steps: int = Field(default=60, ge=1, le=60)
 
@@ -76,4 +76,5 @@ def educoder_task_spec(data, *, instance_id, challenge_id, paths, auto_submit, h
             ["read_file", "save_and_readback", "evaluate_and_verify"] if route == "code" else ["observe"]),
         goals=["在授权区域实现当前关卡要求", "保存并核验实际产物", "按权限核验关卡和课堂结果"],
         model_role="desktop_vision" if route == "desktop" else "code",
+        budget=ExecutionBudget(max_model_calls=60 if route == "desktop" else 4),
         permissions=ExecutionPermissions(save=route in {"code", "desktop"}, evaluate=bool(auto_submit) and route in {"code", "desktop"}), blocker=blocker)
