@@ -103,7 +103,7 @@ class ControlTests(unittest.IsolatedAsyncioTestCase):
             control = runner.JobControl()
             first, second = asyncio.Event(), asyncio.Event()
             session = type("Session", (), {"navigate_to": AsyncMock(), "get_current_page": AsyncMock(return_value=object())})()
-            units = [{"unit_id": str(i), "kind": "long", "type": "简答", "fields": [{}]} for i in (1, 2)]
+            units = [{"unit_id": str(i), "kind": "long", "type": "简答", "text": "简述算法的特征", "fields": [{}]} for i in (1, 2)]
             sheet = QuizAnswerSheet(answers=[QuizAnswer(unit_id=str(i), values=[f"answer-{i}"]) for i in (1, 2)])
             written = []
             async def fill(page, answer_sheet):

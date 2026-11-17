@@ -6,7 +6,7 @@
 
 | 组件 | 当前基线 |
 | --- | --- |
-| 系统 | Windows 10/11 x64 |
+| 系统 | Windows 10/11 x64；Linux x64 实验版使用 Ubuntu 22.04/24.04 或 Debian 12 |
 | Node.js | 24 |
 | Python | 3.13 |
 | 浏览器 | Chrome 或 Edge；测试也可明确指定 Playwright Chromium |
@@ -54,6 +54,9 @@ $env:PYTHONPATH = (Resolve-Path backend).Path
 npm run version:check
 npm run release:check
 npm --prefix desktop run build:web
+
+# Linux x64 原生构建（在 Linux runner 或 Linux 主机执行）
+npm run desktop:build:linux
 ~~~
 
 激活虚拟环境后，也可使用 npm run test:backend。后端浏览器测试使用临时数据目录，不应复用个人 Profile。设置 MUMU_CHROME_PATH 可以明确指定测试浏览器。真实平台验收必须记录授权范围、实际结果及未通过的部分。

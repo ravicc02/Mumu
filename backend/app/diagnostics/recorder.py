@@ -56,6 +56,7 @@ def environment():
         "services/agents/memory.py",
         "services/agents/orchestrator.py",
         "services/agents/assistant.py",
+        "services/agents/responder.py",
         "services/agents/authorization.py",
         "services/agents/confirmation.py",
         "services/agents/eventing.py",

@@ -10,7 +10,7 @@
 
 [![CI](https://github.com/ravicc02/Mumu/actions/workflows/ci.yml/badge.svg)](https://github.com/ravicc02/Mumu/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ravicc02/Mumu?include_prereleases&label=release&color=4054d8)](https://github.com/ravicc02/Mumu/releases)
-![Windows x64](https://img.shields.io/badge/Windows-x64-1e293b?logo=windows)
+![Windows x64](https://img.shields.io/badge/Windows-x64-1e293b?logo=windows) ![Linux x64](https://img.shields.io/badge/Linux-x64%20experimental-334155?logo=linux)
 
 [下载安装](https://github.com/ravicc02/Mumu/releases) · [更新记录](CHANGELOG.md) · [反馈问题](https://github.com/ravicc02/Mumu/issues/new/choose) · [贡献指南](CONTRIBUTING.md)
 <a href="assets/demo/demo.mp4">
@@ -22,7 +22,7 @@
 ## 使用须知
 
 > [!CAUTION]
-> Mumu 是面向 Windows PC 的本地学习任务客户端。请在本人账号或已获得明确授权的范围内使用。
+> Mumu 是面向 Windows PC 和 Linux x64 实验版的本地学习任务客户端。请在本人账号或已获得明确授权的范围内使用。
 >
 > 严禁商业代刷、账号租售、绕过平台验证、窃取数据或将本项目用于其他违法违规用途。因使用方式违反学校、平台规则或法律法规产生的账号限制、数据损失及法律责任，由使用者承担。
 
@@ -105,7 +105,7 @@
 
 ## 开始使用
 
-1. 在 [Releases](https://github.com/ravicc02/Mumu/releases) 下载 Windows x64 安装包
+1. 在 [Releases](https://github.com/ravicc02/Mumu/releases) 下载 Windows x64 安装包，或在 Linux x64 下载 AppImage / amd64 deb 实验版
 2. 首次打开进入初始化：检测运行环境；缺少依赖时可点击安装，失败时显示手动命令。
 3. 配置模型接口、Key、模型和思考强度，再选择平台授权。
 

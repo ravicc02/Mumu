@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { validVersion, checkVersion, synchronizeVersion } from '../version.mjs';
 import { checkRelease, releaseNotes, writeReleaseManifest, verifyReleaseAssets } from '../release.mjs';
+import { writeLinuxReleaseManifest, verifyLinuxReleaseAssets } from '../release-linux.mjs';
 
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 function fixture(t, gitRepo = false) {
@@ -33,7 +34,7 @@ function fixture(t, gitRepo = false) {
     'assets/platforms/educoder.png', 'assets/platforms/zhihuishu.ico', 'assets/platforms/icourse.ico',
     'assets/platforms/icve.ico', 'assets/platforms/zjy.ico', 'assets/platforms/yuketang.ico']) put(file, 'fixture\n');
   put('CHANGELOG.md', '# Changelog\n\n## [Unreleased]\n\n## [1.2.3] - 2026-11-13\n\n### Fixed\n\n- Confirmed change.\n');
-  put('.gitignore', 'desktop/release/\n');
+  put('.gitignore', 'desktop/release/\ndesktop/linux-unpacked/\n');
   const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   if (gitRepo) {
     git('init', '-b', 'main'); git('config', 'user.name', 'Release fixture'); git('config', 'user.email', 'fixture@example.invalid');
@@ -106,4 +107,24 @@ test('release manifest verifies the actual bundled source identity and hashes al
   assert.throws(() => writeReleaseManifest(root, directory), /identity does not match/);
   put('desktop/release/Mumu-1.2.3-windows-x64-setup.exe', 'corrupt installer');
   assert.throws(() => verifyReleaseAssets(directory,'1.2.3'), /checksum differs/);
+});
+
+test('Linux release manifest verifies both package formats and the packaged backend identity', t => {
+  const { root, put, git } = fixture(t, true), directory = path.join(root, 'desktop/release');
+  const app = 'desktop/release/linux-unpacked/resources/backend/_internal/app/';
+  put(app + 'VERSION', '1.2.3\n');
+  put(app + 'diagnostics/diagnostic-build.json', JSON.stringify({ app_version: '1.2.3', git_commit: git('rev-parse', 'HEAD'), working_tree_dirty: false, built_at: '2026-11-13T00:00:00Z', build_fingerprint: 'fixture', source_hashes:{'VERSION':hash(fs.readFileSync(path.join(root,'VERSION')))} }));
+  put('desktop/release/Mumu-1.2.3-linux-x64.AppImage', 'fixture appimage');
+  put('desktop/release/Mumu-1.2.3-linux-amd64.deb', 'fixture deb');
+  put('desktop/release/RELEASE_NOTES.md', 'fixture notes');
+  put('desktop/release/build-environment-linux-x64.txt', 'fixture dependency');
+  const smoke = {version:'1.2.3', packaged_backend_healthy:true, appimage_started:true, deb_started:true, first_run_verified:true, persistence_verified:true, browser_profile_verified:true, secret_service_verified:true, auto_launch_verified:true, close_preserves_backend:true, workspace_views_verified:true, x11_verified:true, wayland_verified:true, isolated_data:true};
+  put('desktop/release/smoke-linux-result.json', JSON.stringify({...smoke, deb_started:false}));
+  assert.throws(() => writeLinuxReleaseManifest(root, directory), /smoke evidence is incomplete/);
+  put('desktop/release/smoke-linux-result.json', JSON.stringify(smoke));
+  const manifest = writeLinuxReleaseManifest(root, directory);
+  assert.equal(manifest.platform, 'linux');
+  assert.equal(verifyLinuxReleaseAssets(directory, '1.2.3').verified, true);
+  put('desktop/release/Mumu-1.2.3-linux-amd64.deb', 'corrupt deb');
+  assert.throws(() => verifyLinuxReleaseAssets(directory, '1.2.3'), /checksum differs/);
 });

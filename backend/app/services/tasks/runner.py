@@ -1135,8 +1135,13 @@ async def _run_structured_chaoxing_quiz(
     if diagnostics:
         diagnostics.snapshot("questions", extracted, content=True)
         await capture_diagnostic_page(diagnostics, page, "question-controls")
-    if question_count == 0 or unit_count == 0:
-        return None
+    assessment = assess_questions(extracted)
+    database.update_assignment_assessment(job["assignment_id"], assessment)
+    if assessment["execution_state"] == "manual_required":
+        await emit("materials_required", "作业无法在浏览器直接完成，停止自动填写", {"assessment": assessment})
+        details = "；".join(item["reason"] for item in assessment["blocked_units"])
+        raise AgentOperationError("作答要求检查", execution_block({"assessment": assessment}),
+            "请在原页面核对题目及交付要求。", detail=details, job_status="incomplete")
 
     database.update_job(
         job["id"],
@@ -1158,14 +1163,6 @@ async def _run_structured_chaoxing_quiz(
         },
     )
 
-    assessment = assess_questions(extracted)
-    database.update_assignment_assessment(job["assignment_id"], assessment)
-    if assessment["execution_state"] == "manual_required":
-        blocked = assessment["blocked_units"]
-        await emit("materials_required", "作业需要材料或人工处理，停止自动填写", {"assessment": assessment})
-        details = "；".join(f"第 {item['question_no']} 题：{item['reason']}" for item in blocked)
-        raise AgentOperationError("作答要求检查", execution_block({"assessment": assessment}),
-            "请进入该任务浏览器查看要求，准备材料后手动处理。", detail=details, job_status="incomplete")
     if job.get("interactive"):
         try:
             image, url = await control.run(lambda: _capture_screenshot(session))
@@ -1946,10 +1943,11 @@ async def run_job(
                     diagnostics,
                     resume=bool(reused_session),
                     workspace=attempt_workspace,
+                    desktop_llm_factory=lambda: _build_task_llm(database, settings, "desktop_vision", job_id, temperature=0.1, max_retries=0, waiting_callback=model_waiting)[1],
                 )
             except ExperimentError as error:
                 if error.unknown: database.update_job(job_id,submission_status="submission_unknown")
-                raise AgentOperationError("头歌代码实验",str(error),"在实时浏览器核对当前关卡、保存与评测结果后继续。",job_status="interrupted" if error.interrupted else "incomplete") from error
+                raise AgentOperationError("头歌实操",str(error),"在实时浏览器核对当前关卡、保存与评测结果后继续。",job_status="interrupted" if error.interrupted else "incomplete") from error
             except ContractError as error:
                 raise AgentOperationError("头歌接口核验",str(error),"请检查授权与课程范围，并导出诊断包。") from error
             await capture_final_evidence()

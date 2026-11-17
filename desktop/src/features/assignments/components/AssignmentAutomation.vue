@@ -1,4 +1,6 @@
 <script setup>
+import ToggleSwitch from "../../../shared/controls/ToggleSwitch.vue";
+import ChoiceInput from "../../../shared/controls/ChoiceInput.vue";
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import {
   Check,
@@ -323,7 +325,7 @@ onUnmounted(() => {
             <span class="automation-status" :class="group.last_status">{{ statusLabel(group) }}</span>
           </div>
           <label class="automation-enable">
-            <input class="switch-input" type="checkbox" :checked="group.enabled" :disabled="Boolean(busy[group.id])" :aria-label="group.name + ' 启用自动处理'" @change="toggleGroup(group)">
+            <ToggleSwitch :checked="group.enabled" :disabled="Boolean(busy[group.id])" :aria-label="group.name + ' 启用自动处理'" @change="toggleGroup(group)" />
           </label>
         </header>
         <div class="automation-group-facts">
@@ -374,7 +376,7 @@ onUnmounted(() => {
             <legend>选择账号</legend>
             <div class="automation-account-grid">
               <label v-for="account in supportedAccounts" :key="account.id" class="automation-check">
-                <input type="checkbox" :checked="draft.account_ids.includes(account.id)" @change="toggleAccount(account.id)">
+                <ChoiceInput :checked="draft.account_ids.includes(account.id)" @change="toggleAccount(account.id)" />
                 <PlatformLogo :platform="account.platform" :size="18" />
                 <span>{{ account.name }}</span>
               </label>
@@ -389,7 +391,7 @@ onUnmounted(() => {
             <label class="search-field automation-course-search"><input v-model="courseQuery" aria-label="搜索课程" placeholder="搜索课程"><span v-if="draft.course_filters.length">{{ draft.course_filters.length }} 已选</span></label>
             <div v-if="filteredCourses.length" class="automation-course-list">
               <label v-for="course in filteredCourses" :key="course.name" class="automation-check">
-                <input type="checkbox" :checked="draft.course_filters.includes(course.name)" @change="toggleCourse(course.name)">
+                <ChoiceInput :checked="draft.course_filters.includes(course.name)" @change="toggleCourse(course.name)" />
                 <span>{{ course.name }}</span>
                 <small>{{ course.common ? '所有账号' : course.account_count + ' 个账号' }}</small>
               </label>
@@ -397,8 +399,8 @@ onUnmounted(() => {
             <p v-else class="empty-inline">{{ courseCatalog.length ? '没有匹配课程' : '未选择课程时处理全部课程' }}</p>
           </fieldset>
           <div class="automation-options">
-            <label class="automation-toggle"><input v-model="draft.auto_submit" class="switch-input" type="checkbox" role="switch"><span>自动提交</span></label>
-            <label class="automation-toggle"><input v-model="draft.enabled" class="switch-input" type="checkbox" role="switch"><span>启用分组</span></label>
+            <label class="automation-toggle"><ToggleSwitch v-model="draft.auto_submit" role="switch" /><span>自动提交</span></label>
+            <label class="automation-toggle"><ToggleSwitch v-model="draft.enabled" role="switch" /><span>启用分组</span></label>
           </div>
         </div>
         <footer class="modal-actions">

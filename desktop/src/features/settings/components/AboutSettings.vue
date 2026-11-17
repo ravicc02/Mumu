@@ -11,6 +11,7 @@ const props = defineProps({
 });
 
 const error = ref("");
+const platformLabel = globalThis.desktopApi?.platform === "linux" ? "Linux 桌面端" : "Windows 桌面端";
 
 async function openLink(url) {
   error.value = "";
@@ -29,9 +30,8 @@ async function openLink(url) {
         <div class="about-brand-lockup">
           <span class="about-mark"><img src="/brand/mumu.png" width="64" height="64" alt="Mumu" /></span>
           <div class="about-brand-copy">
-            <span class="about-platform">Windows 桌面端</span>
+            <span class="about-platform">{{ platformLabel }}</span>
             <h3>{{ appInfo.name }}</h3>
-            <p>面向学生任务执行与课程学习的本地工作区</p>
           </div>
         </div>
         <div class="about-version">
@@ -59,7 +59,6 @@ async function openLink(url) {
         <div class="about-update-heading">
           <div>
             <h4>版本更新</h4>
-            <p>启动时读取 GitHub 发布信息，不上传本地数据</p>
           </div>
         </div>
 

@@ -304,7 +304,7 @@ def record_discovery(database, group: dict, assignments: list[dict], *, complete
                 if not assignment.get("active") or not assignment.get("submittable"):
                     state, reason = "skipped", "作业已完成或当前不可提交"
                 elif not direct_answerable(assignment):
-                    state, reason = "skipped", execution_block(assignment) or "仅自动处理选择题和填空题"
+                    state, reason = "skipped", execution_block(assignment) or "尚未确认能在浏览器直接完成，请重新检查"
             connection.execute(
                 """INSERT OR IGNORE INTO assignment_auto_group_items(
                   group_id,assignment_id,account_id,state,reason,job_id,created_at,updated_at
@@ -319,6 +319,14 @@ def record_discovery(database, group: dict, assignments: list[dict], *, complete
                     now,
                 ),
             )
+            if state == "pending":
+                connection.execute(
+                    """UPDATE assignment_auto_group_items SET state='pending',reason='',updated_at=?
+                      WHERE group_id=? AND assignment_id=? AND state='skipped' AND job_id IS NULL
+                      AND reason IN ('仅自动处理选择题和填空题','尚未确认能在浏览器直接完成，请重新检查')
+                      AND NOT EXISTS(SELECT 1 FROM jobs WHERE jobs.assignment_id=assignment_auto_group_items.assignment_id)""",
+                    (now, group["id"], assignment["id"]),
+                )
         if complete:
             connection.execute(
                 "UPDATE assignment_auto_groups SET baseline_ready=1,updated_at=? WHERE id=?",

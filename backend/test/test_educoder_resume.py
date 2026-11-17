@@ -30,6 +30,8 @@ class ResumeRuntimeTests(unittest.IsolatedAsyncioTestCase):
         data={'homework_common_id':123,'myshixun':{'identifier':'instance'},'game':{'id':2,'status':0},'challenge':{'path':'Main.java'}}
         client=SimpleNamespace(request=AsyncMock(return_value=data))
         page=SimpleNamespace(url=url,goto=AsyncMock(),reload=AsyncMock())
+        page.locator=lambda selector: SimpleNamespace(first=SimpleNamespace(is_visible=AsyncMock(return_value=True)),count=AsyncMock(return_value=0))
+        page.frames=[page]
         runtime=ExperimentRuntime(client,page,'123','COURSE'); runtime.adopt_editor=AsyncMock()
         return runtime,page
 

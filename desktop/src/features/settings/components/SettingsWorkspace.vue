@@ -1,4 +1,5 @@
 <script setup>
+import ToggleSwitch from "../../../shared/controls/ToggleSwitch.vue";
 import { computed, onMounted, ref, watch } from "vue";
 import { BookOpen, Check, ClipboardList, Cpu, FolderOpen, Globe2, HardDrive, LoaderCircle, RotateCcw, Save, Settings2 } from "@lucide/vue";
 import { api } from "../../../app/api.js";
@@ -121,7 +122,6 @@ function reset() {
                     <span class="settings-card-index">01</span>
                     <div class="settings-card-title">
                       <h3>执行策略</h3>
-                      <p>控制提交、评测和单次任务的执行边界</p>
                     </div>
                   </header>
                   <div class="settings-card-body">
@@ -158,7 +158,6 @@ function reset() {
                     <span class="settings-card-index">01</span>
                     <div class="settings-card-title">
                       <h3>浏览器与播放</h3>
-                      <p>控制任务浏览器窗口、章节答题和课程播放参数</p>
                     </div>
                     <div class="settings-card-heading-actions">
                       <span class="settings-scope">新任务生效</span>
@@ -170,7 +169,7 @@ function reset() {
                         <strong>后台运行</strong>
                         <small>{{ preferences.learning.headless ? '不弹出窗口，通过软件内实时画面操控。' : '显示独立浏览器窗口，关闭窗口会中断任务。' }}</small>
                       </span>
-                      <input v-model="preferences.learning.headless" class="switch-input" type="checkbox" role="switch" aria-label="网课后台运行">
+                      <ToggleSwitch v-model="preferences.learning.headless" role="switch" aria-label="网课后台运行" />
                     </label>
                     <div class="settings-control-grid">
                       <label class="settings-control-cell">
@@ -201,7 +200,6 @@ function reset() {
                     <span class="settings-card-index">02</span>
                     <div class="settings-card-title">
                       <h3>等待与核验</h3>
-                      <p>资源加载和平台完成状态需要留出足够的确认时间</p>
                     </div>
                   </header>
                   <div class="settings-card-body">
@@ -247,7 +245,6 @@ function reset() {
                     <span class="settings-card-index">01</span>
                     <div class="settings-card-title">
                       <h3>调度</h3>
-                      <p>限制同时进行的账号检测数量</p>
                     </div>
                   </header>
                   <div class="settings-card-body">
@@ -269,7 +266,6 @@ function reset() {
                     <span class="settings-card-index">02</span>
                     <div class="settings-card-title">
                       <h3>现场记录</h3>
-                      <p>控制任务截图和诊断记录的保留范围</p>
                     </div>
                   </header>
                   <div class="settings-card-body">
@@ -304,7 +300,6 @@ function reset() {
                     <span class="settings-card-index">03</span>
                     <div class="settings-card-title">
                       <h3>本地存储</h3>
-                      <p>账号、任务和日志保存在当前 Windows 用户目录</p>
                     </div>
                     <div class="settings-card-heading-actions">
                       <span class="settings-scope"><HardDrive :size="13" />本机</span>

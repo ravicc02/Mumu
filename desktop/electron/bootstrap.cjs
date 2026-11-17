@@ -2,6 +2,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const defaultProduct = require("../product.json");
+const { browserCandidates, executableName } = require("./platform/index.cjs");
 
 const quote = value => "'" + String(value).replaceAll("'", "''") + "'";
 function safeOutput(value) {
@@ -15,14 +16,6 @@ function runFile(file, args, options = {}) {
     else resolve({ stdout, stderr });
   }));
 }
-function browserCandidates(env) {
-  return [env.MUMU_CHROME_PATH, env.ANSWER_STUDIO_CHROME_PATH,
-    path.join(env.ProgramFiles || 'C:/Program Files', 'Google/Chrome/Application/chrome.exe'),
-    path.join(env['ProgramFiles(x86)'] || 'C:/Program Files (x86)', 'Google/Chrome/Application/chrome.exe'),
-    path.join(env.LOCALAPPDATA || '', 'Google/Chrome/Application/chrome.exe'),
-    path.join(env.ProgramFiles || 'C:/Program Files', 'Microsoft/Edge/Application/msedge.exe'),
-    path.join(env['ProgramFiles(x86)'] || 'C:/Program Files (x86)', 'Microsoft/Edge/Application/msedge.exe')].filter(Boolean);
-}
 function verifyBackendHealth(payload, version) {
   if (payload?.ok !== true || typeof payload.version !== 'string') throw new Error('本地服务未返回有效的健康检查。');
   if (payload.version !== version) {
@@ -31,13 +24,15 @@ function verifyBackendHealth(payload, version) {
   }
   return true;
 }
-function createBootstrap({ packaged, backendDirectory, dataRoot, python = 'python', env = process.env, product = defaultProduct, run = runFile, io = fs, onReady = async () => {} }) {
+function createBootstrap({ packaged, backendDirectory, dataRoot, platform = process.platform, python = platform === 'win32' ? 'python' : 'python3', env = process.env, product = defaultProduct, run = runFile, io = fs, onReady = async () => {} }) {
   let state = { status: 'idle', items: [], output: '', error: '', backendReady: false };
   let pending = null;
-  const backendExe = path.join(backendDirectory, product.backendExecutable);
+  const backendExe = path.join(backendDirectory, executableName(product, platform));
   const requirements = path.join(backendDirectory, 'requirements.txt');
-  const manual = () => packaged ? "Start-Process '" + product.repository + "/releases'"
-    : '& ' + quote(python) + ' -m pip install -r ' + quote(requirements);
+  const shellQuote = value => platform === 'win32' ? quote(value) : "'" + String(value).replaceAll("'", "'\"'\"'") + "'";
+  const prefix = platform === 'win32' ? '& ' : '';
+  const manual = () => packaged ? (platform === 'win32' ? 'Start-Process ' : 'xdg-open ') + shellQuote(product.repository + '/releases')
+    : prefix + shellQuote(python) + ' -m pip install -r ' + shellQuote(requirements);
   const get = () => structuredClone(state);
   const exists = async target => { try { return (await io.stat(target)).isFile(); } catch { return false; } };
   async function inspect() {
@@ -57,19 +52,20 @@ function createBootstrap({ packaged, backendDirectory, dataRoot, python = 'pytho
       runtime.status = 'missing'; runtime.detail = safeOutput(error.message);
       if (!packaged && (error.code === 'ENOENT' || error.code === 9009 || /Python was not found|Python 3\.11\+ required/.test(error.message))) {
         runtime.missingPython = true;
-        runtime.command = 'winget install --id Python.Python.3.13 --exact --accept-package-agreements --accept-source-agreements; ' + manual();
+        runtime.command = platform === 'win32' ? 'winget install --id Python.Python.3.13 --exact --accept-package-agreements --accept-source-agreements; ' + manual() : '安装 Python 3.11+，创建虚拟环境后执行 ' + manual();
+        runtime.installable = platform === 'win32';
       }
     }
-    const browser = { id: 'browser', label: 'Chrome / Edge', status: 'checking', installable: true,
-      command: 'winget install --id Google.Chrome --exact --accept-package-agreements --accept-source-agreements' };
+    const browser = { id: 'browser', label: 'Chrome / Edge / Chromium', status: 'checking', installable: platform === 'win32',
+      command: platform === 'win32' ? 'winget install --id Google.Chrome --exact --accept-package-agreements --accept-source-agreements' : '安装 Google Chrome、Microsoft Edge 或发行版提供的 Chromium；也可用 MUMU_CHROME_PATH 指定浏览器路径。' };
     state.items.push(browser);
     let found = '';
-    for (const candidate of browserCandidates(env)) if (await exists(candidate)) { found = candidate; break; }
+    for (const candidate of browserCandidates(env, platform)) if (await exists(candidate)) { found = candidate; break; }
     browser.status = found ? 'ready' : 'missing'; browser.detail = found || '未检测到 Chrome 或 Edge';
-    const storage = { id: 'storage', label: '本地数据目录', status: 'checking', installable: false, command: 'explorer.exe ' + quote(dataRoot) };
+    const storage = { id: 'storage', label: '本地数据目录', status: 'checking', installable: false, command: (platform === 'win32' ? 'explorer.exe ' : 'xdg-open ') + shellQuote(dataRoot) };
     state.items.push(storage);
     try {
-      await io.mkdir(dataRoot, { recursive: true }); await io.access(dataRoot, require('node:fs').constants.W_OK);
+      await io.mkdir(dataRoot, { recursive: true, mode: 0o700 }); await io.access(dataRoot, require('node:fs').constants.W_OK);
       const probe = path.join(dataRoot, '.mumu-setup-' + require('node:crypto').randomUUID() + '.tmp');
       await io.writeFile(probe, '', { flag: 'wx' }); await io.unlink(probe);
       storage.status = 'ready'; storage.detail = dataRoot;
@@ -80,8 +76,8 @@ function createBootstrap({ packaged, backendDirectory, dataRoot, python = 'pytho
     try { await onReady(python); state.status = 'ready'; state.backendReady = true; }
     catch (error) {
       state.status = 'error'; state.error = safeOutput(error.message);
-      state.recoveryCommand = packaged ? '& ' + quote(backendExe) + ' --host 127.0.0.1 --port 8877'
-        : '& ' + quote(python) + ' ' + quote(path.join(backendDirectory, 'run_server.py')) + ' --host 127.0.0.1 --port 8877';
+      state.recoveryCommand = packaged ? prefix + shellQuote(backendExe) + ' --host 127.0.0.1 --port 8877'
+        : prefix + shellQuote(python) + ' ' + shellQuote(path.join(backendDirectory, 'run_server.py')) + ' --host 127.0.0.1 --port 8877';
     }
     return get();
   }

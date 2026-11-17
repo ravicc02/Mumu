@@ -55,14 +55,18 @@ class CodeContractTests(unittest.TestCase):
         self.assertIsNone(records[1]["identifier"])
         with self.assertRaises(Exception): challenge_list([{"identifier":None,"position":2,"status":2}])
 
-    def test_task_contract_routes_canvas_and_unsupported_files_without_execution_permission(self):
+    def test_task_contract_routes_canvas_and_supported_code_with_explicit_permissions(self):
         code = educoder_task_spec({},instance_id="instance",challenge_id="task",paths=["Main.java"],auto_submit=True)
         self.assertEqual(code.route,"code"); self.assertTrue(code.permissions.evaluate)
         manual = educoder_task_spec({},instance_id="instance",challenge_id="task",paths=["Main.java"],auto_submit=False)
         self.assertFalse(manual.permissions.evaluate)
         desktop = educoder_task_spec({},instance_id="instance",challenge_id="task",paths=[],auto_submit=True,has_editor=False,has_canvas=True)
-        self.assertEqual(desktop.route,"desktop"); self.assertFalse(desktop.permissions.save)
-        unknown = educoder_task_spec({},instance_id="instance",challenge_id="task",paths=["main.py"],auto_submit=True)
+        self.assertEqual(desktop.route,"desktop"); self.assertTrue(desktop.permissions.save)
+        self.assertEqual(code.budget.max_model_calls,4)
+        self.assertEqual(desktop.budget.max_model_calls,60)
+        python = educoder_task_spec({},instance_id="instance",challenge_id="task",paths=["main.py"],auto_submit=True)
+        self.assertEqual(python.route,"code")
+        unknown = educoder_task_spec({},instance_id="instance",challenge_id="task",paths=["file.bin"],auto_submit=True)
         self.assertEqual(unknown.route,"unsupported"); self.assertTrue(unknown.blocker)
 
     def test_results_distinguish_pending_compile_test_environment_and_pass(self):

@@ -181,6 +181,15 @@ class Database:
                   updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS assignment_collection_cache (
+                  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                  academic_year INTEGER NOT NULL,
+                  run_id TEXT,
+                  collected_at TEXT NOT NULL,
+                  items_json TEXT NOT NULL,
+                  PRIMARY KEY(account_id, academic_year)
+                );
+
                 CREATE TABLE IF NOT EXISTS collection_runs (
                   id TEXT PRIMARY KEY,
                   account_id TEXT NOT NULL,
@@ -971,6 +980,51 @@ class Database:
             changed = connection.execute("UPDATE assignments SET assessment_json = ? WHERE id = ?",
                 (json.dumps(assessment, ensure_ascii=False), assignment_id)).rowcount
             if not changed: raise KeyError("作业不存在")
+            account = connection.execute("SELECT account_id FROM assignments WHERE id=?", (assignment_id,)).fetchone()
+            for cached in connection.execute("SELECT academic_year,items_json FROM assignment_collection_cache WHERE account_id=?", (account['account_id'],)).fetchall():
+                try:
+                    items = json.loads(cached['items_json'])
+                    if not isinstance(items, list) or any(not isinstance(item, dict) or 'id' not in item for item in items):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                if any(item['id'] == assignment_id for item in items):
+                    for item in items:
+                        if item['id'] == assignment_id:
+                            item['assessment'] = assessment
+                    connection.execute("UPDATE assignment_collection_cache SET items_json=? WHERE account_id=? AND academic_year=?",
+                        (json.dumps(items, ensure_ascii=False), account['account_id'], cached['academic_year']))
+
+    @staticmethod
+    def _save_assignment_cache(connection, account_id, academic_year, run_id, collected_at, *, seed=False, failed_courses=None):
+        if seed and connection.execute(
+            "SELECT 1 FROM assignment_collection_cache WHERE account_id=? AND academic_year=?", (account_id, academic_year)
+        ).fetchone():
+            return
+        items = [assignment_record(row) for row in connection.execute(
+            "SELECT * FROM assignments WHERE account_id=? AND academic_year=? AND active=1 ORDER BY semester DESC,course_name,deadline_text",
+            (account_id, academic_year),
+        ).fetchall()]
+        if failed_courses:
+            previous = connection.execute(
+                'SELECT items_json FROM assignment_collection_cache WHERE account_id=? AND academic_year=?', (account_id, academic_year)
+            ).fetchone()
+            try:
+                previous_items = json.loads(previous['items_json']) if previous else []
+                if not isinstance(previous_items, list):
+                    previous_items = []
+            except (TypeError, ValueError):
+                previous_items = []
+            items = [item for item in items if item.get('course_id') not in failed_courses] + [
+                item for item in previous_items if isinstance(item, dict) and item.get('course_id') in failed_courses
+                and item.get('account_id') == account_id and item.get('academic_year') == academic_year
+            ]
+        connection.execute(
+            """INSERT INTO assignment_collection_cache(account_id,academic_year,run_id,collected_at,items_json)
+              VALUES(?,?,?,?,?) ON CONFLICT(account_id,academic_year) DO UPDATE SET
+              run_id=excluded.run_id,collected_at=excluded.collected_at,items_json=excluded.items_json""",
+            (account_id, academic_year, run_id, collected_at, json.dumps(items, ensure_ascii=False)),
+        )
 
     def list_assignments(
         self,
@@ -979,6 +1033,7 @@ class Database:
         submittable_only: bool = False,
         status: str | None = None,
         active_only: bool = True,
+        cached: bool = False,
     ) -> list[dict[str, Any]]:
         clauses = []
         values: list[Any] = []
@@ -1005,8 +1060,31 @@ class Database:
                 """,
                 values,
             ).fetchall()
+            cache_rows = []
+            if cached:
+                cache_clauses, cache_values = [], []
+                if account_id:
+                    cache_clauses.append('account_id=?'); cache_values.append(account_id)
+                if academic_year:
+                    cache_clauses.append('academic_year=?'); cache_values.append(academic_year)
+                cache_where = ' WHERE ' + ' AND '.join(cache_clauses) if cache_clauses else ''
+                cache_rows = connection.execute('SELECT * FROM assignment_collection_cache' + cache_where, cache_values).fetchall()
         from .services.assignments.availability import assignment_expired
-        records = [assignment_record(row) for row in rows]
+        snapshots = {}
+        for snapshot in cache_rows:
+            try:
+                items = json.loads(snapshot['items_json'])
+                if not isinstance(items, list) or any(not isinstance(item, dict) or item.get('account_id') != snapshot['account_id'] or item.get('academic_year') != snapshot['academic_year'] for item in items):
+                    continue
+            except (TypeError, ValueError):
+                continue
+            snapshots[(snapshot['account_id'], snapshot['academic_year'])] = items
+        records = [assignment_record(row) for row in rows if (row['account_id'], row['academic_year']) not in snapshots]
+        records.extend(item for items in snapshots.values() for item in items
+            if (not active_only or item.get('active')) and (not status or item.get('status') == status)
+            and (not submittable_only or (item.get('submittable') and item.get('status') in {'unfinished','未交','未完成'})))
+        records.sort(key=lambda item: (item.get('course_name') or '', item.get('deadline_text') or ''))
+        records.sort(key=lambda item: item.get('semester') or '', reverse=True)
         return [item for item in records if not assignment_expired(item)] if submittable_only else records
 
     def finalize_assignment_snapshot(
@@ -1054,6 +1132,7 @@ class Database:
         run_id = uuid.uuid4().hex
         started_at = utc_now()
         with self.connect() as connection:
+            self._save_assignment_cache(connection, account_id, academic_year, None, started_at, seed=True)
             connection.execute(
                 """
                 INSERT INTO collection_runs(
@@ -1151,11 +1230,15 @@ class Database:
         }.get(status, status)
         with self.connect() as connection:
             row = connection.execute(
-                "SELECT account_id FROM collection_runs WHERE id = ?",
+                "SELECT account_id,academic_year FROM collection_runs WHERE id = ?",
                 (run_id,),
             ).fetchone()
             if not row:
                 raise KeyError("采集记录不存在")
+            failed_course_ids = {item.get('course_id') for item in errors or [] if item.get('course_id')}
+            if status == 'success' or (status == 'partial' and failed_course_ids):
+                self._save_assignment_cache(connection, row['account_id'], row['academic_year'], run_id, finished_at,
+                    failed_courses=failed_course_ids if status == 'partial' else None)
             connection.execute(
                 """
                 UPDATE collection_runs

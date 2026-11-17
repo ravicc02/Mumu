@@ -1,6 +1,5 @@
 <script setup>
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { stepSpring } from "./motion.js";
 
 const props = defineProps({
   modelValue: { type: String, default: "all" },
@@ -11,48 +10,16 @@ const emit = defineEmits(["update:modelValue"]);
 const root = ref(null);
 const indicator = ref(null);
 let observer;
-let media;
-let frame = 0;
-let last = 0;
-let ready = false;
-const x = { p: 0, v: 0, target: 0 };
-const width = { p: 0, v: 0, target: 0 };
-
-function draw() {
-  if (!indicator.value) return;
-  indicator.value.style.transform = `translateX(${x.p}px)`;
-  indicator.value.style.width = `${Math.max(0, width.p)}px`;
-}
-function tick(now) {
-  frame = 0;
-  const dt = Math.min(0.032, (now - (last || now - 16)) / 1000);
-  last = now;
-  let moving = false;
-  for (let i = 0; i < 3; i += 1) {
-    moving = stepSpring(x, dt / 3) || moving;
-    moving = stepSpring(width, dt / 3) || moving;
-  }
-  draw();
-  if (moving) frame = requestAnimationFrame(tick);
-}
+let mounted = false;
 async function measure() {
   await nextTick();
   const selected = root.value?.querySelector('[aria-selected="true"]');
-  if (!selected) return;
-  x.target = selected.offsetLeft;
-  width.target = selected.offsetWidth;
-  cancelAnimationFrame(frame);
-  frame = 0;
-  if (!ready || media?.matches) {
-    x.p = x.target;
-    width.p = width.target;
-    x.v = width.v = 0;
-    draw();
-  } else {
-    last = 0;
-    frame = requestAnimationFrame(tick);
-  }
-  ready = true;
+  if (!selected || !indicator.value) return;
+  // Only transform animates; label or count changes resize the marker immediately.
+  indicator.value.style.width = selected.offsetWidth + "px";
+  indicator.value.style.transform = "translateX(" + selected.offsetLeft + "px)";
+  root.value.dataset.ready = String(mounted);
+  mounted = true;
 }
 function navigate(event, index) {
   let next = index;
@@ -67,17 +34,11 @@ function navigate(event, index) {
 }
 watch(() => [props.modelValue, props.items], measure, { deep: true });
 onMounted(() => {
-  media = matchMedia("(prefers-reduced-motion: reduce)");
-  media.addEventListener("change", measure);
   observer = new ResizeObserver(measure);
   observer.observe(root.value);
   measure();
 });
-onBeforeUnmount(() => {
-  cancelAnimationFrame(frame);
-  observer?.disconnect();
-  media?.removeEventListener("change", measure);
-});
+onBeforeUnmount(() => observer?.disconnect());
 </script>
 
 <template>

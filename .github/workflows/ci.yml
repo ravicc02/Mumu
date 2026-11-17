@@ -10,7 +10,11 @@ concurrency:
   cancel-in-progress: true
 jobs:
   validate:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
       PYTHONUTF8: '1'
@@ -32,7 +36,7 @@ jobs:
       - name: Install isolated test browser
         shell: pwsh
         run: |
-          python -m playwright install chromium
+          python -m playwright install --with-deps chromium
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $browserPath = python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -43,5 +47,8 @@ jobs:
       - run: npm run release:check
       - run: npm test
       - run: npm run test:desktop
-      - run: python -m unittest discover -s backend/test -v
+      - if: runner.os == 'Windows'
+        run: npm run test:backend
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:backend
       - run: npm --prefix desktop run build:web

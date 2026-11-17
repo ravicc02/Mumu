@@ -12,6 +12,18 @@ from pydantic import BaseModel, Field
 EXTRACT_QUESTIONS_SCRIPT = r"""
 () => {
   const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const promptText = (root) => {
+    const copy = root.cloneNode(true);
+    copy.querySelectorAll("script,style,textarea,input,button,select,iframe,.colorShallow,.read_type,.question-type,[data-mumu-option],.edui-editor,.edui-toolbar,[contenteditable=true]").forEach(node => node.remove());
+    return clean(copy.textContent);
+  };
+  const fileControls = (root) => {
+    const files = [...root.querySelectorAll('input[type="file"]')].filter(node => !node.disabled);
+    const optional = files.filter(node => !node.required && node.getAttribute('aria-required') !== 'true'
+      && (node.closest('.edui-editor,.edui-toolbar,.tox,.cke,.editor-toolbar')
+        || /可选|选传|非必填/.test(node.getAttribute('aria-label') || '')));
+    return { file_inputs: files.length, required_file_inputs: files.length - optional.length, optional_file_inputs: optional.length };
+  };
   const questionKind = (typeText, hasOptions, fieldCount) => {
     const text = String(typeText || "");
     if (text.includes("判断题")) return "single";
@@ -43,6 +55,7 @@ EXTRACT_QUESTIONS_SCRIPT = r"""
     const seen = new Set();
     const result = [];
     root.querySelectorAll("div[role=radio], div[role=checkbox]").forEach((element) => {
+      if (!element.getClientRects().length || element.getAttribute('aria-disabled') === 'true' || element.querySelector('input:disabled')) return;
       const aria = clean(element.getAttribute("aria-label"));
       const match = aria.match(/^([A-F])\b/i);
       const key = match ? match[1].toUpperCase() : "";
@@ -53,10 +66,12 @@ EXTRACT_QUESTIONS_SCRIPT = r"""
     });
     return result;
   };
-  const spanOptions = (root) => {
+  const spanOptions = (root, selector = ".stem_answer span[data]") => {
     const seen = new Set();
     const result = [];
-    root.querySelectorAll(".stem_answer span[data]").forEach((element) => {
+    root.querySelectorAll(selector).forEach((element) => {
+      if (!element.getClientRects().length || getComputedStyle(element).visibility === 'hidden'
+        || element.closest('[aria-disabled="true"],[inert]')) return;
       const key = clean(element.getAttribute("data"));
       if (!key || seen.has(key)) return;
       seen.add(key);
@@ -74,9 +89,11 @@ EXTRACT_QUESTIONS_SCRIPT = r"""
       ...root.querySelectorAll("[role=radio],[role=checkbox],.ans-videoquiz-opt,[class*='option']"),
     ];
     candidates.forEach((input, index) => {
+      if (input.disabled || input.getAttribute('aria-disabled') === 'true') return;
       const element = input.matches("input")
         ? input.closest("label,li,.ans-videoquiz-opt,[class*='option']") || input
         : input;
+      if (element.getAttribute('aria-disabled') === 'true' || element.querySelector('input:disabled')) return;
       if (element.closest("[data-mumu-option]") || !element.getClientRects().length) return;
       const text = clean(element.innerText || element.textContent || input.value || "");
       if (!text || /^(提交|交卷|继续|确定|确认|下一题)$/.test(text)) return;
@@ -94,7 +111,8 @@ EXTRACT_QUESTIONS_SCRIPT = r"""
   };
   const textFields = (root) => {
     const iframes = Array.from(root.querySelectorAll("iframe"));
-    return Array.from(root.querySelectorAll("textarea")).map((textarea, index) => {
+    return Array.from(root.querySelectorAll('textarea,input[type=text],input[type=number],input:not([type])'))
+      .filter(node => !node.disabled && !node.readOnly).map((textarea, index) => {
       const iframe = iframes[index] || null;
       textarea.setAttribute("data-mumu-field", String(index));
       if (iframe?.id) {
@@ -192,7 +210,7 @@ EXTRACT_QUESTIONS_SCRIPT = r"""
         annotateHiddenAnswer(root, `answer${rawQid}`);
         const groups = sharedGroups.map((group, groupIndex) => {
           group.setAttribute("data-mumu-shared-index", String(groupIndex));
-          const options = spanOptions(group);
+          const options = spanOptions(group, ":scope > span[data], .stem_answer span[data]");
           return {
             index: groupIndex,
             text: clean(group.parentElement?.innerText || group.innerText).slice(0, 500),
@@ -250,7 +268,9 @@ EXTRACT_QUESTIONS_SCRIPT = r"""
   units.forEach(unit => {
     const root = [...document.querySelectorAll('[data-mumu-unit]')].find(node => node.getAttribute('data-mumu-unit') === unit.unit_id);
     if (!root) return;
-    unit.file_inputs = root.querySelectorAll('input[type="file"]').length;
+    const question = questions.find(item => item.question_id === unit.question_id);
+    unit.prompt_text = clean((unit.unit_id.includes(':r') ? (question?.text || '') + ' ' : '') + promptText(root));
+    Object.assign(unit, fileControls(root));
     const hiddenId = root.getAttribute('data-mumu-hidden-id');
     const hidden = hiddenId ? document.getElementById(hiddenId) : null;
     if (unit.kind === 'single' || unit.kind === 'multiple') {
@@ -270,11 +290,14 @@ EXTRACT_QUESTIONS_SCRIPT = r"""
       });
     }
   });
+  const instructions = document.body.cloneNode(true);
+  instructions.querySelectorAll(".questionLi,.TiMu,.ans-videoquiz,[data-mumu-unit],script,style,textarea,input,button,select,iframe,nav,header,footer,.edui-editor,.edui-toolbar,a,[role=button]").forEach(node => node.remove());
   return JSON.stringify({
     title: document.title,
     url: location.href,
     page_text: clean(document.body?.innerText || "").slice(0, 6000),
-    file_inputs: document.querySelectorAll('input[type="file"]').length,
+    page_instructions: clean(instructions.textContent).slice(0, 6000),
+    ...fileControls(document),
     question_count: questions.length,
     unit_count: units.length,
     questions,
@@ -342,14 +365,14 @@ FILL_ANSWERS_SCRIPT = r"""
         const key = clean(value);
         const group = root.querySelectorAll(".B-answerCon")[index];
         if (!group) return;
-        const option = Array.from(group.querySelectorAll("span[data]")).find(
-          (element) => element.getAttribute("data") === key
+        const option = Array.from(group.querySelectorAll("[data-mumu-option]")).find(
+          (element) => element.getAttribute("data-mumu-option") === key
         );
-        if (option) option.click();
+        if (option && !isSelected(option)) option.click();
       });
       root.querySelectorAll(".B-answerCon").forEach((group, index) => {
         const key = clean(values[index]);
-        group.querySelectorAll("span[data]").forEach((element) => {
+        group.querySelectorAll("[data-mumu-option]").forEach((element) => {
           element.classList.toggle(
             "check_answer",
             element.getAttribute("data") === key
@@ -405,7 +428,7 @@ FILL_ANSWERS_SCRIPT = r"""
     }
 
     const fields = Array.from(
-      root.querySelectorAll("textarea[data-mumu-field]")
+      root.querySelectorAll("[data-mumu-field]")
     );
     const fieldValues = fields.map((field, index) =>
       setField(
