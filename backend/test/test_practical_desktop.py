@@ -145,6 +145,19 @@ class DesktopExecutionTests(unittest.IsolatedAsyncioTestCase):
             await self.run_stage()
         self.model.ainvoke.assert_not_awaited()
 
+    async def test_next_step_receives_the_previous_action_receipt(self):
+        self.model.ainvoke.side_effect = [
+            SimpleNamespace(completion=DesktopAction(action='type', summary='Enter command', text='echo 1')),
+            SimpleNamespace(completion=DesktopAction(action='handoff', summary='Inspect the saved work')),
+        ]
+        result = await self.run_stage()
+        self.assertEqual(result['status'],'incomplete')
+        messages = self.model.ainvoke.await_args_list[1].args[0]
+        payload = json.loads(messages[1].content[0].text)
+        self.assertEqual(payload['recent_actions'][0]['action'],'type')
+        self.assertEqual(payload['recent_actions'][0]['state'],'applied')
+        self.assertNotIn('echo 1',json.dumps(self.case.db.latest_task_checkpoint(self.job['id'])))
+
     async def test_mixed_desktop_and_python_stages_require_final_classroom_receipt(self):
         runtime=fixtures.FakeRuntime()
         original_select=runtime.select
