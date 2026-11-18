@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from ..assignments.retry_policy import retryable_before_submission
+
 EXECUTING_STATUSES = {"queued", "running", "paused", "stopping"}
 RETRYABLE_STATUSES = {"stopped", "incomplete", "interrupted", "failed", "needs_intervention"}
 REVIEWABLE_STATUSES = {"needs_intervention", "incomplete", "interrupted", "failed", "stopped"}
@@ -38,6 +40,10 @@ def available_job_actions(job: dict[str, Any], *, controlled: bool, browser: boo
         actions.append("view_browser" if job.get("platform") == "educoder" else "open_browser")
     account_ready = job.get("account_status", "ready") == "ready"
     ready = account_ready and bool(job.get("assignment_submittable", True))
+    unknown_submission = job.get("submission_status") in {"submission_unknown", "submitted_unverified"}
+    # 浏览器初始化或页面读取阶段就失败的任务没有写入任何答案，允许直接重试；
+    # 已填写、已进入提交流程的未知状态仍必须人工核对，避免重复提交。
+    retryable_unknown = unknown_submission and retryable_before_submission(job)
     if account_ready and status not in EXECUTING_STATUSES and not browser:
         actions.append("open_assignment")
     if retained and status in {"needs_intervention", "incomplete", "completed"}:
@@ -45,7 +51,7 @@ def available_job_actions(job: dict[str, Any], *, controlled: bool, browser: boo
         if (status == "incomplete" or (job.get("platform") == "educoder" and status == "needs_intervention")) and browser and ready and job.get("submission_status") not in {"submission_unknown", "submitted_unverified"}:
             actions.append("continue")
     if status in RETRYABLE_STATUSES and ready:
-        if job.get("submission_status") not in {"submission_unknown", "submitted_unverified"}:
+        if not unknown_submission or retryable_unknown:
             actions.append("retry")
     if status in REVIEWABLE_STATUSES:
         actions.append("confirm_submitted")
@@ -89,7 +95,12 @@ def annotate_queues(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         account_jobs = by_account[job["account_id"]]
         if job.get("assignment_id") and "actions" in item:
             attempts = [candidate for candidate in account_jobs if candidate.get("assignment_id") == job["assignment_id"]]
-            if any(candidate["status"] == "completed" for candidate in attempts) or attempts[-1].get("submission_status") in {"submission_unknown", "submitted_unverified"}:
+            latest_attempt = attempts[-1]
+            blocking_unknown = (
+                latest_attempt.get("submission_status") in {"submission_unknown", "submitted_unverified"}
+                and not retryable_before_submission(latest_attempt)
+            )
+            if any(candidate["status"] == "completed" for candidate in attempts) or blocking_unknown:
                 item["actions"] = [action for action in item["actions"] if action not in {"retry", "continue"}]
             newer_active = any(candidate["id"] != job["id"] and candidate.get("assignment_id") == job["assignment_id"]
                                and (candidate["status"] in EXECUTING_STATUSES or candidate.get("browser_retained"))

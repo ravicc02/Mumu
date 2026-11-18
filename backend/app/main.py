@@ -34,9 +34,11 @@ from .services.assignments.automation_groups import (
     pending_items as pending_assignment_auto_group_items,
     public_group as public_assignment_auto_group,
     record_discovery as record_assignment_auto_group_discovery,
+    recover_auto_retry_items,
     scan_due as assignment_auto_group_due,
     update_group as update_assignment_auto_group_record,
 )
+from .services.assignments.retry_policy import retryable_before_submission
 from .db import ActiveJobConflict, Database
 from .version import __version__
 from .events import event_hub
@@ -1583,7 +1585,10 @@ def ensure_assignment_execution_allowed(assignment_id: str) -> None:
     if any(job["status"] == "completed" for job in attempts):
         raise HTTPException(status_code=409, detail="该作业已确认完成并提交，无需重复执行")
     if attempts and attempts[0]["submission_status"] in {"submission_unknown", "submitted_unverified"}:
-        raise HTTPException(status_code=409, detail="该作业提交状态尚未确认，请先在任务详情核对是否已提交，再重试")
+        # 浏览器初始化阶段就失败的任务没有写入任何答案，允许自动重试；
+        # 已填写或进入提交流程后的未知状态仍必须人工核对。
+        if not retryable_before_submission(attempts[0]):
+            raise HTTPException(status_code=409, detail="该作业提交状态尚未确认，请先在任务详情核对是否已提交，再重试")
 
 
 def orchestration_guard(kind: str, row: dict[str, Any]) -> str | None:
@@ -1718,6 +1723,7 @@ async def dispatch_automatic_assignments() -> None:
 
 
 async def dispatch_assignment_group_items() -> None:
+    recover_auto_retry_items(database)
     preferences = load_preferences(database).assignments
     jobs = [job_browser_state(job) for job in database.list_jobs()]
     running = [
@@ -1759,14 +1765,7 @@ async def dispatch_assignment_group_items() -> None:
                 reason="尚未确认能在浏览器直接完成，请重新检查",
             )
             continue
-        if any(job["assignment_id"] == item["assignment_id"] for job in jobs):
-            mark_assignment_auto_group_item(
-                database,
-                item["group_id"],
-                item["assignment_id"],
-                state="skipped",
-                reason="作业已有执行记录",
-            )
+        if database.has_active_job_for_assignment(item["assignment_id"]):
             continue
         reason = ""
         if account["status"] != "ready":

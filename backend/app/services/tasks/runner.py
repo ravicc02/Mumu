@@ -38,6 +38,7 @@ from ..runtime.browser import chrome_executable, COURSE_BROWSER_ARGS, TaskBrowse
 from .state import EVENT_PHASES, available_job_actions
 from ..assignments.readiness import assess_questions, execution_block
 from ..assignments.draft_saver import DraftSaveError, save_assignment_draft
+from ..assignments.retry_policy import retryable_before_submission
 from ..runtime.screenshots import capture_screenshot_segments
 from ...diagnostics.probe import capture_page as capture_diagnostic_page
 from ...diagnostics.logging import current_trace as diagnostic_context
@@ -1411,7 +1412,7 @@ async def prepare_job_retry(database: Database, job_id: str) -> dict[str, Any]:
         job = database.get_job(job_id)
         if job["status"] in {"queued", "running", "paused", "stopping", "completed"}:
             raise RuntimeError("执行中的任务或已完成提交的作业不能重试")
-        if job.get("submission_status") in {"submission_unknown", "submitted_unverified"}:
+        if job.get("submission_status") in {"submission_unknown", "submitted_unverified"} and not retryable_before_submission(job):
             raise RuntimeError("上次提交结果未知，请先打开作业核对，并确认已提交或确认未提交")
         await _wait_for_job_settled(job_id)
         await _release_preserved_browser(database, job_id)

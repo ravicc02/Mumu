@@ -197,3 +197,107 @@ class AssignmentAutomationGroupTests(unittest.IsolatedAsyncioTestCase):
         preferences = load_preferences(self.database)
         self.assertTrue(preferences.assignments.educoder_auto_evaluate)
         self.assertTrue(preferences.learning.auto_submit_quiz)
+
+    def interrupted_job(
+        self,
+        assignment_id,
+        *,
+        error="浏览器页面失败：浏览器页面读取或截图超时。最后页面：about:blank",
+        progress=1,
+        submission_status="submission_unknown",
+    ):
+        job = self.database.create_job(
+            self.account["id"],
+            assignment_id,
+            True,
+            True,
+            trigger="auto_group",
+        )
+        with self.database.connect() as connection:
+            connection.execute(
+                "UPDATE jobs SET status='interrupted',phase='interrupted',error=?,"
+                "progress=?,completed_units=0,submission_status=? WHERE id=?",
+                (error, progress, submission_status, job["id"]),
+            )
+        return self.database.get_job(job["id"])
+
+    def queue_item(self, group, assignment_id, job_id):
+        with self.database.connect() as connection:
+            connection.execute(
+                "UPDATE assignment_auto_group_items SET state='queued',job_id=? "
+                "WHERE group_id=? AND assignment_id=?",
+                (job_id, group["id"], assignment_id),
+            )
+
+    def item_row(self, group, assignment_id):
+        with self.database.connect() as connection:
+            return connection.execute(
+                "SELECT state,reason,job_id FROM assignment_auto_group_items "
+                "WHERE group_id=? AND assignment_id=?",
+                (group["id"], assignment_id),
+            ).fetchone()
+
+    def direct_assignment(self, title):
+        return self.assignment(title, assess_questions({
+            "question_count": 1,
+            "units": [{"unit_id": "q1", "question_no": 1, "kind": "single", "text": "选择", "options": [{"key": "A"}], "filled": False}],
+        }))
+
+    async def test_infrastructure_failure_is_requeued_automatically(self):
+        group = self.group()
+        assignment = self.direct_assignment("retry")
+        record_discovery(self.database, group, [assignment], complete=True)
+        failed = self.interrupted_job(assignment["id"])
+        self.queue_item(group, assignment["id"], failed["id"])
+        fake_job = {"id": "job-retry", "assignment_id": assignment["id"], "trigger": "auto_group", "status": "queued", "auto_submit": 1}
+        with patch.object(main, "enqueue_assignment", AsyncMock(return_value=fake_job)) as enqueue:
+            await main.dispatch_assignment_group_items()
+        enqueue.assert_awaited_once()
+        row = self.item_row(group, assignment["id"])
+        self.assertEqual(row["state"], "queued")
+        self.assertEqual(row["job_id"], "job-retry")
+
+    async def test_retry_stops_after_three_attempts(self):
+        group = self.group()
+        assignment = self.direct_assignment("three-attempts")
+        record_discovery(self.database, group, [assignment], complete=True)
+        failed = [self.interrupted_job(assignment["id"]) for _ in range(3)]
+        self.queue_item(group, assignment["id"], failed[-1]["id"])
+        with patch.object(main, "enqueue_assignment", AsyncMock()) as enqueue:
+            await main.dispatch_assignment_group_items()
+        enqueue.assert_not_awaited()
+        row = self.item_row(group, assignment["id"])
+        self.assertEqual(row["state"], "failed")
+        self.assertIn("3 次", row["reason"])
+
+    async def test_filled_task_is_not_retried_automatically(self):
+        group = self.group()
+        assignment = self.direct_assignment("filled")
+        record_discovery(self.database, group, [assignment], complete=True)
+        failed = self.interrupted_job(
+            assignment["id"],
+            progress=50,
+            submission_status="filled_verified",
+        )
+        self.queue_item(group, assignment["id"], failed["id"])
+        with patch.object(main, "enqueue_assignment", AsyncMock()) as enqueue:
+            await main.dispatch_assignment_group_items()
+        enqueue.assert_not_awaited()
+        self.assertEqual(self.item_row(group, assignment["id"])["state"], "queued")
+
+    def test_early_infrastructure_failure_can_retry(self):
+        assignment = self.direct_assignment("early-failure")
+        self.interrupted_job(assignment["id"])
+        main.ensure_assignment_execution_allowed(assignment["id"])
+
+    def test_filled_unknown_submission_still_requires_review(self):
+        from fastapi import HTTPException
+
+        assignment = self.direct_assignment("filled-unknown")
+        self.interrupted_job(
+            assignment["id"],
+            progress=50,
+            submission_status="submission_unknown",
+        )
+        with self.assertRaises(HTTPException):
+            main.ensure_assignment_execution_allowed(assignment["id"])

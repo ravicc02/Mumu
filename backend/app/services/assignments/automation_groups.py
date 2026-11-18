@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from ...db import utc_now
 from ..platforms.catalog import platform_spec
 from .readiness import direct_answerable, execution_block
+from .retry_policy import AUTO_RETRY_LIMIT, retryable_before_submission
 
 
 GROUP_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -356,6 +357,53 @@ def mark_item(database, group_id: str, assignment_id: str, *, state: str, reason
               updated_at=? WHERE group_id=? AND assignment_id=?""",
             (state, reason, job_id, utc_now(), group_id, assignment_id),
         )
+
+
+def auto_group_attempt_count(database, assignment_id: str) -> int:
+    with database.connect() as connection:
+        row = connection.execute(
+            "SELECT COUNT(*) AS count FROM jobs WHERE assignment_id=? AND trigger='auto_group'",
+            (assignment_id,),
+        ).fetchone()
+    return int(row["count"] or 0)
+
+
+def recover_auto_retry_items(database, *, limit: int = AUTO_RETRY_LIMIT) -> list[dict]:
+    """把浏览器初始化阶段中断的条目重新排队，达到上限后转人工处理。"""
+    with database.connect() as connection:
+        rows = connection.execute(
+            """SELECT items.group_id,items.assignment_id,items.job_id,
+              jobs.status AS status,jobs.error,jobs.progress,
+              jobs.completed_units,jobs.submission_status
+              FROM assignment_auto_group_items AS items
+              JOIN jobs ON jobs.id = items.job_id
+              WHERE items.state='queued'
+              ORDER BY items.updated_at"""
+        ).fetchall()
+    recovered = []
+    for row in rows:
+        if not retryable_before_submission(dict(row)):
+            continue
+        attempts = auto_group_attempt_count(database, row["assignment_id"])
+        if attempts >= limit:
+            mark_item(
+                database,
+                row["group_id"],
+                row["assignment_id"],
+                state="failed",
+                reason=f"自动尝试已达 {limit} 次，需人工处理",
+            )
+            recovered.append({"assignment_id": row["assignment_id"], "state": "failed"})
+        else:
+            mark_item(
+                database,
+                row["group_id"],
+                row["assignment_id"],
+                state="pending",
+                reason=f"上次执行在浏览器初始化阶段中断，准备第 {attempts + 1} 次自动尝试",
+            )
+            recovered.append({"assignment_id": row["assignment_id"], "state": "pending"})
+    return recovered
 
 
 def mark_scan_started(database, identifier: str) -> None:

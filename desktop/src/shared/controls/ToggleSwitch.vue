@@ -1,7 +1,12 @@
 <script setup>
 import { computed } from "vue";
 defineOptions({ inheritAttrs: false });
-const props = defineProps({ modelValue: Boolean, checked: { type: Boolean, default: undefined } });
+const props = defineProps({
+  modelValue: Boolean,
+  checked: { type: Boolean, default: undefined },
+  pending: Boolean,
+  error: Boolean,
+});
 const emit = defineEmits(["update:modelValue", "change"]);
 const enabled = computed(() => props.checked ?? props.modelValue);
 function change(event) {
@@ -11,8 +16,8 @@ function change(event) {
 </script>
 
 <template>
-  <span class="switch-control">
-    <input v-bind="$attrs" class="switch-native" type="checkbox" role="switch" :checked="enabled" @change="change">
+  <span class="switch-control" :class="{ pending, error }">
+    <input v-bind="$attrs" class="switch-native" type="checkbox" role="switch" :checked="enabled" :aria-checked="enabled" :aria-busy="pending || undefined" @change="change">
     <span class="switch-track" aria-hidden="true"></span>
     <span class="switch-thumb" aria-hidden="true">
       <span class="switch-face switch-off"><span></span></span>

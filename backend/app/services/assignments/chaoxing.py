@@ -24,6 +24,7 @@ LOGIN_URL = (
     "?fid=0&newversion=true&refer=https%3A%2F%2Fi.chaoxing.com"
 )
 WORK_LIST_BASE = "https://mooc1.chaoxing.com/mooc2/work/list"
+COURSE_LIST_DATA_URL = "http://mooc1-1.chaoxing.com/visit/courselistdata"
 logger = logging.getLogger('mumu.collection')
 
 
@@ -205,7 +206,8 @@ async def _fetch_text(context: BrowserContext, url: str) -> tuple[str, str]:
     text = await response.text()
     if not response.ok:
         raise RuntimeError(f"请求失败 {response.status}: {url}")
-    if "passport" in urlparse(response.url).path.lower():
+    parsed = urlparse(response.url)
+    if "passport" in (parsed.hostname or "").lower() or "passport" in parsed.path.lower():
         raise RuntimeError("学习通登录态已失效")
     return response.url, text
 
@@ -247,6 +249,107 @@ async def _fetch_student_course_list(page: Page, url: str) -> tuple[str, str]:
                 raise RuntimeError('未能确认当前为“我学的课”，请在平台核对课程入口')
             return page.url, await page.content()
     return final_url, html
+
+
+async def _fetch_page_html(
+    context: BrowserContext,
+    page: Page,
+    url: str,
+    wait_ms: int = 800,
+) -> tuple[str, str]:
+    """优先直接请求页面 HTML，失败时回退真实渲染。
+
+    课程页与作业列表页由服务端渲染，解析只依赖 BeautifulSoup，
+    不需要等待脚本执行；回退保证页面结构变化时行为不变。
+    """
+    try:
+        return await _fetch_text(context, url)
+    except RuntimeError as error:
+        if "登录态已失效" in str(error):
+            raise
+        logger.info(
+            "HTTP page fetch failed, falling back to rendering",
+            extra={
+                "diagnostic_code": "collection.http_fallback",
+                "diagnostic_data": {"url": url[:120], "error": str(error)[:200]},
+            },
+        )
+    except Exception as error:
+        logger.info(
+            "HTTP page fetch error, falling back to rendering",
+            extra={
+                "diagnostic_code": "collection.http_fallback",
+                "diagnostic_data": {"url": url[:120], "error": str(error)[:200]},
+            },
+        )
+    return await _fetch_rendered_page(page, url, wait_ms)
+
+
+async def _fetch_student_course_list_from_portal(
+    page: Page,
+    restored_cookies: int,
+) -> tuple[str, str]:
+    base_url, base_html = await _fetch_rendered_page(
+        page,
+        "https://i.chaoxing.com/base?ws=1",
+        1800,
+    )
+    document = BeautifulSoup(base_html, "html.parser")
+    frame = document.select_one("iframe#frame_content") or document.select_one(
+        "iframe[src*='/visit/interaction']"
+    )
+    if not frame or not frame.get("src"):
+        raise RuntimeError(
+            "学习通登录态已失效，请重新登录"
+            f"（最终地址：{base_url}，恢复 Cookie：{restored_cookies}，"
+            f"页面长度：{len(base_html)}）"
+        )
+    course_list_url = _normalize_course_list_url(
+        urljoin(base_url, frame.get("src"))
+    )
+    return await _fetch_student_course_list(page, course_list_url)
+
+
+async def _fetch_course_list_html(
+    context: BrowserContext,
+    page: Page,
+    restored_cookies: int,
+) -> tuple[str, str]:
+    """优先用课程列表接口，失败时回退门户页渲染。"""
+    try:
+        response = await context.request.post(
+            COURSE_LIST_DATA_URL,
+            form={
+                "courseType": "1",
+                "courseFolderId": "0",
+                "courseFolderSize": "0",
+            },
+            timeout=45000,
+            fail_on_status_code=False,
+        )
+        text = await response.text()
+        if (
+            response.ok
+            and "course-name" in text
+            and "passport" not in response.url.lower()
+        ):
+            return response.url, text
+        logger.info(
+            "Course list endpoint unusable, falling back to portal",
+            extra={
+                "diagnostic_code": "collection.course_list_fallback",
+                "diagnostic_data": {"status": response.status, "length": len(text)},
+            },
+        )
+    except Exception as error:
+        logger.info(
+            "Course list endpoint error, falling back to portal",
+            extra={
+                "diagnostic_code": "collection.course_list_fallback",
+                "diagnostic_data": {"error": str(error)[:200]},
+            },
+        )
+    return await _fetch_student_course_list_from_portal(page, restored_cookies)
 
 
 async def _inspect_submission_page(page: Page) -> dict[str, Any]:
@@ -455,32 +558,10 @@ async def collect_assignments(
                 context,
                 account["storage_state_path"],
             )
-            base_url, base_html = await _fetch_rendered_page(
+            course_list_url, course_html = await _fetch_course_list_html(
+                context,
                 page,
-                "https://i.chaoxing.com/base?ws=1",
-                1800,
-            )
-            base_document = BeautifulSoup(base_html, "html.parser")
-            frame = base_document.select_one("iframe#frame_content") or base_document.select_one(
-                "iframe[src*='/visit/interaction']"
-            )
-            if not frame or not frame.get("src"):
-                database.update_account(
-                    account_id,
-                    status="login_error",
-                    last_login_error="学习通登录态已失效，请重新登录",
-                )
-                raise RuntimeError(
-                    "学习通登录态已失效，请重新登录"
-                    f"（最终地址：{base_url}，恢复 Cookie：{restored_cookies}，"
-                    f"页面长度：{len(base_html)}）"
-                )
-            course_list_url = _normalize_course_list_url(
-                urljoin(base_url, frame.get("src"))
-            )
-            course_list_url, course_html = await _fetch_student_course_list(
-                page,
-                course_list_url,
+                restored_cookies,
             )
             student_courses = _parse_courses(course_html, course_list_url)
             courses = [
@@ -518,7 +599,8 @@ async def collect_assignments(
                         "failed_courses": len(errors),
                     })
                 try:
-                    course_response_url, course_page_html = await _fetch_rendered_page(
+                    course_response_url, course_page_html = await _fetch_page_html(
+                        context,
                         page,
                         course["url"],
                         800,
@@ -527,7 +609,8 @@ async def collect_assignments(
                     work_url = _build_work_url(
                         course_document, course_response_url, course
                     )
-                    _, work_html = await _fetch_rendered_page(
+                    _, work_html = await _fetch_page_html(
+                        context,
                         page,
                         work_url,
                         1000,

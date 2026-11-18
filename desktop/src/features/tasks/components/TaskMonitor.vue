@@ -5,6 +5,7 @@ import { newMonitorState, reconcileMonitor, restoreMonitorState, monitorSummary 
 import { conciseMessage } from "../lib/presentation.js";
 import WaterMascot from "../../brand/components/WaterMascot.vue";
 import PlatformLogo from "../../platforms/components/PlatformLogo.vue";
+import StatusBadge from "../../../shared/controls/StatusBadge.vue";
 
 const props = defineProps({ tasks: { type: Array, default: () => [] }, accounts: { type: Array, default: () => [] }, ready: Boolean, online: Boolean, scope: String, updatedAt: Number, creating: Boolean, refresh: Function, inline: Boolean, hideTrigger: Boolean, host: Object, removedIds: { type: Array, default: () => [] } });
 const emit = defineEmits(["open-task", "open-dashboard", "summary"]);
@@ -25,6 +26,7 @@ const partitionStyle = computed(() => ({ gridTemplateColumns: "repeat(" + (summa
 const syncLabel = computed(() => props.updatedAt ? new Date(props.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) : "等待同步");
 const statusLabel = task => ({ queued: "排队", running: "执行中", paused: "已暂停", stopping: "停止中", stopped: "已停止", needs_intervention: task.task_kind === "learning" ? "待介入" : "待审核", awaiting_user: "待介入", incomplete: "未完成", failed: "中断", interrupted: "中断", completed: task.task_kind === "learning" || task.submission_status === "submitted_verified" ? "已完成" : "待核验" })[task.status] || "等待同步";
 const statusClass = task => task.status === "completed" && statusLabel(task) === "已完成" ? "done" : ["failed", "interrupted", "incomplete"].includes(task.status) ? "error" : ["needs_intervention", "awaiting_user"].includes(task.status) || (task.status === "completed" && statusLabel(task) !== "已完成") ? "review" : task.status;
+const badgeStatus = task => task.status === "completed" ? (statusLabel(task) === "已完成" ? "completed" : "awaiting_user") : task.status === "stopping" ? "running" : task.status;
 function observe() {
   if (!props.scope || !props.ready) return;
   const key = "studio:task-monitor:v1:" + props.scope;
@@ -93,7 +95,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); document.removeEventL
         <div v-if="!inline" id="monitor-task-list" class="monitor-task-list" role="tabpanel" :aria-label="tab === 'round' ? '本轮任务' : '需处理任务'">
           <div v-if="!ready" class="monitor-empty"><LoaderCircle class="spinning" :size="16" />正在同步任务</div>
           <div v-else-if="!visibleTasks.length" class="monitor-empty"><Waves :size="20" /><span>{{ tab === 'round' ? '暂无本轮任务' : '暂无待处理任务' }}</span></div>
-          <button v-for="task in visibleTasks" :key="task.key || task.task_key || task.id" type="button" class="monitor-task-row" :class="statusClass(task)" :aria-label="'查看任务：' + task.assignment_title" @click="openTask(task)"><PlatformLogo :platform="platform(task)" :size="23" /><span class="monitor-task-copy"><strong>{{ task.assignment_title }}</strong><small>{{ task.account_name }}<span v-if="task.error"> · {{ conciseMessage(task.error, { limit: 52 }) }}</span><span v-else> · {{ task.task_kind === 'learning' ? '网课' : task.course_name }}</span></small></span><span class="monitor-task-status">{{ statusLabel(task) }}</span><ArrowUpRight :size="13" /></button>
+          <button v-for="task in visibleTasks" :key="task.key || task.task_key || task.id" type="button" class="monitor-task-row" :class="statusClass(task)" :aria-label="'查看任务：' + task.assignment_title" @click="openTask(task)"><PlatformLogo :platform="platform(task)" :size="23" /><span class="monitor-task-copy"><strong>{{ task.assignment_title }}</strong><small>{{ task.account_name }}<span v-if="task.error"> · {{ conciseMessage(task.error, { limit: 52 }) }}</span><span v-else> · {{ task.task_kind === 'learning' ? '网课' : task.course_name }}</span></small></span><StatusBadge class="monitor-task-status" :status="badgeStatus(task)" :label="statusLabel(task)" size="sm" :with-icon="false" /><ArrowUpRight :size="13" /></button>
         </div>
         <p v-if="refreshError" class="monitor-refresh-error" role="alert">{{ refreshError }}</p>
         <footer class="monitor-footer"><span><span class="monitor-live-dot" :class="{ online: fresh }"></span>{{ fresh ? '同步于 ' + syncLabel : '等待重新连接' }}</span><button v-if="!inline" class="text-button" type="button" @click="opened = false; emit('open-dashboard')">任务面板<ArrowUpRight :size="13" /></button></footer>

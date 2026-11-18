@@ -172,6 +172,37 @@ class StateTests(unittest.TestCase):
         self.assertNotIn("retry", unknown)
         self.assertIn("confirm_not_submitted", unknown)
 
+    def test_infrastructure_failure_before_answering_can_retry_without_manual_review(self):
+        base = {
+            "status": "interrupted",
+            "submission_status": "submission_unknown",
+            "interactive": True,
+            "error": "浏览器页面失败：读取或截图超时，最后页面 about:blank",
+        }
+        retryable = available_job_actions(
+            {**base, "progress": 1, "completed_units": 0}, controlled=False, browser=False, retained=False
+        )
+        self.assertIn("retry", retryable)
+        self.assertIn("confirm_not_submitted", retryable)
+        # 已写入部分答案的任务仍然要求人工核对，不自动重提。
+        written = available_job_actions(
+            {**base, "progress": 5, "completed_units": 2}, controlled=False, browser=False, retained=False
+        )
+        self.assertNotIn("retry", written)
+        # 进入提交阶段后的未知结果不属于基础设施失败，同样不得自动重试。
+        submitted = available_job_actions(
+            {**base, "error": "提交动作已执行，但无法确认题目页面状态", "progress": 1, "completed_units": 0},
+            controlled=False, browser=False, retained=False,
+        )
+        self.assertNotIn("retry", submitted)
+        annotated = annotate_queues([{
+            "id": "j1", "account_id": "a1", "assignment_id": "as1", "status": "interrupted",
+            "created_at": "2026-01-01", "submission_status": "submission_unknown",
+            "error": base["error"], "progress": 1, "completed_units": 0,
+            "actions": ["retry", "confirm_not_submitted"],
+        }])[0]
+        self.assertIn("retry", annotated["actions"])
+
     def test_retained_browser_does_not_block_another_task_of_the_same_account(self):
         jobs = [
             {"id": "next", "account_id": "one", "status": "queued", "created_at": "2026-01-02", "assignment_title": "next"},

@@ -6,6 +6,8 @@ import AccountAvatar from "../../accounts/components/AccountAvatar.vue";
 import PlatformCapabilities from "./PlatformCapabilities.vue";
 import { supportsBusiness } from "../lib/catalog.js";
 import Tabs from "../../../shared/controls/Tabs.vue";
+import StatusBadge from "../../../shared/controls/StatusBadge.vue";
+import StatefulButton from "../../../shared/controls/StatefulButton.vue";
 
 const props = defineProps({
   platforms: { type: Array, default: () => [] }, accounts: { type: Array, default: () => [] },
@@ -26,6 +28,7 @@ const filtered = computed(() => records.value.filter(item => item.name.toLocaleL
   && (filter.value === "all" || (filter.value === "ready" ? item.status === "ready" : item.status !== "ready"))));
 const label = status => ({ ready: "已授权", new: "待授权", authorizing: "授权中", waiting: "等待登录", login_error: "授权失效" })[status] || "待授权";
 const authorizing = account => props.loginAccountId === account.id || ["authorizing", "waiting"].includes(account.status);
+const badgeStatus = account => authorizing(account) ? "authorizing" : account.status === "ready" ? "ready" : account.status === "login_error" ? "failed" : "waiting";
 const date = value => value ? new Date(value).toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "尚未授权";
 watch(() => props.modelValue, () => { query.value = ""; filter.value = "all"; });
 </script>
@@ -39,17 +42,17 @@ watch(() => props.modelValue, () => { query.value = ""; filter.value = "all"; })
       </button>
     </aside>
     <section class="platform-accounts">
-      <header class="platform-accounts-heading"><div><PlatformLogo :platform="modelValue" :size="34" /><h1>{{ platform?.label || '平台' }}</h1><PlatformCapabilities v-if="platform" :platform="platform" /></div><button class="button dark" type="button" :disabled="!platform" @click="emit('add', modelValue)"><LogIn :size="15" />授权</button></header>
+      <header class="platform-accounts-heading"><div><PlatformLogo :platform="modelValue" :size="34" /><h1>{{ platform?.label || '平台' }}</h1><PlatformCapabilities v-if="platform" :platform="platform" /></div><StatefulButton label="授权" :status="platform ? 'idle' : 'disabled'" @click="emit('add', modelValue)" /></header>
       <div class="platform-account-tools"><h2>授权记录 <span class="count">{{ records.length }}</span></h2><div><Tabs v-model="filter" :items="tabs" label="授权状态" /><label class="search-field"><Search :size="14" /><input v-model="query" placeholder="搜索账号" aria-label="搜索平台账号"></label></div></div>
       <div class="platform-records">
         <table v-if="filtered.length" class="platform-account-table">
           <thead><tr><th scope="col">账号</th><th scope="col">授权状态</th><th scope="col">最近授权</th><th scope="col">操作</th></tr></thead>
           <tbody><tr v-for="account in filtered" :key="account.id" :data-account-id="account.id" :class="{ selected: account.id === selectedAccountId }">
             <td><div class="platform-record-name"><AccountAvatar :account="account" /><strong>{{ account.name }}</strong></div></td>
-            <td><span class="platform-auth-status" :class="account.status"><LoaderCircle v-if="authorizing(account)" class="spinning" :size="13" /><span v-else class="account-dot" :class="account.status"></span>{{ label(account.status) }}</span><p v-if="account.last_login_error" class="platform-auth-error">{{ account.last_login_error }}</p></td>
+            <td><StatusBadge :status="badgeStatus(account)" :label="label(account.status)" size="sm" /><p v-if="account.last_login_error" class="platform-auth-error">{{ account.last_login_error }}</p></td>
             <td><time :datetime="account.last_login_at || undefined">{{ date(account.last_login_at) }}</time></td>
             <td><div class="platform-record-actions">
-              <button v-if="account.status !== 'ready'" class="button light" type="button" :disabled="isBusy(account.id) || authorizing(account)" @click="emit('authorize', account)"><LogIn :size="14" />{{ authorizing(account) ? '授权中' : '授权' }}</button>
+              <StatefulButton v-if="account.status !== 'ready'" label="授权" pending-label="授权中" variant="light" :status="isBusy(account.id) || authorizing(account) ? 'pending' : 'idle'" @click="emit('authorize', account)" />
               <button v-if="authorizing(account) && account.platform !== 'chaoxing'" class="button dark" type="button" @click="emit('confirm-authorization',account)"><Check :size="14" />已完成登录</button>
               <template v-else-if="account.status === 'ready'"><button v-if="supportsBusiness(account, 'assignments')" class="button light" type="button" @click="emit('assignments', account.id)"><ClipboardList :size="14" />作业<ArrowUpRight :size="12" /></button><button v-if="supportsBusiness(account, 'learning')" class="button ghost" type="button" @click="emit('learning', account.id)"><BookOpen :size="14" />网课</button></template>
               <div class="account-menu-wrap"><button class="account-more icon-button" type="button" :aria-label="`${account.name} 账号操作`" title="账号操作" aria-haspopup="menu" :aria-expanded="menuId === account.id" @click.stop="emit('menu', account.id)"><Ellipsis :size="17" /></button>
