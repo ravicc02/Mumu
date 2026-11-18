@@ -46,6 +46,8 @@ class ProviderProfile(AgentContract):
     secret_ref: str | None = Field(default=None, max_length=512)
     enabled: bool = True
     priority: int = Field(default=100, ge=0, le=10000)
+    api_format: str = Field(default="openai", pattern=r"^(openai|anthropic)$")
+    use_responses_api: bool = False
     max_concurrency: int = Field(default=2, ge=1, le=32)
     requests_per_minute: int = Field(default=30, ge=1, le=10000)
     tokens_per_minute: int = Field(default=0, ge=0)

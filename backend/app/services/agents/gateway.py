@@ -92,6 +92,17 @@ def _failure_details(error: BaseException) -> tuple[str, int | None]:
         category = "timeout"
     elif "connection" in name or "connect" in text or "network" in text:
         category = "network"
+    elif (
+        "tool_calls" in text
+        or "tool calls" in text
+        or "returned no content" in text
+        or "empty response" in text
+        or "no message content" in text
+    ):
+        # 上游偶发返回纯文本或空内容，未按结构化输出协议给出结果。
+        # 客户端包装这类解析失败时会沿用默认的 502 状态码，因此这里必须
+        # 先按文本判定，否则会被误当成上游 5xx 并按停止策略处理。
+        category = "empty_response"
     elif status is not None and status >= 500:
         category = "upstream_5xx"
     elif "validation" in name or "invalid json" in text or "protocol" in name:
@@ -189,7 +200,7 @@ class GatewayRouteChatModel(_ChatModelProtocolCompatibility):
         attempt_id: str,
         delegate_builder: Callable[[ResolvedModel, str], Any],
         waiting_callback: Callable[[str | None, str | None], None] | None = None,
-        max_wait_seconds: float = 180,
+        max_wait_seconds: float = 450,
     ) -> None:
         self._gateway = gateway
         self.role = role
@@ -277,7 +288,8 @@ class GatewayRouteChatModel(_ChatModelProtocolCompatibility):
                     continue
                 try:
                     delegate = self._delegate_for(resolved)
-                    safe_retry = False
+                    safe_retry = 0
+                    empty_response_retries = 0
                     while True:
                         self._call_sequence += 1
                         try:
@@ -310,11 +322,27 @@ class GatewayRouteChatModel(_ChatModelProtocolCompatibility):
                                     float(health.get("opened_until") or time.time() + 5),
                                 )
                             if (
-                                category in {"rate_limit", "timeout", "network", "upstream_5xx"}
-                                and not safe_retry
+                                category == "empty_response"
+                                and empty_response_retries < 2
                                 and health.get("state") != "open"
                             ):
-                                safe_retry = True
+                                empty_response_retries += 1
+                                self._notify(
+                                    f"模型上游返回空响应，{resolved.provider.name} 正在重新请求",
+                                    datetime_from_epoch(time.time() + 0.5),
+                                )
+                                self._gateway.database.renew_resource_leases(
+                                    self.attempt_id,
+                                    ttl_seconds=90.0,
+                                )
+                                await asyncio.sleep(0.5)
+                                continue
+                            if (
+                                category in {"rate_limit", "timeout", "network", "upstream_5xx"}
+                                and safe_retry < (3 if category == "upstream_5xx" else 1)
+                                and health.get("state") != "open"
+                            ):
+                                safe_retry += 1
                                 delay = _retry_after_seconds(error) or 1.0
                                 self._notify(
                                     f"模型上游暂时不可用，{resolved.provider.name} 正在重试",
@@ -347,7 +375,7 @@ class GatewayRouteChatModel(_ChatModelProtocolCompatibility):
             remaining = deadline - loop.time()
             if (
                 remaining <= 0
-                or last_category in {"auth", "protocol", "unknown"}
+                or last_category in {"auth", "protocol", "unknown", "empty_response"}
             ):
                 break
             if next_available > 1_000_000_000:
@@ -539,6 +567,8 @@ class ModelGateway:
         api_key: str,
         messages: list[dict[str, Any]],
         timeout: float = 45,
+        api_format: str = "openai",
+        use_responses_api: bool = False,
     ) -> dict[str, Any]:
         normalized_role = ModelRole(role)
         fingerprint = request_fingerprint(messages)
@@ -555,15 +585,39 @@ class ModelGateway:
         started = time.perf_counter()
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    f"{base_url.rstrip('/')}/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "max_tokens": 8,
-                    },
-                )
+                if api_format == "anthropic":
+                    response = await client.post(
+                        f"{base_url.rstrip('/')}/messages",
+                        headers={
+                            "x-api-key": api_key,
+                            "anthropic-version": "2023-06-01",
+                        },
+                        json={
+                            "model": model,
+                            "max_tokens": 8,
+                            "messages": messages,
+                        },
+                    )
+                elif use_responses_api:
+                    response = await client.post(
+                        f"{base_url.rstrip('/')}/responses",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        json={
+                            "model": model,
+                            "input": messages,
+                            "max_output_tokens": 16,
+                        },
+                    )
+                else:
+                    response = await client.post(
+                        f"{base_url.rstrip('/')}/chat/completions",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        json={
+                            "model": model,
+                            "messages": messages,
+                            "max_tokens": 8,
+                        },
+                    )
                 response.raise_for_status()
                 try:
                     payload = response.json()
@@ -622,7 +676,7 @@ class ModelGateway:
         attempt_id: str,
         delegate_builder: Callable[[ResolvedModel, str], Any],
         waiting_callback: Callable[[str | None, str | None], None] | None = None,
-        max_wait_seconds: float = 180,
+        max_wait_seconds: float = 450,
     ) -> GatewayRouteChatModel:
         normalized = ModelRole(role)
         if self.route_size(normalized) <= 0:

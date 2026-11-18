@@ -55,7 +55,12 @@ class GatewayAssistantResponder:
             reasoning_effort=gateway.config.reasoning_effort,
         )
         return _build_agent_llm(
-            routed, resolved.profile.model, temperature=0, max_retries=0,
+            routed,
+            resolved.profile.model,
+            temperature=0,
+            max_retries=0,
+            api_format=resolved.provider.api_format,
+            use_responses_api=resolved.provider.use_responses_api,
         )
 
     async def __call__(self, request) -> AssistantDecision:
