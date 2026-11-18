@@ -47,7 +47,7 @@ const icon = computed(() => current.value.icon);
 .size-sm { padding: 2px 6px; font-size: var(--text-xs); }
 .size-md { padding: 4px 8px; font-size: var(--text-xs); }
 .tone-neutral { border-color: var(--line); background: var(--surface-muted); color: var(--muted); }
-.tone-accent { border-color: rgba(49,87,213,.18); background: var(--accent-soft); color: var(--accent); }
+.tone-accent { border-color: rgba(var(--accent-rgb),.18); background: var(--accent-soft); color: var(--accent); }
 .tone-success { border-color: rgba(27,117,80,.16); background: var(--green-soft); color: var(--green); }
 .tone-warning { border-color: rgba(148,98,15,.18); background: var(--orange-soft); color: var(--orange); }
 .tone-danger { border-color: rgba(182,65,59,.16); background: var(--red-soft); color: var(--red); }

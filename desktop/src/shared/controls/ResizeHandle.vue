@@ -7,7 +7,9 @@ const props = defineProps({
   modelValue: { type: Number, default: 370 },
   min: { type: Number, default: 300 },
   max: { type: Number, default: 560 },
-  label: { type: String, default: "调整作业列表宽度" }
+  label: { type: String, default: "调整作业列表宽度" },
+  reset: { type: Number, default: 370 },
+  invert: Boolean
 });
 const emit = defineEmits(["update:modelValue", "commit"]);
 const dragging = ref(false);
@@ -22,7 +24,7 @@ function start(event) {
 }
 function move(event) {
   if (!drag || drag.id !== event.pointerId) return;
-  const raw = drag.initial + event.clientX - drag.x;
+  const raw = drag.initial + (event.clientX - drag.x) * (props.invert ? -1 : 1);
   const legal = clamp(raw, props.min, props.max);
   pull.value = resistEdge(raw, props.min, props.max) - legal;
   emit("update:modelValue", Math.round(legal));
@@ -39,7 +41,8 @@ function finish(cancel = false) {
 }
 function navigate(event) {
   const step = event.shiftKey ? 40 : 12;
-  const values = { ArrowLeft: props.modelValue - step, ArrowRight: props.modelValue + step, Home: props.min, End: props.max };
+  const signed = props.invert ? -step : step;
+  const values = { ArrowLeft: props.modelValue - signed, ArrowRight: props.modelValue + signed, Home: props.min, End: props.max };
   if (event.key === "Escape" && drag) { event.preventDefault(); finish(true); return; }
   if (!(event.key in values)) return;
   event.preventDefault();
@@ -55,7 +58,7 @@ onBeforeUnmount(() => finish(true));
     :aria-valuemin="min" :aria-valuemax="max" :aria-valuetext="`${modelValue} 像素`"
     title="拖动调整宽度，双击重置" @pointerdown="start" @pointermove="move"
     @pointerup="finish()" @pointercancel="finish(true)" @lostpointercapture="finish()"
-    @keydown="navigate" @dblclick="emit('update:modelValue', 370); emit('commit')">
-    <span :style="{ transform: `translateX(${pull}px)` }"><GripVertical :size="14" aria-hidden="true" /></span>
+    @keydown="navigate" @dblclick="emit('update:modelValue', reset); emit('commit')">
+    <span :style="{ transform: `translateX(${invert ? -pull : pull}px)` }"><GripVertical :size="14" aria-hidden="true" /></span>
   </div>
 </template>

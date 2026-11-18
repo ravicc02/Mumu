@@ -5,6 +5,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import QRCode from "qrcode";
 import StartupExperience from "../features/brand/components/StartupExperience.vue";
 import LaunchExperience from "../features/brand/components/LaunchExperience.vue";
+import { completionSnapshot, launchDroplet, newlyCompleted } from "../features/brand/lib/droplet.js";
 import { onboardingComplete, completeOnboarding, onboardingPreviouslyCompleted } from "./lib/onboarding.js";
 import { waitForBackendHealth } from "./lib/backend-connection.js";
 import { LAUNCH_MINIMUM_MS, launchMessageForState, launchProgressForState, launchRequiresSetup } from "./lib/launch.js";
@@ -50,6 +51,7 @@ import { buildTaskOverview } from "../features/tasks/lib/overview.js";
 import { accountsForBusiness, businessAccountId, supportsBusiness } from "../features/platforms/lib/catalog.js";
 import Tabs from "../shared/controls/Tabs.vue";
 import ResizeHandle from "../shared/controls/ResizeHandle.vue";
+import Tooltip from "../shared/controls/Tooltip.vue";
 const desktopAvailable = Boolean(window.desktopApi);
 const isolatedPreview = Boolean(import.meta.env?.VITE_API_BASE);
 
@@ -89,8 +91,9 @@ const assignmentFilter = ref(['processable', 'unprocessable'].includes(initialAs
 const assignmentSort = ref("course");
 const assignmentWorkspaceView = ref(["list", "automation"].includes(preference("assignment-view", "list")) ? preference("assignment-view", "list") : "list");
 watch(assignmentWorkspaceView, value => remember("assignment-view", value));
-const listWidth = ref(Math.max(300, Math.min(520, Number(preference("list-width", 370)) || 370)));
-const logPanelOpen = ref(preference("log-open", true));
+const inspectorOpen = ref(preference("inspector-open", false) === true);
+const inspectorTab = ref(preference("inspector-tab", "browser") === "log" ? "log" : "browser");
+const inspectorWidth = ref(Math.max(360, Math.min(760, Number(preference("inspector-width", 480)) || 480)));
 const browserExpanded = ref(false);
 const captureMode = ref("task");
 const batchFailures = ref([]);
@@ -102,6 +105,18 @@ const jobs = ref([]);
 const learningRuns = ref([]);
 const taskSnapshotAt = ref(0);
 let jobsRefreshPromise = null;
+let completionState = null;
+function celebrateCompletions() {
+  const tasks = [...jobs.value, ...learningRuns.value];
+  const previous = completionState;
+  completionState = completionSnapshot(tasks);
+  if (!previous || document.hidden) return;
+  const target = document.querySelector(".monitor-trigger .water-mascot");
+  newlyCompleted(previous, tasks).slice(0, 3).forEach((job, index) => setTimeout(() => {
+    const row = document.querySelector(`[data-assignment-id="${CSS.escape(String(job.assignment_id || ""))}"]`);
+    launchDroplet(row, target);
+  }, index * 180));
+}
 const learningCourseId = ref("");
 const events = ref([]);
 const artifacts = ref([]);
@@ -148,6 +163,7 @@ const taskDetailsOpen = ref(false);
 const learningResultOpen = ref(false);
 const learningResultId = ref("");
 const taskDetailsLoading = ref(false);
+const taskDetailsLoadedJobId = ref("");
 const deleteTaskTarget = ref(null);
 const deleteTaskBusy = ref(false);
 const deleteTaskError = ref("");
@@ -368,6 +384,13 @@ const selectedJobAttempts = computed(() => {
 
 const platformLiveJob = computed(() => assignmentBrowserTask(jobs.value, selectedAccountId.value, selectedJobId.value));
 const selectedAccountActiveJob = computed(() => activeAssignmentBrowserTask(platformLiveJob.value));
+const taskQueueHint = computed(() => {
+  const job = selectedAccountActiveJob.value;
+  if (!job || job.browser_available) return "";
+  if (job.status === "paused") return "任务已暂停，继续后会重新显示画面";
+  if (job.status === "queued") return job.waiting_reason ? `任务排队中：${job.waiting_reason}` : "任务排队中，浏览器启动后将显示画面";
+  return "";
+});
 const accountTaskChoices = computed(() => recentAssignmentJobs.value.filter(job => job.task_kind === "assignment" && job.account_id === selectedAccountId.value));
 
 const selectedJobIssue = computed(() => taskIssue(selectedJob.value, selectedJobResult.value));
@@ -503,6 +526,13 @@ function accountStatusLabel(status) {
 
 function platformLabel(platform) {
   return platforms.value.find(item => item.name === platform)?.label || platformLabels[platform] || platform || "未知平台";
+}
+
+function assignmentAccountHint(account) {
+  const collection = accountCollections.value[account.id];
+  const state = account.learning_run ? "网课执行中" : collection?.pending || collection?.run?.status === "running" || account.last_collection_status === "running" ? "采集中" : accountStatusLabel(account.status);
+  const batch = batchCollectionById.value[account.id];
+  return [account.name, platformLabel(account.platform) + " · " + state, batch ? conciseMessage(batch.message) : ""].filter(Boolean).join("\n");
 }
 
 function formatLocalTime(value) {
@@ -830,8 +860,11 @@ async function syncPlatformLiveJob() {
   if (taskDetailsOpen.value || activePage.value !== "assignments" || !platformLiveJob.value) {
     return;
   }
-  if (selectedJobId.value !== platformLiveJob.value.id || (!events.value.length && !taskDetailsLoading.value)) {
-    await selectJob(platformLiveJob.value.id);
+  const jobId = platformLiveJob.value.id;
+  // A queued task has no events yet; reloading on every jobs refresh cleared the panel and
+  // made the preview flicker. Only (re)load when the selected task actually changed.
+  if (selectedJobId.value !== jobId || taskDetailsLoadedJobId.value !== jobId) {
+    await selectJob(jobId);
   }
 }
 
@@ -896,6 +929,7 @@ async function loadJobs() {
     const removed = new Set(deletedTaskIds.value);
     jobs.value = incoming.filter(job => !removed.has(job.id)).map(job => mergeJobState(jobs.value.find(previous => previous.id === job.id), job));
     learningRuns.value = courses.filter(run => !removed.has(run.id)).map(run => mergeJobState(learningRuns.value.find(previous => previous.id === run.id), run));
+    celebrateCompletions();
     taskSnapshotAt.value = Date.now();
     if (!selectedJobId.value && jobs.value.length > 0) await selectJob(jobs.value[0].id);
   })().finally(() => { jobsRefreshPromise = null; });
@@ -1279,6 +1313,7 @@ async function openAssignment(assignment) {
   try {
     const result = await api.openAssignment(assignment.id);
     captureMode.value = "profile";
+    openInspector("browser");
     notice.value = result.message;
     await refreshProfilePreview(false);
   } catch (openError) {
@@ -1542,6 +1577,7 @@ async function toggleBrowserExpansion() {
   const panel = document.querySelector('.platform-browser-panel');
   const from = panel?.getBoundingClientRect();
   browserExpansionAnimation?.cancel();
+  if (!browserExpanded.value) openInspector("browser");
   browserExpanded.value = !browserExpanded.value;
   await nextTick();
   if (!panel || !from || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -1677,6 +1713,7 @@ function connectJobSocket(jobId) {
 async function selectJob(jobId) {
   selectedJobId.value = jobId;
   taskDetailsLoading.value = true;
+  taskDetailsLoadedJobId.value = "";
   events.value = [];
   artifacts.value = [];
   screenshot.value = "";
@@ -1702,7 +1739,10 @@ async function selectJob(jobId) {
   } catch (loadError) {
     if (selectedJobId.value === jobId) setError(loadError);
   } finally {
-    if (selectedJobId.value === jobId) taskDetailsLoading.value = false;
+    if (selectedJobId.value === jobId) {
+      taskDetailsLoading.value = false;
+      taskDetailsLoadedJobId.value = jobId;
+    }
   }
 
   if (selectedJobId.value === jobId) connectJobSocket(jobId);
@@ -2053,7 +2093,7 @@ async function confirmDeleteTask() {
     if (task.task_kind !== "learning" && removed.has(selectedJobId.value)) {
       taskDetailsOpen.value = false;
       closeJobSocket();
-      selectedJobId.value = ""; events.value = []; artifacts.value = []; screenshot.value = "";
+      selectedJobId.value = ""; taskDetailsLoadedJobId.value = ""; events.value = []; artifacts.value = []; screenshot.value = "";
     }
     deleteTaskTarget.value = null;
     notice.value = "任务已删除";
@@ -2077,7 +2117,10 @@ function goToAccount(accountId) {
 }
 
 
-watch(logPanelOpen, (value) => remember("log-open", value));
+watch(inspectorOpen, value => remember("inspector-open", value));
+watch(inspectorTab, value => remember("inspector-tab", value));
+function openInspector(tab = inspectorTab.value) { inspectorTab.value = tab; inspectorOpen.value = true; }
+watch(() => selectedAccountActiveJob.value?.id, id => { if (id && activePage.value === "assignments") openInspector("browser"); });
 watch(captureMode, () => startProfilePreview());
 watch(selectedJobId, () => { detailBrowserTab.value = "live"; });
 watch(collecting, () => startProfilePreview());
@@ -2327,17 +2370,16 @@ onUnmounted(() => {
         key="assignments"
         class="platform-layout"
         :class="{
-          'logs-open': assignmentWorkspaceView === 'list' && logPanelOpen,
+          'inspector-open': assignmentWorkspaceView === 'list' && inspectorOpen,
           'assignment-automation-mode': assignmentWorkspaceView === 'automation'
         }"
-        :style="assignmentWorkspaceView === 'list' ? { '--assignment-width': `${listWidth}px` } : undefined"
+        :style="assignmentWorkspaceView === 'list' ? { '--inspector-width': `${inspectorWidth}px` } : undefined"
       >
-        <aside class="account-rail assignment-account-rail">
-          <div class="section-title account-title">
-            <span>账号</span>
-            <span class="count">{{ assignmentAccounts.length }}</span>
-          </div>
-          <button class="button light wide collect-all-accounts" type="button" :disabled="collectionBatchBusy || !assignmentAccounts.length" @click="collectAllAccounts"><RefreshCw :size="14" :class="{spinning: collectionBatchBusy}" />{{ collectionBatchBusy ? '采集中 ' + batchCollectionDone + '/' + collectionBatchRows.length : '一键采集' }}</button>
+        <aside class="account-rail assignment-account-rail" aria-label="作业账号">
+          <Tooltip :text="collectionBatchBusy ? '采集中 ' + batchCollectionDone + '/' + collectionBatchRows.length : '一键采集全部账号'" placement="right">
+            <button class="icon-button collect-all-accounts" type="button" :aria-label="collectionBatchBusy ? '采集中 ' + batchCollectionDone + '/' + collectionBatchRows.length : '一键采集'" :disabled="collectionBatchBusy || !assignmentAccounts.length" @click="collectAllAccounts"><RefreshCw :size="16" :class="{spinning: collectionBatchBusy}" /></button>
+          </Tooltip>
+          <span class="account-rail-divider" aria-hidden="true"></span>
           <div
             v-for="account in assignmentAccounts"
             :key="account.id"
@@ -2345,24 +2387,24 @@ onUnmounted(() => {
             :data-account-id="account.id"
             :class="{ active: account.id === selectedAccountId }"
           >
-            <button
-              class="account-select"
-              type="button"
-              @click="switchAccount(account.id)"
-            >
-              <AccountAvatar :account="account"><span class="account-dot" :class="account.status"></span></AccountAvatar>
-              <span>
-                <strong>{{ account.name }}</strong>
-                <small>
-                  {{ platformLabel(account.platform) }} ·
-                  {{ account.learning_run ? '网课执行中' : accountCollections[account.id]?.pending || accountCollections[account.id]?.run?.status === 'running' || account.last_collection_status === 'running' ? '采集中' : accountStatusLabel(account.status) }}
-                </small>
-                <small v-if="batchCollectionById[account.id]" class="account-collection-state" :class="batchCollectionById[account.id].status" :title="batchCollectionById[account.id].message">{{ conciseMessage(batchCollectionById[account.id].message) }}</small>
-              </span>
-            </button>
+            <Tooltip :text="assignmentAccountHint(account)" placement="right">
+              <button
+                class="account-select"
+                type="button"
+                :aria-label="assignmentAccountHint(account)"
+                :aria-current="account.id === selectedAccountId ? 'true' : undefined"
+                @click="switchAccount(account.id)"
+              >
+                <AccountAvatar :account="account"><span class="account-dot" :class="account.status"></span></AccountAvatar>
+                <span class="account-platform-badge"><PlatformLogo :platform="account.platform" :size="14" /></span>
+                <span v-if="batchCollectionById[account.id]" class="account-collection-pip" :class="batchCollectionById[account.id].status" aria-hidden="true"></span>
+              </button>
+            </Tooltip>
           </div>
-          <button class="button ghost wide account-manage-link" type="button" @click="goToAccount(selectedAccountId)"><Layers3 :size="14" />管理平台账号<ArrowUpRight :size="13" /></button>
-          <p v-if="!assignmentAccounts.length" class="empty-inline">暂无支持作业的账号</p>
+          <Tooltip text="管理平台账号" placement="right">
+            <button class="icon-button account-manage-link" type="button" aria-label="管理平台账号" @click="goToAccount(selectedAccountId)"><Layers3 :size="16" /></button>
+          </Tooltip>
+          <p v-if="!assignmentAccounts.length" class="empty-inline">暂无账号</p>
         </aside>
 
         <section class="assignment-board">
@@ -2372,7 +2414,10 @@ onUnmounted(() => {
                 <h2>{{ assignmentWorkspaceView === 'automation' ? '自动处理' : '作业列表' }} <span v-if="assignmentWorkspaceView === 'list'" class="heading-count">{{ filteredAssignments.length }}</span></h2>
                 <span v-if="assignmentWorkspaceView === 'list' && selectedAccount" class="board-account-name"><PlatformLogo :platform="selectedAccount.platform" :size="15" />{{ selectedAccount.name }}</span>
               </div>
-              <Tabs v-model="assignmentWorkspaceView" :items="assignmentWorkspaceItems" label="作业视图" />
+              <div class="assignment-heading-tools">
+                <Tabs v-model="assignmentWorkspaceView" :items="assignmentWorkspaceItems" label="作业视图" />
+                <button v-if="assignmentWorkspaceView === 'list' && !inspectorOpen" class="button light inspector-open-button" type="button" aria-controls="assignment-inspector" :aria-expanded="false" @click="openInspector()"><PanelRightOpen :size="15" />画面与日志<span v-if="selectedAccountActiveJob" class="inspector-live-dot" aria-label="有任务运行中"></span></button>
+              </div>
             </div>
             <div v-if="assignmentWorkspaceView === 'list'" class="filters">
               <label v-if="selectedAccount?.platform !== 'educoder'" class="semester-filter">
@@ -2498,6 +2543,7 @@ onUnmounted(() => {
               v-for="assignment in group.items"
               :key="assignment.id"
               class="assignment-row"
+              :data-assignment-id="assignment.id"
               :class="{ selected: selectedAssignmentIds.includes(assignment.id) }"
             >
               <label v-if="directlyAnswerable(assignment)" class="assignment-select">
@@ -2556,9 +2602,14 @@ onUnmounted(() => {
           </template>
           <AssignmentAutomation v-else :accounts="assignmentAccounts" />
         </section>
-        <ResizeHandle v-if="assignmentWorkspaceView === 'list'" v-model="listWidth" :min="300" :max="520" @commit="remember('list-width', listWidth)" />
+        <ResizeHandle v-if="assignmentWorkspaceView === 'list' && inspectorOpen" v-model="inspectorWidth" :min="360" :max="760" :reset="480" invert label="调整画面与日志宽度" @commit="remember('inspector-width', inspectorWidth)" />
+        <div v-if="assignmentWorkspaceView === 'list' && inspectorOpen" id="assignment-inspector" class="inspector-bar">
+          <Tabs v-model="inspectorTab" :items="[{ value: 'browser', label: '浏览器画面', icon: Monitor }, { value: 'log', label: '执行日志', icon: FileText, count: completedStepCount || undefined }]" label="画面与日志" />
+          <button class="icon-button" type="button" title="收起画面与日志" aria-label="收起画面与日志" @click="inspectorOpen = false; browserExpanded = false"><PanelRightClose :size="16" /></button>
+        </div>
         <aside
           v-if="assignmentWorkspaceView === 'list'"
+          v-show="inspectorOpen && (inspectorTab === 'browser' || browserExpanded)"
           class="profile-preview-panel platform-browser-panel"
           :class="{
             'live-task-panel': browserShowsCapture,
@@ -2596,7 +2647,6 @@ onUnmounted(() => {
               >
                 <ClipboardList :size="15" aria-hidden="true" />
               </button>
-              <button class="icon-button" type="button" :aria-pressed="logPanelOpen" title="切换执行日志" aria-label="切换执行日志" @click="logPanelOpen = !logPanelOpen"><PanelRightClose v-if="logPanelOpen" :size="16" /><PanelRightOpen v-else :size="16" /></button>
               <button class="icon-button" type="button" :aria-pressed="browserExpanded" :title="browserExpanded ? '收起浏览器画面' : '展开浏览器画面'" :aria-label="browserExpanded ? '收起浏览器画面' : '展开浏览器画面'" @click="toggleBrowserExpansion"><Minimize2 v-if="browserExpanded" :size="16" /><Maximize2 v-else :size="16" /></button>
             </div>
           </div>
@@ -2629,7 +2679,7 @@ onUnmounted(() => {
             >
               <ScreenshotViewer v-if="screenshot" :image="screenshot" :segments="screenshotSections" />
               <div v-else class="profile-preview-empty">
-                {{ taskDetailsLoading ? "正在加载任务画面..." : selectedAccountActiveJob ? "等待 Agent 首帧画面..." : "没有可显示的页面截图" }}
+                {{ taskDetailsLoading ? "正在加载任务画面..." : taskQueueHint || (selectedAccountActiveJob ? "等待 Agent 首帧画面..." : "没有可显示的页面截图") }}
               </div>
             </div>
           </template>
@@ -2649,15 +2699,11 @@ onUnmounted(() => {
             </div>
           </template>
         </aside>
-        <aside v-if="assignmentWorkspaceView === 'list' && logPanelOpen" class="platform-log-panel">
+        <aside v-if="assignmentWorkspaceView === 'list' && inspectorOpen && inspectorTab === 'log'" class="platform-log-panel">
           <div class="platform-log-heading">
             <div>
-              <h2><FileText :size="16" aria-hidden="true" />执行日志</h2>
+              <h2><FileText :size="16" aria-hidden="true" />{{ platformLiveJob?.assignment_title || '执行日志' }}</h2>
             </div>
-            <span class="count" :title="`已完成 ${completedStepCount} 个动作步骤`">
-              {{ completedStepCount }}
-            </span>
-            <button class="icon-button" type="button" title="收起执行日志" aria-label="收起执行日志" @click="logPanelOpen = false"><X :size="15" /></button>
           </div>
           <template v-if="platformLiveJob">
             <div v-if="taskDetailsLoading" class="empty-inline" role="status">正在读取任务状态...</div>

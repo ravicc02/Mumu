@@ -131,3 +131,9 @@
   .monitor-space-enter-active,.monitor-space-leave-active,.monitor-trigger,.monitor-partitions > span { transition: none; }
   .monitor-space-enter-from,.monitor-space-leave-to { transform: none; }
 }
+
+/* Completion droplet: decorative feedback only, launched from features/brand/lib/droplet.js. */
+.mumu-droplet { position: fixed; left: 0; top: 0; z-index: 400; width: 12px; height: 16px; pointer-events: none; border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%; background: radial-gradient(circle at 35% 30%, var(--mascot-foam), transparent 42%), linear-gradient(180deg, var(--mascot-water-top), var(--mascot-water-bottom)); box-shadow: 0 2px 6px rgba(40,137,202,.35); }
+.monitor-trigger .water-mascot.is-catching { animation: mascot-catch 480ms var(--ease) both; }
+@keyframes mascot-catch { 0% { transform: scale(1); } 35% { transform: scale(1.14, .9); } 65% { transform: scale(.96, 1.06); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .mumu-droplet { display: none; } .monitor-trigger .water-mascot.is-catching { animation: none; } }

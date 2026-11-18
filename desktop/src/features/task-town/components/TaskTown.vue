@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { Search, X, RotateCcw, ZoomIn, ZoomOut, Pause, Play, Gamepad2, FileText, Trash2, LoaderCircle, ArrowUpRight, Users } from "@lucide/vue";
+import { Search, X, RotateCcw, ZoomIn, ZoomOut, Pause, Play, Gamepad2, FileText, Trash2, LoaderCircle, ArrowUpRight, Users, ChevronDown } from "@lucide/vue";
 import PlatformLogo from "../../platforms/components/PlatformLogo.vue";
 import { TOWN_DISTRICTS, townDistrict, townTaskKey, townTaskActions } from "../lib/model.js";
 import { conciseMessage } from "../../tasks/lib/presentation.js";
@@ -35,6 +35,10 @@ const hovered = computed(() => filtered.value.find(task => townTaskKey(task) ===
 const nearby = computed(() => filtered.value.find(task => townTaskKey(task) === nearbyKey.value));
 const actions = computed(() => selected.value ? townTaskActions(selected.value) : {});
 const currentDistrict = computed(() => selected.value && TOWN_DISTRICTS.find(district => district.id === townDistrict(selected.value)));
+const attentionOrder = { review: 0, interrupted: 1, incomplete: 2 };
+const attentionTasks = computed(() => filtered.value.filter(task => townDistrict(task) in attentionOrder).sort((a, b) => attentionOrder[townDistrict(a)] - attentionOrder[townDistrict(b)]));
+const attentionCollapsed = ref(false);
+const districtColor = task => TOWN_DISTRICTS.find(district => district.id === townDistrict(task))?.color;
 const taskPlatform = task => task.platform || props.accounts.find(account => account.id === task.account_id)?.platform || "chaoxing";
 const statusText = task => task.status === "stopped" ? "已停止" : task.status === "queued" ? "排队中" : task.status === "stopping" ? "停止中" : TOWN_DISTRICTS.find(district => district.id === townDistrict(task))?.label;
 const resultText = task => conciseMessage(task.error || task.current_action || task.phase_label || task.result_summary || "", { limit: 100 });
@@ -182,6 +186,12 @@ onUnmounted(() => { mounted = false; bootGeneration++; screenFeed?.dispose(); co
       </Transition>
       <div v-if="graphicsError" class="town-graphics-error" role="status"><p>{{ graphicsError }}</p><button class="button light compact" type="button" @click="boot"><RotateCcw :size="14" />重新加载</button><div class="town-fallback-tasks"><button v-for="task in filtered" :key="townTaskKey(task)" type="button" @click="choose(task)">{{ task.assignment_title }}<ArrowUpRight :size="14" /></button></div></div>
       <div v-if="ready && !loading && !filtered.length && !graphicsError" class="town-empty"><span>{{ tasks.length ? '没有匹配的任务' : '暂无任务' }}</span><button v-if="tasks.length" class="button light compact" type="button" @click="query = ''; accountFilter = ''">清除筛选</button><button v-else class="button dark compact" type="button" @click="emit('create')">执行作业<ArrowUpRight :size="14" /></button></div>
+      <aside v-if="!loading && attentionTasks.length" class="town-attention" :class="{ collapsed: attentionCollapsed }" aria-label="待处理任务">
+        <button class="town-attention-head" type="button" :aria-expanded="!attentionCollapsed" aria-controls="town-attention-list" @click="attentionCollapsed = !attentionCollapsed"><strong>待处理</strong><span>{{ attentionTasks.length }}</span><ChevronDown :size="14" aria-hidden="true" /></button>
+        <ul v-show="!attentionCollapsed" id="town-attention-list">
+          <li v-for="task in attentionTasks" :key="townTaskKey(task)"><button type="button" :class="{ selected: selectedKey === townTaskKey(task) }" :style="{ '--district-color': districtColor(task) }" :aria-label="'定位任务：' + task.assignment_title + '，' + statusText(task)" @click="choose(task)" @pointerenter="hover(task)" @pointerleave="hover(null)"><i aria-hidden="true"></i><span><strong>{{ task.assignment_title }}</strong><small>{{ task.account_name }} · {{ statusText(task) }}</small></span></button></li>
+        </ul>
+      </aside>
       <div class="town-corner-count"><Users :size="13" /><span>{{ filtered.length }} 个任务</span></div>
     </div>
   </section>

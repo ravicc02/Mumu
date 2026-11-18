@@ -96,3 +96,18 @@
 .company-workspace .town-empty{bottom:75px}.company-workspace .town-corner-count{background:#f9fcfae0}
 .company-navigation-feedback{position:absolute;left:50%;bottom:78px;transform:translateX(-50%);padding:8px 12px;border:1px solid #e4c9bf;background:#fff9f3;color:#935c44;border-radius:var(--radius-control);font-size: var(--text-xs);z-index:5;pointer-events:none}
 @media(max-width:1250px){.company-workspace .town-toolbar{padding-inline:17px}.company-room-nav button{padding-inline:10px}}
+
+/* Attention list: camera/selection shortcut only; actions stay in the task card. */
+.town-attention { position: absolute; left: 16px; top: 16px; z-index: 3; display: flex; flex-direction: column; width: 272px; max-height: calc(100% - 96px); border-radius: var(--radius-card); background: rgba(255,255,255,.92); box-shadow: var(--shadow-menu); backdrop-filter: blur(10px); overflow: hidden; }
+.town-attention-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; border: 0; background: transparent; padding: 0 14px; text-align: left; font-size: var(--text-sm); }
+.town-attention-head span { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--orange-soft); color: var(--orange); font-size: var(--text-xs); font-weight: 600; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; }
+.town-attention-head svg { margin-left: auto; color: var(--muted); transition: transform var(--duration-standard) var(--ease); }
+.town-attention.collapsed .town-attention-head svg { transform: rotate(-90deg); }
+.town-attention ul { margin: 0; padding: 0 6px 8px; list-style: none; overflow-y: auto; border-top: 1px solid var(--line); }
+.town-attention li button { display: flex; align-items: flex-start; gap: 10px; width: 100%; border: 0; border-radius: var(--radius-control); background: transparent; padding: 9px 8px; text-align: left; transition: background var(--duration-fast) var(--ease-standard); }
+.town-attention li button:hover,.town-attention li button.selected { background: var(--accent-soft); }
+.town-attention li i { flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 3px; background: var(--district-color); }
+.town-attention li span { display: grid; gap: 2px; min-width: 0; }
+.town-attention li strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
+.town-attention li small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--text-xs); }
+@media (max-width: 1200px) { .town-attention { width: 236px; } }

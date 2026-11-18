@@ -38,7 +38,7 @@ watch(() => props.modelValue, () => { query.value = ""; filter.value = "all"; })
     <aside class="platform-catalog" aria-label="选择平台">
       <div class="section-title"><h2>平台</h2><span class="count">{{ platforms.length }}</span></div>
       <button v-for="item in platforms" :key="item.name" class="platform-chip" :class="{ active: modelValue === item.name }" type="button" :aria-pressed="modelValue === item.name" @click="emit('update:modelValue', item.name)">
-        <PlatformLogo :platform="item.name" :size="38" /><span><strong>{{ item.label }}</strong><PlatformCapabilities :platform="item" /><small>{{ accounts.filter(account => account.platform === item.name).length }} 个账号</small></span><Check v-if="modelValue === item.name" :size="14" />
+        <PlatformLogo :platform="item.name" :size="34" /><span><strong>{{ item.label }}</strong><PlatformCapabilities :platform="item" /><small>{{ accounts.filter(account => account.platform === item.name).length }} 个账号</small></span><Check v-if="modelValue === item.name" :size="14" />
       </button>
     </aside>
     <section class="platform-accounts">
@@ -73,14 +73,23 @@ watch(() => props.modelValue, () => { query.value = ""; filter.value = "all"; })
 </template>
 
 <style scoped>
-.platform-management { display: grid; grid-column: 2; grid-row: 2; grid-template-columns: 220px minmax(0,1fr); min-width: 0; min-height: 0; background: var(--surface); }
+.platform-management { display: grid; grid-column: 2; grid-row: 2; grid-template-columns: 236px minmax(0,1fr); min-width: 0; min-height: 0; background: var(--surface); }
 .platform-catalog { border-right: 1px solid var(--line); background: var(--bg); padding: 25px 16px; overflow-y: auto; }
 .platform-catalog h2 { font-size: 14px; }
-.platform-catalog .platform-chip { margin-top: 18px; width: 100%; }
+.platform-catalog .platform-chip { margin-top: 10px; width: 100%; min-height: 68px; }
+.platform-catalog .platform-chip > span:nth-child(2) { display: grid; gap: 2px; min-width: 0; }
+.platform-catalog .platform-chip { position: relative; }
+.platform-catalog .platform-chip :deep(.platform-capabilities) { flex-wrap: nowrap; gap: 4px; overflow: hidden; }
+.platform-catalog .platform-chip :deep(.platform-capabilities > span) { gap: 0; padding: 0 6px; border-radius: 4px; background: var(--surface-muted); font-size: 11px; line-height: 18px; }
+.platform-catalog .platform-chip.active :deep(.platform-capabilities > span) { background: var(--accent-soft); color: var(--accent); }
+.platform-catalog .platform-chip :deep(.platform-capabilities svg) { display: none; }
+.platform-catalog .platform-chip > svg { position: absolute; top: 8px; right: 8px; color: var(--accent); }
+.platform-catalog .platform-chip small { margin-top: 0; }
+.platform-catalog .section-title { margin-bottom: 4px; }
 .platform-accounts { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 28px 32px; }
 .platform-accounts-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 25px; border-bottom: 1px solid var(--line); }
 .platform-accounts-heading > div { display: flex; align-items: center; gap: 12px; }
-.platform-accounts-heading h1 { font-size: 28px; line-height: 1.25; }
+.platform-accounts-heading h1 { font-size: var(--page-title); line-height: 1.25; font-weight: 600; }
 .platform-account-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 24px 0 18px; }
 .platform-account-tools h2 { display: flex; align-items: center; gap: 9px; font-size: 15px; }
 .platform-account-tools > div { display: flex; align-items: center; gap: 16px; }
@@ -110,5 +119,5 @@ watch(() => props.modelValue, () => { query.value = ""; filter.value = "all"; })
 .platform-record-actions .account-menu-wrap { position: relative; top: auto; right: auto; }
 .platform-record-actions .account-more { position: static; flex: none; }
 .platform-account-table th:last-child { text-align: right; }
-@media(max-width:1200px) { .platform-management { grid-template-columns: 190px minmax(0,1fr); } .platform-accounts { padding: 24px; } .platform-record-actions { gap: 3px; } .platform-record-actions .button { padding: 5px; } .platform-account-table td { padding: 18px 9px; } }
+@media(max-width:1200px) { .platform-management { grid-template-columns: 224px minmax(0,1fr); } .platform-accounts { padding: 24px; } .platform-record-actions { gap: 3px; } .platform-record-actions .button { padding: 5px; } .platform-account-table td { padding: 18px 9px; } }
 </style>
