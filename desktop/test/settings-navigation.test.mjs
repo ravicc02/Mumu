@@ -16,7 +16,7 @@ test("search finds configuration by its actual fields and unknown terms produce 
 });
 test("about settings keeps update and logs without a reinitialization action",async()=>{
   const source=await readFile(new URL("../src/features/settings/components/AboutSettings.vue",import.meta.url),"utf8");
-  assert.match(source,/更新记录/);
+  assert.match(source,/查看更新日志/);
   assert.match(source,/GPL-3\.0-only/);
   assert.match(source,/无担保/);
   assert.match(source,/日志目录/);
