@@ -82,27 +82,41 @@ class EduCoderClient:
                 try: await asyncio.wait_for(getattr(resource, method)(), 5)
                 except Exception as error: logger.warning("EduCoder client cleanup failed: %s", type(error).__name__)
 
-    async def request(self, path, *, method="GET", params=None, data=None):
+    async def _refresh_headers(self):
+        self.header_ready.clear()
+        refresh_page = await self.context.new_page()
+        try:
+            await refresh_page.goto("https://www.educoder.net/",wait_until="domcontentloaded",timeout=30000)
+            await asyncio.wait_for(self.header_ready.wait(),15)
+        except asyncio.TimeoutError as error: raise ContractError("头歌会话请求头未刷新，请重新打开任务或重新授权。") from error
+        finally: await refresh_page.close()
+
+    async def request(self, path, *, method="GET", params=None, data=None, _retried=False):
         if not path.startswith("/api/") or ".." in path or "?" in path or "#" in path or ":" in path:
             raise ContractError("拒绝无效的头歌接口路径。")
-        if time.monotonic()-self.observed_at > 45:
-            self.header_ready.clear()
-            refresh_page = await self.context.new_page()
-            try:
-                await refresh_page.goto("https://www.educoder.net/",wait_until="domcontentloaded",timeout=30000)
-                await asyncio.wait_for(self.header_ready.wait(),15)
-            except asyncio.TimeoutError as error: raise ContractError("头歌会话请求头未刷新，请重新打开任务或重新授权。") from error
-            finally: await refresh_page.close()
+        # 会话请求头的有效期远长于一次关卡操作。过短的刷新阈值会让每次
+        # 写入/回读前都重新打开页面（约 15-45 秒），把正常的文件操作拖成超时。
+        if time.monotonic()-self.observed_at > 240:
+            await self._refresh_headers()
         response = await self.context.request.fetch(API_ORIGIN+path, method=method, params=params, data=data,
             headers={**self.headers,"Origin":"https://www.educoder.net","Referer":"https://www.educoder.net/","Content-Type":"application/json"},
-            timeout=30000, max_redirects=0)
+            timeout=60000, max_redirects=0)
         if response.status in {401,403}: raise ContractError("头歌授权或访问权限已失效，请重新授权。")
         if not response.ok: raise ContractError(f"头歌接口返回 HTTP {response.status}，请导出诊断包。")
         try: payload = await response.json()
         except Exception as error: raise ContractError("头歌接口没有返回 JSON，未将其当成成功结果。") from error
         pending_evaluation = method == "GET" and path.endswith("/game_status.json") and isinstance(payload,dict) and payload.get("status") == -1
-        if isinstance(payload,dict) and isinstance(payload.get("status"),int) and payload["status"] in {-1,401,403} and not pending_evaluation:
-            raise ContractError(str(payload.get("message") or "头歌拒绝了当前操作。"))
+        status_value = payload.get("status") if isinstance(payload,dict) else None
+        if isinstance(status_value,int) and not (pending_evaluation and status_value == -1):
+            # -102 是平台对签名时间戳的校验拒绝。它属于会话请求头过期，而不是真时钟
+            # 偏差，因此先刷新签名头再重试一次，而不是让整份作业停在这里。
+            if status_value == -102:
+                if not _retried:
+                    await self._refresh_headers()
+                    return await self.request(path, method=method, params=params, data=data, _retried=True)
+                raise ContractError("头歌提示服务器与本机时间不匹配，请校准系统时间后重新操作。")
+            if status_value in {-1,401,403}:
+                raise ContractError(str(payload.get("message") or "头歌拒绝了当前操作。"))
         return payload
 
     async def identity(self):

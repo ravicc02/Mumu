@@ -4,10 +4,10 @@ import unittest
 import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import test_educoder as fixtures
-from app.services.educoder.executor import CodeFile, CodePatch, ExperimentError, ExperimentRuntime, challenge_list
+from app.services.educoder.executor import CodeFile, CodePatch, ExperimentError, ExperimentRuntime, challenge_list, trim_feedback
 from app.services.educoder.code_contract import CodeContractError, validate_patch
 from app.services.educoder.evaluation import EvaluationReport, classify_evaluation
 from app.services.tasks.spec import educoder_task_spec
@@ -292,3 +292,64 @@ class EvaluationRuntimeTests(unittest.IsolatedAsyncioTestCase):
         report=await runtime.evaluate()
         self.assertEqual(report.status,"failed"); self.assertEqual(report.kind,"test")
         self.assertEqual(report.evidence["source"],"task_state_readback"); self.assertFalse(runtime.evaluation_sent)
+
+    async def test_null_error_count_does_not_break_readback(self):
+        runtime,button=self.runtime()
+        runtime.evaluation_timeout=0.05
+        runtime.task=AsyncMock(side_effect=[{"game":{"status":0,"evaluate_count":0}},
+            {"game":{"status":0,"evaluate_count":1},"in_review":False,"sets_error_count":None,"test_sets":[]}])
+        with self.assertRaises(ExperimentError) as failure: await runtime.evaluate()
+        self.assertTrue(failure.exception.unknown)
+        self.assertIn("尚未确认", str(failure.exception))
+
+    async def test_platform_not_starting_evaluation_is_directly_retryable(self):
+        runtime,button=self.runtime()
+        runtime.evaluation_start_timeout=0
+        runtime.on_submission_rollback=Mock()
+        runtime.task=AsyncMock(return_value={"game":{"status":0,"evaluate_count":0}})
+        with self.assertRaises(ExperimentError) as failure: await runtime.evaluate()
+        self.assertFalse(failure.exception.unknown)
+        self.assertEqual(failure.exception.category,"evaluation_not_started")
+        runtime.on_submission_rollback.assert_called_once()
+
+    async def test_recorded_evaluation_without_result_is_directly_retryable(self):
+        runtime,button=self.runtime()
+        runtime.evaluation_settle_timeout=0
+        runtime.on_submission_rollback=Mock()
+        runtime.task=AsyncMock(side_effect=[{"game":{"status":0,"evaluate_count":0}},
+            {"game":{"status":0,"evaluate_count":1},"in_review":False,"sets_error_count":0}])
+        with self.assertRaises(ExperimentError) as failure: await runtime.evaluate()
+        self.assertFalse(failure.exception.unknown)
+        self.assertEqual(failure.exception.category,"evaluation_result_unwritten")
+        runtime.on_submission_rollback.assert_called_once()
+
+    async def test_started_evaluation_still_waits_instead_of_claiming_not_started(self):
+        runtime,button=self.runtime()
+        runtime.evaluation_start_timeout=0
+        runtime.evaluation_timeout=0.05
+        runtime.on_submission_rollback=Mock()
+        runtime.task=AsyncMock(side_effect=[{"game":{"status":0,"evaluate_count":0}},
+            {"game":{"status":0,"evaluate_count":1},"in_review":True}])
+        with self.assertRaises(ExperimentError) as failure: await runtime.evaluate()
+        self.assertTrue(failure.exception.unknown)
+        runtime.on_submission_rollback.assert_not_called()
+
+
+class FeedbackTrimmingTests(unittest.TestCase):
+    def test_long_details_are_trimmed_but_keep_head_and_tail(self):
+        details = "HEAD-" + "x" * 20000 + "-TAIL"
+        trimmed = trim_feedback({"details": details})
+
+        self.assertTrue(trimmed["details_truncated"])
+        self.assertLess(len(trimmed["details"]), 9000)
+        self.assertTrue(trimmed["details"].startswith("HEAD-"))
+        self.assertTrue(trimmed["details"].endswith("-TAIL"))
+
+    def test_short_details_and_missing_feedback_pass_through(self):
+        self.assertIsNone(trim_feedback(None))
+        original = {"details": "short"}
+        self.assertIs(trim_feedback(original), original)
+
+
+if __name__ == "__main__":
+    unittest.main()

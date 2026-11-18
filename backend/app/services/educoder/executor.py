@@ -18,6 +18,7 @@ from .client import EduCoderClient
 from .contracts import ContractError, identifier, site_url
 from ..tasks.spec import educoder_task_spec, CODE_EXTENSIONS
 from .code_contract import CodeContractError, fingerprint, validate_patch
+from .choices import answer_plan, build_answers, generate_choice_answers, parse_choice_response, parse_choices
 from .evaluation import EvaluationReport, failed_report, classify_evaluation
 
 
@@ -37,6 +38,57 @@ class ExperimentError(RuntimeError):
         super().__init__(message)
         self.interrupted, self.unknown = interrupted, unknown
         self.category = category
+
+
+CHOICE_BLANK_SELECTOR = "textarea.ant-input, input.ant-input[type=text], input.ant-input:not([type])"
+
+# Failures raised while selecting options, before the evaluate request is sent. The platform
+# never received a submission in these cases, so they stay directly retryable.
+CHOICE_PRE_SUBMIT_CATEGORIES = frozenset({"choice_browser", "choice_dom"})
+
+CHOICE_SELECT_SCRIPT = """(plan) => {
+  const blankSelector = \"""" + CHOICE_BLANK_SELECTOR + """\";
+  const items = [...document.querySelectorAll('ul.choose-container > li')];
+  if (items.length !== plan.length) return {ok:false, count:items.length, reason:`页面显示 ${items.length} 道题，与读取的 ${plan.length} 道不一致`};
+  for (let i = 0; i < items.length; i++) {
+    const answers = plan[i] || [];
+    if (answers.length && typeof answers[0] === 'string') {
+      const areas = [...items[i].querySelectorAll(blankSelector)];
+      if (areas.length !== answers.length) return {ok:false, reason:`第 ${i+1} 题填空数量与页面不一致`};
+      for (let j = 0; j < areas.length; j++) {
+        const element = areas[j];
+        const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(prototype, 'value').set;
+        setter.call(element, String(answers[j]));
+        element.dispatchEvent(new Event('input', {bubbles:true}));
+        element.dispatchEvent(new Event('change', {bubbles:true}));
+      }
+      continue;
+    }
+    const inputs = [...items[i].querySelectorAll('input[type=checkbox], input[type=radio]')];
+    if (inputs.length !== answers.length) return {ok:false, reason:`第 ${i+1} 题选项数量与页面不一致`};
+    for (let j = 0; j < inputs.length; j++) {
+      if (inputs[j].checked !== answers[j]) inputs[j].click();
+    }
+  }
+  return {ok:true, count: items.length};
+}"""
+
+CHOICE_VERIFY_SCRIPT = """(plan) => {
+  const blankSelector = \"""" + CHOICE_BLANK_SELECTOR + """\";
+  const items = [...document.querySelectorAll('ul.choose-container > li')];
+  if (items.length !== plan.length) return false;
+  return items.every((item, i) => {
+    const answers = plan[i] || [];
+    if (answers.length && typeof answers[0] === 'string') {
+      const areas = [...item.querySelectorAll(blankSelector)];
+      return areas.length === answers.length
+        && areas.every((element, j) => (element.value || '').trim() === String(answers[j]).trim());
+    }
+    const inputs = [...item.querySelectorAll('input[type=checkbox], input[type=radio]')];
+    return inputs.length === answers.length && inputs.every((element, j) => element.checked === answers[j]);
+  });
+}"""
 
 
 def repository_path(path):
@@ -90,14 +142,54 @@ class ExperimentRuntime:
         self.evaluation_payload = None
         self.next_task_id = None
         self.evaluation_timeout = 150
+        self.evaluation_start_timeout = 90
+        self.evaluation_settle_timeout = 120
         self.expected_files = {}
         self.control = None
         self.on_submission_start = None
+        self.on_submission_rollback = None
+
+    ONBOARDING_LABELS = ("跳过，我自己来", "跳过", "我知道了", "知道了")
+
+    async def dismiss_onboarding(self):
+        """平台新用户引导会覆盖详情页，只剩引导文案和一个跳过按钮。
+
+        此时页面根本没有「开启/继续挑战」，若直接等待只会超时并掩盖真实原因。
+        """
+        for label in self.ONBOARDING_LABELS:
+            target = self.page.get_by_role("button", name=label)
+            try:
+                if await target.count():
+                    await target.first.click(timeout=3000)
+                    await self.page.wait_for_timeout(700)
+                    return True
+            except Exception:
+                continue
+        return False
+
+    async def wait_for_challenge_button(self, *, timeout=60):
+        """平台详情页是单页应用，首屏可能先渲染引导层或空壳。
+
+        固定等 20 秒会把加载慢或引导遮挡误判成失败，这里轮询并持续尝试关闭引导。
+        """
+        button = self.page.get_by_role("button",name=re.compile(r"(?:开启|继续)挑战"))
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            try:
+                if await button.count() and await button.first.is_visible():
+                    return button.first
+            except Exception:
+                pass
+            await self.dismiss_onboarding()
+            if asyncio.get_running_loop().time() >= deadline:
+                raise ExperimentError(
+                    "课堂实验页未出现「开启/继续挑战」：平台可能仍在加载，或弹出了引导层；请检查网络后重试。",
+                    interrupted=True, category="educoder_onboarding")
+            await asyncio.sleep(2)
 
     async def open(self, detail_url):
         await self.page.goto(site_url(detail_url),wait_until="domcontentloaded",timeout=45000)
-        button = self.page.get_by_role("button",name=re.compile(r"(?:开启|继续)挑战"))
-        await button.wait_for(state="visible",timeout=20000)
+        button = await self.wait_for_challenge_button()
         async with self.page.context.expect_page(timeout=20000) as opened:
             await button.click()
         task_page = await opened.value
@@ -111,7 +203,7 @@ class ExperimentRuntime:
             # Keep the task's original tab as the sole viewer/control target.
             await self.page.goto(task_url,wait_until="domcontentloaded",timeout=45000)
         finally: await task_page.close()
-        data = await self.task()
+        data = await self.task_ready()
         self.instance_id = identifier(data.get("myshixun",{}).get("identifier"))
         editable = [path.strip() for path in re.split("[；;\n]",str(data["challenge"].get("path") or "")) if path.strip()]
         if any(data.get("shixun", {}).get(key) is True for key in ("vnc", "windows_vnc", "linux_vnc")):
@@ -146,12 +238,21 @@ class ExperimentRuntime:
             raise ContractError("平台返回的任务不属于当前课堂实验。")
         return data
 
+    async def task_ready(self, *, allow_pending=False, attempts=3):
+        """Retry only the incomplete-payload race that happens right after navigation."""
+        for attempt in range(attempts):
+            try:
+                return await self.task(allow_pending=allow_pending)
+            except ContractError as error:
+                if "实验运行数据不完整" not in str(error) or attempt + 1 >= attempts: raise
+                await asyncio.sleep(1)
+
     async def resume(self, expected_instance):
         parts = urlsplit(site_url(self.page.url)).path.strip('/').split('/')
         if len(parts) != 4 or parts[:3] != ['tasks', self.route_id, self.work_id]:
             raise ContractError('当前浏览器不在本任务的实验关卡中，未重新导航或覆盖人工操作。')
         self.task_id = identifier(parts[3]); self.instance_id = identifier(expected_instance)
-        data = await self.task()
+        data = await self.task_ready()
         paths = [repository_path(path.strip()) for path in re.split('[；;\n]', str(data['challenge'].get('path') or '')) if path.strip()]
         if data['game'].get('status') != 2 and data.get('in_review') is not True:
             has_editor = await self.page.locator('.monaco-editor').first.is_visible()
@@ -216,11 +317,13 @@ class ExperimentRuntime:
         self.task_id = task_id
         url = f"https://www.educoder.net/tasks/{self.route_id}/{self.work_id}/{self.task_id}?coursesId={self.route_id}"
         await self.page.goto(url,wait_until="domcontentloaded",timeout=30000)
-        data = await self.task()
+        data = await self.task_ready()
         if any(data.get("shixun", {}).get(key) is True for key in ("vnc", "windows_vnc", "linux_vnc")):
             await self.wait_for_desktop()
         elif data["challenge"].get("path") and not str(data["challenge"]["path"]).lower().endswith(".ipynb"):
             await self.page.locator(".monaco-editor").first.wait_for(state="visible",timeout=20000)
+        elif data.get("chooses"):
+            await self.page.locator("ul.choose-container > li").first.wait_for(state="visible",timeout=20000)
         return data
 
     async def open_stage(self, stage):
@@ -260,6 +363,93 @@ class ExperimentRuntime:
         if await self.read(path) != content: raise ExperimentError("保存后的代码回读不一致，请人工核对。")
         self.expected_files[path] = content
 
+    async def _apply_choice_plan(self, page, plan, attempts=5, interval=1000):
+        """Re-read the option list briefly; a mismatched count is often a late re-render.
+
+        Only a count of zero is retried. A non-zero mismatch means the platform data and the
+        rendered questions disagree, which repeated reads will not fix, so it is reported at once.
+        """
+        result = None
+        for attempt in range(attempts):
+            result = await page.evaluate(CHOICE_SELECT_SCRIPT, plan)
+            if isinstance(result, dict) and result.get("ok") is True:
+                return result
+            if not isinstance(result, dict) or result.get("count") != 0:
+                return result
+            if attempt + 1 < attempts:
+                await page.wait_for_timeout(interval)
+        return result
+
+    async def wait_for_choice_controls(self, expected, timeout=30000):
+        """Wait for the option list to render the expected number of questions."""
+        page = self.page
+        if page is None: return
+        try:
+            await page.wait_for_function(
+                """(expected) => {
+                    const items = document.querySelectorAll('ul.choose-container > li');
+                    return items.length >= expected;
+                }""",
+                arg=expected,
+                timeout=timeout,
+            )
+        except Exception:
+            # Report the real count rather than a generic timeout; fill_choices raises the detail.
+            return
+        await page.wait_for_timeout(200)
+
+    async def fill_choices(self, plan):
+        """Set the option controls on the real page without evaluating."""
+        if self.control: await self.control.wait_if_paused()
+        page = self.page
+        if page is None: raise ExperimentError("当前任务没有可交互的浏览器页面，未填写选择题。", category="choice_browser")
+        await self.wait_for_choice_controls(len(plan))
+        applied = await self._apply_choice_plan(page, plan)
+        if not isinstance(applied, dict) or applied.get("ok") is not True:
+            reason = applied.get("reason") if isinstance(applied, dict) else "页面结构无法确认"
+            raise ExperimentError(f"选择题页面结构与平台数据不一致，未填写：{reason}", category="choice_dom")
+        await page.wait_for_timeout(250)
+        confirmed = await page.evaluate(CHOICE_VERIFY_SCRIPT, plan)
+        if confirmed is not True:
+            raise ExperimentError("页面选项状态与预期答案不一致，未继续。", category="choice_dom")
+
+    async def submit_choices(self, plan, data):
+        """Select the answers on the real page and submit through its own evaluate button."""
+        page = self.page
+        if page is None: raise ExperimentError("当前任务没有可交互的浏览器页面，未提交选择题。", category="choice_browser")
+        # A leftover result dialog would swallow the evaluate click on a retry attempt.
+        try:
+            dialog = page.locator(".ant-modal-confirm-btns .ant-btn-primary")
+            if await dialog.count(): await dialog.first.click(timeout=2000)
+        except Exception:
+            pass
+        # Filling happens entirely before the evaluate request, so a failure here never
+        # reached the platform as a submission and must not be reported as unknown.
+        await self.fill_choices(plan)
+        future = asyncio.get_running_loop().create_future()
+        def on_response(response):
+            if "/choose_build.json" in response.url and not future.done():
+                future.set_result(response)
+        page.on("response", on_response)
+        try:
+            button = page.get_by_role("button", name=re.compile("评测"))
+            await button.first.wait_for(state="visible", timeout=20000)
+            await button.first.click(timeout=20000)
+            confirm = page.locator(".ant-modal-confirm-btns .ant-btn-primary")
+            try:
+                await confirm.first.wait_for(state="visible", timeout=3000)
+                await confirm.first.click(timeout=5000)
+            except Exception:
+                pass
+            response = await asyncio.wait_for(future, 90)
+            if not response.ok:
+                raise ExperimentError(f"头歌返回 HTTP {response.status}，未取得选择题回执。", category="choice_http")
+            payload = await response.json()
+            if not isinstance(payload, dict): raise ExperimentError("选择题回执不是结构化结果。", category="choice_http")
+            return payload
+        finally:
+            page.remove_listener("response", on_response)
+
     async def sync_editor(self, content):
         editor = self.page.locator(".monaco-editor[data-uri]:visible").first
         await editor.wait_for(state="visible",timeout=20000)
@@ -282,6 +472,61 @@ class ExperimentRuntime:
             if current != self.expected_files[path]: raise ExperimentError("刷新后文件已变化，未覆盖或继续评测。",category="concurrent_edit")
             await self.sync_editor(current)
 
+    async def attach_platform_output(self, report):
+        """Attach the expected/actual output block rendered on the result page.
+
+        The evaluation API only exposes compiler text and case flags, so a
+        failing design-style stage gives the repair loop no usable signal. The
+        result page shows the platform's own comparison, which is what the next
+        repair round actually needs in order to converge.
+        """
+        if report.status != "failed":
+            return report
+        selectors = (
+            '[id^="test-set-container"]',
+            '[class*="test-set-container"]',
+            '[id*="test-set"]',
+        )
+        probe = {"matched": "", "chars": 0, "error": ""}
+        text = ""
+        roots = [self.page]
+        try:
+            roots.extend(self.page.frames)
+        except Exception as failure:
+            probe["error"] = type(failure).__name__
+        for selector in selectors:
+            if text:
+                break
+            for root in roots:
+                try:
+                    locator = root.locator(selector)
+                    if await locator.count() == 0:
+                        continue
+                    candidate = await locator.first.text_content(timeout=3000)
+                except Exception as failure:
+                    probe["error"] = type(failure).__name__
+                    continue
+                candidate = " ".join(str(candidate or "").split())
+                if candidate:
+                    text = candidate
+                    probe["matched"] = selector
+                    probe["chars"] = len(candidate)
+                    break
+        evidence = dict(report.evidence or {})
+        evidence["platform_output_probe"] = probe
+        report.evidence = evidence
+        if not text:
+            return report
+        try:
+            payload = json.loads(report.details) if report.details else {}
+        except Exception:
+            payload = {"compiler": report.details}
+        if not isinstance(payload, dict):
+            payload = {"compiler": str(report.details)}
+        payload["platform_output"] = text[:4000]
+        report.details = json.dumps(payload, ensure_ascii=False)[:32000]
+        return report
+
     async def evaluate(self):
         pending = set()
         initial = await self.task()
@@ -295,15 +540,21 @@ class ExperimentRuntime:
         if existing: self.evaluation_sent = True
         ticket = {}
         poll_ready = False
+        build_seen = False
+        status_seen = False
+        build_state = {}
         async def observe(response):
-            nonlocal poll_ready
+            nonlocal poll_ready, build_seen, status_seen, build_state
             path = urlsplit(response.url).path
             try:
                 if path == f"/api/tasks/{self.task_id}/game_build.json" and response.request.method == "POST":
+                    build_seen = True
                     body = await response.json()
                     if isinstance(body, dict):
                         ticket.update({key: body[key] for key in ("resubmit", "sec_key", "port") if key in body})
+                        build_state.update({"status": body.get("status"), "message": str(body.get("message") or "")[:120]})
                 elif path == f"/api/tasks/{self.task_id}/game_status.json":
+                    status_seen = True
                     query = parse_qs(urlsplit(response.request.url).query)
                     if ticket.get("resubmit") is not None and str(ticket["resubmit"]) != str((query.get("resubmit") or [None])[0]): return
                     ticket.update({key:query[key][0] for key in ("resubmit","sec_key","port") if query.get(key)})
@@ -327,7 +578,9 @@ class ExperimentRuntime:
                 self.evaluation_sent = True
                 if self.on_submission_start: self.on_submission_start()
                 await button.click(timeout=20000)
-            deadline = asyncio.get_running_loop().time() + self.evaluation_timeout
+            probe = {}
+            started_at = asyncio.get_running_loop().time()
+            deadline = started_at + self.evaluation_timeout
             while asyncio.get_running_loop().time() < deadline:
                 if self.control: await self.control.wait_if_paused()
                 # The build ticket exists before the compute service has started.
@@ -338,6 +591,7 @@ class ExperimentRuntime:
                 if current is None:
                     await asyncio.sleep(1)
                     continue
+                probe = {"status": current["game"].get("status"), "evaluate_count": current["game"].get("evaluate_count"), "in_review": current.get("in_review"), "sets_error_count": current.get("sets_error_count")}
                 if current["game"].get("status") == 2:
                     self.evaluation_sent = False
                     if isinstance(self.evaluation_payload, dict): self.next_task_id = self.evaluation_payload.get("next_game")
@@ -347,17 +601,44 @@ class ExperimentRuntime:
                     count = current["game"].get("evaluate_count", 0)
                     if report.status == "failed" and type(count) is int and count > baseline:
                         self.evaluation_sent = False
-                        return report
+                        return await self.attach_platform_output(report)
                 count = current["game"].get("evaluate_count", 0)
                 failed_cases = any(isinstance(item,dict) and (item.get("result") is False or item.get("compile_success") is False or item.get("compile_success") == 0) for item in (current.get("test_sets") or []))
-                if type(count) is int and count > baseline and current.get("in_review") is False and (current.get("sets_error_count",0) > 0 or failed_cases):
+                if type(count) is int and count > baseline and current.get("in_review") is False and ((current.get("sets_error_count") or 0) > 0 or failed_cases):
                     report = classify_evaluation({**current,"status":0})
                     if report.status == "failed":
                         report.evidence["source"] = "task_state_readback"
                         self.evaluation_sent = False
-                        return report
+                        return await self.attach_platform_output(report)
+                if (self.evaluation_sent and not poll_ready and not status_seen
+                        and type(count) is int and count == baseline
+                        and asyncio.get_running_loop().time() - started_at >= self.evaluation_start_timeout):
+                    # 构建请求已发出，但平台既没有开始轮询状态，也没有增加评测次数：
+                    # 平台没有执行这次评测，不存在“结果未知”，无需人工核对即可重试。
+                    self.evaluation_sent = False
+                    if self.on_submission_rollback: self.on_submission_rollback()
+                    raise ExperimentError(
+                        "平台没有启动评测：构建请求已发出，但平台未返回评测进度、评测次数也没有增加。"
+                        "这通常是平台评测服务繁忙，稍后重试即可，代码已保留。",
+                        interrupted=True, unknown=False, category="evaluation_not_started")
+                if (self.evaluation_sent and type(count) is int and count > baseline
+                        and current.get("in_review") is False and not failed_cases
+                        and asyncio.get_running_loop().time() - started_at >= self.evaluation_settle_timeout):
+                    # 平台已记入评测次数，但既没有判失败也没有回写通过：结果不可得。
+                    # 评测是幂等的，直接重试即可，已通过的关卡会跳过。
+                    self.evaluation_sent = False
+                    if self.on_submission_rollback: self.on_submission_rollback()
+                    raise ExperimentError(
+                        f"平台已记录评测，但没有回写关卡结果（构建响应 {build_state.get('status')}/{build_state.get('message') or '-'}，"
+                        f"票据{'已取得' if poll_ready else '未取得'}）。代码已保留，可直接重试；已通过的关卡会跳过。",
+                        interrupted=True, unknown=False, category="evaluation_result_unwritten")
                 await asyncio.sleep(1)
-            raise ExperimentError("评测结果尚未确认，已保留代码和提交状态，未重复提交。", interrupted=True, unknown=True, category="evaluation_timeout")
+            probe_note = (f"探测：关卡状态 {probe.get('status')}，评测次数 {probe.get('evaluate_count')}，"
+                          f"审核中 {probe.get('in_review')}，构建请求{'已发出' if build_seen else '未观察到'}，"
+                          f"状态轮询{'已发出' if status_seen else '未观察到'}，"
+                          f"构建响应 {build_state.get('status')}/{build_state.get('message') or '-'}，"
+                          f"票据{'已取得' if poll_ready else '未取得'}")
+            raise ExperimentError(f"评测结果尚未确认（{probe_note}），已保留代码和提交状态，未重复提交。", interrupted=True, unknown=True, category="evaluation_timeout")
         except BaseException as error:
             if self.evaluation_sent and not isinstance(error, ExperimentError):
                 raise ExperimentError("评测可能已发出但回执未确认，已停止重交，请查询平台结果。", interrupted=True, unknown=True, category="evaluation_transport") from error
@@ -373,6 +654,9 @@ def bounded_code_model(llm):
     updates = {}
     if "client_params" in fields: updates["client_params"] = {**(llm.client_params or {}), "max_retries": 0}
     if "max_retries" in fields: updates["max_retries"] = 0
+    # 单次模型请求必须有上限：同一请求正常 30-60 秒完成，超过 2 分钟的
+    # 响应几乎都是上游抖动，快速失败并重试比继续等待更有效。
+    if "timeout" in fields: updates["timeout"] = 120.0
     return dataclasses.replace(llm, **updates) if updates else llm
 
 
@@ -383,6 +667,208 @@ def model_schema_error(error):
         current = getattr(current, "__cause__", None)
         if current is None: break
     return False
+
+
+def trim_feedback(feedback, limit=8000):
+    """限制修复轮带回去的失败详情，避免单次请求因上下文过大而超时。"""
+    if not isinstance(feedback, dict):
+        return feedback
+    details = feedback.get("details")
+    if not isinstance(details, str) or len(details) <= limit:
+        return feedback
+    head = details[: limit - 2000]
+    tail = details[-2000:]
+    return {
+        **feedback,
+        "details": head + "\n…（中间内容已省略）…\n" + tail,
+        "details_truncated": True,
+    }
+
+
+def model_empty_response(error):
+    """上游返回纯文本或空内容、没有工具调用时，判定为可重试的空响应。"""
+    current = error
+    for _ in range(6):
+        text = str(current).lower()
+        if (
+            "tool_calls" in text
+            or "tool calls" in text
+            or "empty response" in text
+            or "returned no content" in text
+            or "no message content" in text
+        ):
+            return True
+        current = getattr(current, "__cause__", None)
+        if current is None: break
+    return False
+
+
+async def settle_choice_verdict(runtime, control, questions, timeout=90, baseline=None):
+    """Read the stage back until the platform exposes a reviewable choice verdict."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        try:
+            current = await control.run(lambda: runtime.task(allow_pending=True))
+        except ContractError:
+            current = None
+        if isinstance(current, dict):
+            game = current.get("game") or {}
+            if game.get("status") == 2:
+                return {"status": "passed", "detail": "平台确认当前关卡已通过。"}
+            results = [item.get("result") for item in (current.get("test_sets") or []) if isinstance(item, dict)]
+            if results and all(result is not None for result in results):
+                if all(result is True for result in results):
+                    return {"status": "passed", "detail": "平台逐题回执全部正确。"}
+                return {"status": "failed", "detail": "平台逐题回执存在错误答案，需要重新审题。"}
+            count = game.get("evaluate_count")
+            # Choice stages do not expose per-question results; a new evaluation count with a
+            # still-unpassed stage is the platform's own "graded and failed" signal.
+            if baseline is not None and type(count) is int and count > baseline and current.get("in_review") is not True:
+                return {"status": "failed", "detail": "平台已记录本次评测但关卡未通过，需要重新审题。"}
+        if asyncio.get_running_loop().time() >= deadline:
+            return {"status": "unknown", "detail": "平台未在限定时间内返回可核实的评测结果。"}
+        await asyncio.sleep(1)
+
+
+async def execute_choice_stage(database, job, runtime, llm, emit, control, diagnostics, data, stage, total, passed, *, spec=None):
+    """Answer a pure-choice stage through the platform's own receipt, without touching code files."""
+    questions = parse_choices(data)
+    raw_choices = data.get("chooses") if isinstance(data.get("chooses"), list) else []
+    if not questions:
+        raise ExperimentError("未读取到可作答的选择题，已保留当前关卡。", category="choice_missing")
+    if len(questions) != len(raw_choices):
+        raise ExperimentError("当前关卡包含尚未支持的选择题类型，已保留现场，未部分提交。",
+            category="choice_unsupported")
+    challenge = data["challenge"]
+    description = str(challenge.get("task_pass") or challenge.get("description") or "")
+    name = str(stage.get("name") or challenge.get("subject") or "当前关卡")
+    await emit("educoder_read", "正在作答选择题：" + name, {"questions": len(questions), "route": "structured"})
+    attempts = min(int(spec.budget.max_model_calls) if spec else 4, 3)
+    if data.get("in_review") is True:
+        await emit("educoder_verifying", "当前关卡已有评测正在运行，先等待这次结果，不重复提交")
+        database.update_job(job["id"], submission_status="submitted_unverified")
+        verdict = await settle_choice_verdict(runtime, control, questions, timeout=180)
+        if verdict["status"] == "passed":
+            database.update_job(job["id"], submission_status="submitted_verified")
+            return None
+        if verdict["status"] == "unknown":
+            raise ExperimentError("原评测结果仍未确认，未重复提交。", interrupted=True, unknown=True,
+                category="choice_unverified")
+        database.update_job(job["id"], submission_status="not_submitted")
+    feedback = None
+    for attempt in range(attempts):
+        await control.wait_if_paused()
+        database.update_job(job["id"], phase="answering")
+        database.update_job(job["id"], submission_status="not_submitted")
+        try:
+            sheet = await control.run(lambda: generate_choice_answers(llm, description, questions, feedback))
+        except Exception as error:
+            diagnostics.record("educoder.choice_model_error", type(error).__name__, {"attempt": attempt + 1}, phase="answering")
+            if attempt + 1 >= attempts:
+                raise ExperimentError("选择题答案生成失败，未向平台提交。", category="choice_model") from error
+            feedback = {"correct": None, "total": len(questions)}
+            continue
+        try:
+            answers = build_answers(questions, sheet)
+        except ValueError as error:
+            diagnostics.record("educoder.choice_answer_invalid", str(error), {"attempt": attempt + 1}, phase="answering")
+            feedback = {"correct": None, "total": len(questions)}
+            continue
+        diagnostics.record("educoder.choice_request", data={"attempt": attempt + 1, "answers": answers,
+            "challenge_id": challenge.get("id")}, phase="answering")
+        plan = answer_plan(questions, answers)
+        if spec is not None and not spec.permissions.evaluate:
+            await control.run(lambda: runtime.fill_choices(plan))
+            await emit("draft_saved", "当前关卡选择题已填写，尚未评测", {"passed": passed, "total": total})
+            return {"status": "needs_intervention", "submission_status": "filled_pending_review",
+                "summary": f"当前关卡选择题已填写，尚未评测；已通过 {passed}/{total} 关。",
+                "total": total, "passed": passed}
+        baseline = int((data.get("game") or {}).get("evaluate_count") or 0)
+        database.update_job(job["id"], submission_status="submitted_unverified")
+        try:
+            payload = await control.run(lambda: runtime.submit_choices(plan, data))
+        except Exception as error:
+            # Only a failure after the evaluate click can leave the platform state unknown.
+            # Page-structure failures happen before any answer is selected, so the task
+            # never submitted and stays directly retryable.
+            if getattr(error, "category", "") in CHOICE_PRE_SUBMIT_CATEGORIES:
+                database.update_job(job["id"], submission_status="not_submitted")
+                diagnostics.record("educoder.choice_pre_submit_error", type(error).__name__,
+                    {"attempt": attempt + 1, "category": error.category}, phase="testing")
+                raise ExperimentError(f"选择题未填写成功，未向平台提交：{error}", interrupted=True,
+                    category="choice_pre_submit") from error
+            database.update_job(job["id"], submission_status="submission_unknown")
+            diagnostics.record("educoder.choice_transport_error", type(error).__name__, {"attempt": attempt + 1}, phase="testing")
+            raise ExperimentError("选择题提交结果未知，已停止重交，请在平台核对。",
+                interrupted=True, unknown=True, category="choice_submission_unknown") from error
+        verdict = parse_choice_response(payload, questions)
+        diagnostics.record("educoder.choice_response", verdict.get("detail", ""), {"attempt": attempt + 1, "verdict": verdict}, phase="testing")
+        if verdict["status"] == "passed":
+            # The receipt is optimistic; platform scoring can lag by minutes, so read both the
+            # stage payload and the challenge list before claiming the stage is passed.
+            deadline = asyncio.get_running_loop().time() + getattr(runtime, "choice_readback_timeout", 300)
+            probes = []
+            while True:
+                game_status = None
+                list_status = None
+                error = ""
+                try:
+                    current = await control.run(lambda: runtime.task(allow_pending=True))
+                except Exception as failure:
+                    current = None
+                    error = type(failure).__name__
+                if isinstance(current, dict):
+                    game_status = (current.get("game") or {}).get("status")
+                    if game_status == 2:
+                        break
+                try:
+                    stages = await control.run(runtime.challenges)
+                    for item in stages:
+                        if item.get("identifier") == runtime.task_id:
+                            list_status = item.get("status")
+                            break
+                    if list_status == 2:
+                        break
+                except Exception as failure:
+                    error = error or type(failure).__name__
+                probes.append({"game": game_status, "challenge": list_status, "error": error})
+                if asyncio.get_running_loop().time() >= deadline:
+                    diagnostics.record(
+                        "educoder.choice_readback_timeout",
+                        "回执通过但关卡状态未回读为通过",
+                        {"task_id": runtime.task_id, "probes": probes[-6:]},
+                        phase="testing",
+                    )
+                    # 平台回执已明确通过（game_original_status=2），回读只是状态同步滞后。
+                    # 这与「提交请求已发出但没收到回执」不同，不属于提交结果未知：
+                    # 重试时该关若已通过会跳过，未通过则重做，不会产生重复提交。
+                    database.update_job(job["id"], submission_status="not_submitted")
+                    raise ExperimentError("平台回执通过，但关卡状态尚未回读为通过；未重复提交，可直接重试继续。",
+                        interrupted=True, unknown=False, category="choice_readback")
+                await asyncio.sleep(2)
+            database.update_job(job["id"], submission_status="submitted_verified")
+            await emit("quiz_unit_filled", verdict["detail"], {"passed": passed + 1, "total": total})
+            return None
+        if verdict["status"] == "rejected":
+            database.update_job(job["id"], submission_status="not_submitted")
+            raise ExperimentError("头歌拒绝了选择题提交：" + verdict["detail"], category="choice_rejected")
+        if verdict["status"] == "unknown":
+            database.update_job(job["id"], submission_status="not_submitted")
+            settled = await settle_choice_verdict(runtime, control, questions, timeout=90, baseline=baseline)
+            if settled["status"] == "passed":
+                database.update_job(job["id"], submission_status="submitted_verified")
+                return None
+            if settled["status"] == "failed":
+                feedback = {**settled, "answers": answers}
+                await emit("educoder_repair", settled["detail"], {"attempt": attempt + 1, "max_attempts": attempts})
+                continue
+            raise ExperimentError("选择题提交后未取得可核实的评测结果，已停止重交，请在平台核对。",
+                interrupted=True, unknown=True, category="choice_unverified")
+        database.update_job(job["id"], submission_status="not_submitted")
+        feedback = {**verdict, "answers": answers}
+        await emit("educoder_repair", verdict["detail"], {"attempt": attempt + 1, "max_attempts": attempts})
+    raise ExperimentError(f"选择题连续 {attempts} 次未全部通过，已停止重试并保留当前关卡；下次点击重试会重新作答。",
+        category="choice_incorrect")
 
 
 async def execute_code_stage(database, job, runtime, llm, emit, control, diagnostics, data, stage, total, passed, *, workspace=None, desktop_llm_factory=None):
@@ -399,6 +885,8 @@ async def execute_code_stage(database, job, runtime, llm, emit, control, diagnos
         workspace.set_task_spec(spec)
     diagnostics.record("educoder.task_spec", data=spec.model_dump(mode="json"), phase="planning")
     if spec.blocker: raise ExperimentError(spec.blocker, category="unsupported_environment")
+    if spec.route == "structured":
+        return await execute_choice_stage(database, job, runtime, llm, emit, control, diagnostics, data, stage, total, passed, spec=spec)
     if spec.route == "desktop":
         if desktop_llm_factory is None: raise ExperimentError("请配置支持图像的桌面模型后继续。", category="desktop_model")
         from .desktop import execute_desktop_stage
@@ -425,14 +913,17 @@ async def execute_code_stage(database, job, runtime, llm, emit, control, diagnos
     diagnostics.snapshot("educoder-stage-context", {"task_spec": spec.model_dump(mode="json"), "description": description, "files": files}, content=True)
     expected = dict(files)
     feedback, evaluations, model_calls, schema_repairs = pending_feedback, 0, 0, 0
-    if data.get("in_review") is False and data.get("game",{}).get("evaluate_count",0) > 0 and data.get("sets_error_count",0) > 0:
+    if data.get("in_review") is False and (data.get("game",{}).get("evaluate_count") or 0) > 0 and (data.get("sets_error_count") or 0) > 0:
         previous = classify_evaluation({**data,"status":0})
         if previous.repairable:
+            attach = getattr(runtime, "attach_platform_output", None)
+            if attach is not None:
+                previous = await attach(previous)
             feedback = {**previous.as_dict(),"historical":True,"artifact_relationship":"unknown", "instruction":"这是上次评测的失败；当前文件可能已修改，请先核对当前实现，不要原样重复失败动作。"}
             diagnostics.record("educoder.previous_failure", previous.summary, feedback)
     evaluated_hashes = set()
     llm = bounded_code_model(llm)
-    async def operation(code, factory, *, path=None, timeout=40):
+    async def operation(code, factory, *, path=None, timeout=120):
         async def invoke():
             async with asyncio.timeout(timeout): return await factory()
         try:
@@ -461,9 +952,10 @@ async def execute_code_stage(database, job, runtime, llm, emit, control, diagnos
                     "保留包名、导入、类型、测试框架和依赖；不读取或修改隐藏评测器，不直接打印预期答案，不伪造回执。"
                     "依据当前要求和真实失败报告做最小修改，优先修复根因。返回完整文件、简短修改说明及少量可验证检查点，不输出隐藏思考。"
                     "Notebook 必须保持单元顺序、非代码单元、元数据、输出和执行计数，只修改可编辑代码单元的 source。"
-                    "模型的检查点只是建议，不代表已执行或已通过。"),
+                    "模型的检查点只是建议，不代表已执行或已通过。"
+                    "先给出结论再直接输出结构化结果，不要在正文中展开长篇推演。"),
                 UserMessage(content=json.dumps({"task_spec": spec.model_dump(mode="json"), "task": description,
-                    "files": latest, "previous_failure": feedback, "remaining_repairs": spec.budget.max_model_calls - model_calls}, ensure_ascii=False))
+                    "files": latest, "previous_failure": trim_feedback(feedback), "remaining_repairs": spec.budget.max_model_calls - model_calls}, ensure_ascii=False))
             ], output_format=CodePatch))
             changes = response.completion
             if not isinstance(changes, CodePatch): changes = CodePatch.model_validate(changes)
@@ -472,6 +964,10 @@ async def execute_code_stage(database, job, runtime, llm, emit, control, diagnos
             if model_schema_error(error) and schema_repairs < 1 and model_calls < spec.budget.max_model_calls:
                 schema_repairs += 1; feedback = {"kind": "model_schema", "details": "上次返回未符合 CodePatch JSON 协议；请只返回 summary、files(path/content)、checks。"}
                 await emit("educoder_repairing", "模型输出格式不符，正在进行一次协议修复", {"model_calls": model_calls})
+                continue
+            if model_empty_response(error) and schema_repairs < 1 and model_calls < spec.budget.max_model_calls:
+                schema_repairs += 1; feedback = {"kind": "model_empty_response", "details": "上次请求没有返回结构化结果。请只返回 summary、files(path/content)、checks，不输出解释性正文或 Markdown 代码围栏。"}
+                await emit("educoder_repairing", "模型未返回结构化结果，正在重新请求", {"model_calls": model_calls})
                 continue
             raise ExperimentError("代码模型请求或结构化输出失败，尚未继续写入，请检查模型日志。", interrupted=True, category="model_protocol") from error
         usage = getattr(response, "usage", None)
@@ -575,6 +1071,7 @@ async def execute_experiment(database,job,session,llm,emit,control,diagnostics,*
     try:
         runtime.control = control
         runtime.on_submission_start = lambda: database.update_job(job["id"],submission_status="submitted_unverified")
+        runtime.on_submission_rollback = lambda: database.update_job(job["id"],submission_status="not_submitted")
         if runtime.client:
             from .contracts import experiment_record
             assignment = database.get_assignment(job["assignment_id"])
@@ -636,7 +1133,14 @@ async def execute_experiment(database,job,session,llm,emit,control,diagnostics,*
                 desktop_llm_factory=desktop_llm_factory,
             )
             if outcome is not None: return outcome
-            confirmed = await control.run(runtime.challenges)
+            confirmed = None
+            for attempt in range(5):
+                try:
+                    confirmed = await control.run(runtime.challenges)
+                    break
+                except Exception:
+                    if attempt == 4: raise
+                    await asyncio.sleep(2)
             if not any(item.get("identifier") == runtime.task_id and item.get("status") == 2 for item in confirmed):
                 raise ExperimentError("评测报告通过，但关卡回读未通过；未重复评测。", interrupted=True, unknown=True)
             passed = sum(item.get("status") == 2 for item in confirmed)
