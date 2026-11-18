@@ -24,7 +24,6 @@ from ..version import __version__
 SCHEMA_VERSION = 1
 MAX_EVENT_BYTES = 65536
 MAX_EVIDENCE_BYTES = 2 * 1024 * 1024
-ROTATE_BYTES = 2 * 1024 * 1024
 logger = logging.getLogger("mumu.diagnostics")
 LOCK = threading.RLock()
 FINAL = {"completed", "stopped", "interrupted", "failed", "incomplete", "needs_intervention"}
@@ -123,19 +122,6 @@ class Trace(NullTrace):
             if not isinstance(self.manifest, dict): raise ValueError("Invalid diagnostic manifest")
             self.sequence = int(self.manifest.get("last_sequence", 0))
         self.manifest.setdefault("main_log_started_at", now())
-        for path in (folder / "events.jsonl", folder / "events.1.jsonl"):
-            if not path.is_file(): continue
-            if path.is_symlink() or path.stat().st_size > 3 * 1024 * 1024: raise ValueError("Invalid diagnostic journal")
-            raw = path.read_bytes()
-            for line in reversed(raw.splitlines()):
-                try:
-                    record = json.loads(line)
-                    if not isinstance(record, dict): continue
-                    self.sequence = max(self.sequence, int(record.get("sequence", 0)))
-                    break
-                except (ValueError, TypeError): continue
-            if raw and not raw.endswith(b"\n"):
-                with path.open("ab") as output: output.write(b"\n")
 
     def _write_json(self, name, value):
         target = self.folder / name
@@ -168,8 +154,8 @@ class Trace(NullTrace):
                 "task": self.scrubber.clean(task), "authentication": self.scrubber.clean(auth_summary(account)),
                 "model": self.scrubber.clean({"base_url": settings.openai_base_url, "model": settings.openai_model,
                     "fallback_model": settings.openai_fallback_model, "reasoning_effort": settings.reasoning_effort}),
-                "limits": {"event_bytes": MAX_EVENT_BYTES, "evidence_bytes": MAX_EVIDENCE_BYTES, "rotation_bytes": ROTATE_BYTES, "rotation_files": 3},
-                "log_storage": {"current": "main.log", "archive": "oldmain.log", "rotation": "local_calendar_day"},
+                "limits": {"event_bytes": MAX_EVENT_BYTES, "evidence_bytes": MAX_EVIDENCE_BYTES},
+                "log_storage": {"current": "main.log", "archive": "oldmain.log", "rotation": "local_calendar_day", "events": "main_log_only"},
                 "process_session": uuid.uuid4().hex, "last_sequence": self.sequence})
             self._write_json("manifest.json", self.manifest)
             self._append_task_log(self._log_entry("task.context", self.manifest))
@@ -188,15 +174,6 @@ class Trace(NullTrace):
             if len(raw) > MAX_EVENT_BYTES:
                 value["data"] = {"omitted": "event_size_limit", "original_bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
                 value["message"] = value["message"][:2000]; raw = encoded(value)
-            path = self.folder / "events.jsonl"
-            if path.exists() and path.stat().st_size + len(raw) > ROTATE_BYTES:
-                oldest = self.folder / "events.2.jsonl"
-                oldest.unlink(missing_ok=True)
-                previous = self.folder / "events.1.jsonl"
-                if previous.exists(): os.replace(previous, oldest)
-                os.replace(path, previous)
-                self.manifest["events_rotated"] = True
-            with path.open("ab") as output: output.write(raw + b"\n")
             self._append_task_log(value)
             self.manifest.update(last_sequence=self.sequence, updated_at=value["timestamp"])
             if state: self.manifest["state"] = state

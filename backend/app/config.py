@@ -9,7 +9,12 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .product import DATA_DIRECTORY, DATABASE_FILENAME, LEGACY_DATA_DIRECTORY
+from .product import (
+    DATA_DIRECTORY,
+    DATABASE_FILENAME,
+    LEGACY_DATA_DIRECTORY,
+    LEGACY_DATABASE_FILENAME,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -110,6 +115,85 @@ def _canonical_path(path: Path) -> Path:
     return path.resolve()
 
 
+def _database_has_accounts(path: Path) -> bool:
+    """Return True when ``path`` is a readable database that already holds account rows."""
+    if not path.is_file() or path.stat().st_size == 0:
+        return False
+    try:
+        connection = sqlite3.connect(str(_long_path(path)), timeout=5)
+    except sqlite3.Error:
+        return False
+    try:
+        row = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='accounts'"
+        ).fetchone()
+        return row is not None
+    except sqlite3.Error:
+        return False
+    finally:
+        connection.close()
+
+
+def promote_database_filename(root: Path) -> int:
+    """Rename the legacy database files in place without overwriting newer data.
+
+    Returns the number of files moved. A populated target always wins: if both the
+    legacy and current database are present, the legacy file is left untouched so a
+    half-finished migration can be inspected instead of silently losing rows. An
+    empty target shell (for example one created before the rename shipped) is
+    discarded so the real data is not hidden behind it.
+    """
+    target = root / DATABASE_FILENAME
+    legacy_main = root / LEGACY_DATABASE_FILENAME
+    if target.is_file() and legacy_main.is_file():
+        if not _database_has_accounts(target) and _database_has_accounts(legacy_main):
+            logger.warning(
+                "Discarding empty current database so the legacy database can be promoted",
+                extra={
+                    "diagnostic_code": "mumu.database.filename_empty_shell",
+                    "diagnostic_data": {"current": str(target), "legacy": str(legacy_main)},
+                },
+            )
+            for suffix in ("", "-wal", "-shm"):
+                shell = root / f"{target.name}{suffix}"
+                if shell.is_file():
+                    shell.unlink()
+    moved = 0
+    for suffix in ("", "-wal", "-shm"):
+        legacy = root / f"{LEGACY_DATABASE_FILENAME}{suffix}"
+        destination = root / f"{target.name}{suffix}"
+        if not legacy.is_file():
+            continue
+        if destination.exists():
+            logger.warning(
+                "Legacy database file kept because the current database already exists",
+                extra={
+                    "diagnostic_code": "mumu.database.filename_conflict",
+                    "diagnostic_data": {"legacy": str(legacy), "current": str(destination)},
+                },
+            )
+            continue
+        legacy.replace(destination)
+        moved += 1
+    if moved:
+        logger.info(
+            "Legacy database filename migrated",
+            extra={
+                "diagnostic_code": "mumu.database.filename_migrated",
+                "diagnostic_data": {"root": str(root), "files": moved},
+            },
+        )
+    return moved
+
+
+def migrate_database_filename(root: Path) -> Path:
+    """Ensure ``root`` uses the current database filename, migrating old installs."""
+    resolved = root.expanduser()
+    if resolved.is_dir():
+        promote_database_filename(resolved)
+    return resolved
+
+
 def _rebind_database_paths(
     database: Path,
     source: Path,
@@ -189,6 +273,7 @@ def migrate_legacy_data_root(target: Path, *, source: Path | None = None) -> Pat
     if source == target or not source.is_dir():
         return target
     if target.exists() and any(target.iterdir()):
+        promote_database_filename(target)
         updated = _rebind_database_paths(
             target / DATABASE_FILENAME,
             source,
@@ -212,6 +297,7 @@ def migrate_legacy_data_root(target: Path, *, source: Path | None = None) -> Pat
         shutil.copytree(_long_path(source), _long_path(staging), symlinks=True)
         if _tree_stats(_long_path(source)) != _tree_stats(_long_path(staging)):
             raise OSError("迁移后的文件数量或大小与旧目录不一致")
+        promote_database_filename(staging)
         updated = _rebind_database_paths(
             staging / DATABASE_FILENAME,
             source,
@@ -267,16 +353,24 @@ class Settings:
         return self.data_root / DATABASE_FILENAME
 
     @property
-    def profiles_root(self) -> Path:
-        return self.data_root / "profiles"
+    def accounts_root(self) -> Path:
+        return self.data_root / "accounts"
 
-    @property
-    def artifacts_root(self) -> Path:
-        return self.data_root / "artifacts"
+    def account_root(self, account_id: str) -> Path:
+        return self.accounts_root / str(account_id)
 
-    @property
-    def task_workspaces_root(self) -> Path:
-        return self.data_root / "task-workspaces"
+    def account_profile_dir(self, account_id: str) -> Path:
+        """账号的 Chrome 用户数据目录。"""
+        return self.account_root(account_id) / "browser"
+
+    def account_tasks_root(self, account_id: str) -> Path:
+        return self.account_root(account_id) / "tasks"
+
+    def account_artifacts_root(self, account_id: str) -> Path:
+        return self.account_root(account_id) / "artifacts"
+
+    def account_attendance_dir(self, account_id: str) -> Path:
+        return self.account_root(account_id) / "attendance"
 
     @property
     def secrets_root(self) -> Path:
@@ -289,9 +383,7 @@ class Settings:
     def ensure_directories(self) -> None:
         for path in (
             self.data_root,
-            self.profiles_root,
-            self.artifacts_root,
-            self.task_workspaces_root,
+            self.accounts_root,
             self.secrets_root,
             self.logs_root,
         ):

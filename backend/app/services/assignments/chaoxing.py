@@ -141,9 +141,9 @@ async def _login_account(database: Database, account_id: str, settings: Any) -> 
                 "message": "授权已更新" if authorized["id"] != account_id else "授权完成",
             }
             if authorized["id"] != account_id:
-                profile = Path(account["profile_dir"]).resolve()
-                if profile == (settings.profiles_root / account_id).resolve():
-                    shutil.rmtree(profile, ignore_errors=True)
+                account_dir = settings.account_root(account_id).resolve()
+                if account_dir.parent == settings.accounts_root.resolve() and account_dir.is_dir():
+                    shutil.rmtree(account_dir, ignore_errors=True)
     except Exception as error:
         database.update_account(
             account_id,

@@ -16,7 +16,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 import httpx
 
-from .config import settings
+from .config import migrate_database_filename, settings
+from .data_layout import upgrade_layout
 from .preferences import PreferencesUpdate, AccountSchedule, load_preferences, collection_interval_seconds
 from .onboarding import OnboardingUpdate, complete_onboarding, load_onboarding
 from .services.assignments.automation import save_preferences, record_discovery, pending_assignments, mark_pending, automation_status
@@ -46,6 +47,7 @@ from .product import PRODUCT_NAME
 from .services.platforms import platform_registry
 from .services.platforms.catalog import platform_spec, platform_url, require_business
 from .services.accounts import auth as platform_auth
+from .services.runtime.profile_cache import prune_accounts
 from .services.tasks.runner import (
     capture_job_snapshot,
     close_preserved_sessions,
@@ -78,6 +80,7 @@ from .services.agents.config import (
     load_agent_model_config,
     resolve_provider_secret,
     save_agent_model_config,
+    save_multi_provider_config,
 )
 from .services.agents.gateway import ModelGateway
 from .services.agents.assistant import MumuAssistant
@@ -104,6 +107,7 @@ from .diagnostics.routes import diagnostic_router, install_request_diagnostics
 
 
 settings.ensure_directories()
+migrate_database_filename(settings.data_root)
 configure_logging(settings)
 logger = logging.getLogger("mumu")
 database = Database(settings)
@@ -148,6 +152,8 @@ def job_payload(job: dict[str, Any]) -> dict[str, Any]:
 _collection_locks: dict[str, asyncio.Lock] = {}
 _scheduled_collection_tasks: dict[str, asyncio.Task] = {}
 _assignment_group_scan_tasks: dict[str, asyncio.Task] = {}
+# 单次采集的整体上限。超过后中止，避免浏览器通道卡住时占用账号与采集锁。
+COLLECTION_TIMEOUT_SECONDS = 600
 
 
 def collection_lock(account_id: str) -> asyncio.Lock:
@@ -336,6 +342,8 @@ async def run_memory_maintenance() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     database.initialize()
+    upgrade_layout(settings.data_root)
+    asyncio.create_task(asyncio.to_thread(prune_accounts, settings.accounts_root))
     migrate_legacy_schedules(database)
     load_agent_model_config(database, settings)
     database.mark_interrupted_jobs()
@@ -517,9 +525,14 @@ class TestWebhookRequest(BaseModel):
 
 class ModelConfigRequest(BaseModel):
     provider_name: str = "ssh"
-    base_url: str = Field(min_length=1)
+    # 多供应商保存只提交 providers 数组；单供应商兼容路径仍要求地址非空。
+    base_url: str = ""
     api_key: str = ""
     models: list[str] = Field(default_factory=list)
+    providers: list[dict[str, Any]] | None = None
+    provider_id: str = ""
+    api_format: str = "openai"
+    use_responses_api: bool = False
     reasoning_effort: str = "high"
     roles: dict[str, list[str]] | None = None
     capabilities: dict[str, list[str]] | None = None
@@ -621,6 +634,75 @@ def get_model_config() -> dict[str, Any]:
         "queue_limit": 50,
         "cooldown_seconds": 30,
     }
+
+
+def model_providers_view() -> list[dict[str, Any]]:
+    """返回供应商列表视图：顺序即全局回退顺序，第一个为默认供应商。"""
+    data_settings = getattr(database, "settings", settings)
+    agent_config = load_agent_model_config(database, data_settings)
+    if not agent_config:
+        return [
+            {
+                "id": "default",
+                "name": "ssh" if "sshzyu" in settings.openai_base_url else "custom",
+                "base_url": settings.openai_base_url,
+                "api_format": "openai",
+                "use_responses_api": False,
+                "models": [settings.openai_model],
+                "api_key_configured": bool(settings.openai_api_key),
+                "default": True,
+                "enabled": True,
+            }
+        ]
+    providers = sorted(
+        agent_config.providers,
+        key=lambda item: (item.priority, item.id),
+    )
+    result: list[dict[str, Any]] = []
+    for index, provider in enumerate(providers):
+        try:
+            api_key = resolve_provider_secret(database, data_settings, provider)
+        except SecretStoreError:
+            api_key = ""
+        result.append(
+            {
+                "id": provider.id,
+                "name": provider.name,
+                "base_url": provider.base_url,
+                "api_format": provider.api_format,
+                "use_responses_api": provider.use_responses_api,
+                "models": [
+                    item.model
+                    for item in agent_config.models
+                    if item.provider_id == provider.id
+                ],
+                "api_key_configured": bool(api_key),
+                "default": index == 0,
+                "enabled": provider.enabled,
+            }
+        )
+    return result
+
+
+def model_request_api_key(payload) -> str:
+    """解析请求使用的密钥：显式提交优先，其次该供应商已保存的密钥。"""
+    api_key = str(getattr(payload, "api_key", "") or "").strip()
+    if api_key:
+        return api_key
+    data_settings = getattr(database, "settings", settings)
+    provider_id = str(getattr(payload, "provider_id", "") or "").strip()
+    if provider_id:
+        agent_config = load_agent_model_config(database, data_settings)
+        if agent_config:
+            try:
+                return resolve_provider_secret(
+                    database,
+                    data_settings,
+                    agent_config.provider(provider_id),
+                )
+            except (KeyError, SecretStoreError):
+                pass
+    return get_model_config()["api_key"]
 
 
 def current_memory_service() -> MemoryService:
@@ -810,14 +892,12 @@ async def get_model_settings() -> dict[str, Any]:
         "tokens_per_minute": config["tokens_per_minute"],
         "queue_limit": config["queue_limit"],
         "cooldown_seconds": config["cooldown_seconds"],
+        "providers": model_providers_view(),
     }
 
 
 @app.put("/api/model-config")
 async def save_model_settings(payload: ModelConfigRequest) -> dict[str, Any]:
-    models = [item.strip() for item in payload.models if item.strip()]
-    if not models:
-        raise HTTPException(status_code=400, detail="至少添加一个模型")
     reasoning_effort = payload.reasoning_effort.strip().lower()
     if reasoning_effort not in {
         "none",
@@ -829,27 +909,43 @@ async def save_model_settings(payload: ModelConfigRequest) -> dict[str, Any]:
     }:
         raise HTTPException(status_code=400, detail="不支持的思考强度")
     try:
-        config = save_agent_model_config(
-            database,
-            getattr(database, "settings", settings),
-            provider_name=payload.provider_name.strip() or "custom",
-            base_url=payload.base_url.rstrip("/"),
-            api_key=payload.api_key,
-            models=models,
-            reasoning_effort=reasoning_effort,
-            capabilities_by_model=payload.capabilities,
-            role_models=payload.roles,
-            max_concurrency=payload.max_concurrency,
-            requests_per_minute=payload.requests_per_minute,
-            tokens_per_minute=payload.tokens_per_minute,
-            queue_limit=payload.queue_limit,
-            cooldown_seconds=payload.cooldown_seconds,
-        )
+        if payload.providers is not None:
+            config = save_multi_provider_config(
+                database,
+                getattr(database, "settings", settings),
+                providers=payload.providers,
+                reasoning_effort=reasoning_effort,
+                capabilities_by_model=payload.capabilities,
+                role_models=payload.roles,
+            )
+        else:
+            models = [item.strip() for item in payload.models if item.strip()]
+            if not models:
+                raise HTTPException(status_code=400, detail="至少添加一个模型")
+            config = save_agent_model_config(
+                database,
+                getattr(database, "settings", settings),
+                provider_name=payload.provider_name.strip() or "custom",
+                base_url=payload.base_url.rstrip("/"),
+                api_key=payload.api_key,
+                models=models,
+                reasoning_effort=reasoning_effort,
+                capabilities_by_model=payload.capabilities,
+                role_models=payload.roles,
+                max_concurrency=payload.max_concurrency,
+                requests_per_minute=payload.requests_per_minute,
+                tokens_per_minute=payload.tokens_per_minute,
+                queue_limit=payload.queue_limit,
+                cooldown_seconds=payload.cooldown_seconds,
+                api_format=payload.api_format,
+                use_responses_api=payload.use_responses_api,
+            )
     except (ValueError, SecretStoreError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return {
         "ok": True,
-        "models": models,
+        "models": [item.model for item in config.models],
+        "providers": model_providers_view(),
         "roles": {
             role.value: [
                 config.model(model_id).model
@@ -862,13 +958,18 @@ async def save_model_settings(payload: ModelConfigRequest) -> dict[str, Any]:
 
 @app.post("/api/model-config/fetch-models")
 async def fetch_provider_models(payload: ModelConfigRequest) -> dict[str, Any]:
-    config = get_model_config()
-    api_key = payload.api_key.strip() or config["api_key"]
+    api_key = model_request_api_key(payload)
+    headers = {"Authorization": f"Bearer {api_key}"}
+    if payload.api_format == "anthropic":
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        }
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.get(
                 f"{payload.base_url.rstrip('/')}/models",
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers=headers,
             )
             response.raise_for_status()
             data = response.json()
@@ -894,19 +995,33 @@ async def fetch_provider_models(payload: ModelConfigRequest) -> dict[str, Any]:
 
 @app.post("/api/model-config/test")
 async def test_provider_model(payload: ModelConfigRequest) -> dict[str, Any]:
-    config = get_model_config()
-    api_key = payload.api_key.strip() or config["api_key"]
-    model = (payload.models or config["models"])[0]
+    api_key = model_request_api_key(payload)
+    candidates = [item for item in (payload.models or []) if str(item).strip()]
+    if not candidates and payload.provider_id:
+        data_settings = getattr(database, "settings", settings)
+        agent_config = load_agent_model_config(database, data_settings)
+        if agent_config:
+            candidates = [
+                item.model
+                for item in agent_config.models
+                if item.provider_id == payload.provider_id
+            ]
+    if not candidates:
+        candidates = get_model_config()["models"]
+    if not candidates:
+        raise HTTPException(status_code=400, detail="请先填写至少一个模型")
     try:
         await ModelGateway.probe_completion(
             database,
             role="verifier_assist",
             attempt_id=f"model-config-test:{datetime.now(timezone.utc).isoformat()}",
-            provider_id="default",
-            model=model,
+            provider_id=payload.provider_id or "default",
+            model=candidates[0],
             base_url=payload.base_url.rstrip("/"),
             api_key=api_key,
             messages=[{"role": "user", "content": "只回复 OK"}],
+            api_format=payload.api_format,
+            use_responses_api=payload.use_responses_api,
         )
     except httpx.HTTPStatusError as error:
         detail = error.response.text.strip()[:500]
@@ -1090,7 +1205,7 @@ async def get_account_avatar(account_id: str):
     try: account = database.get_account(account_id)
     except KeyError as error: raise HTTPException(404,"账号不存在") from error
     avatar = (Path(account["profile_dir"])/"avatar.bin").resolve()
-    if not avatar.is_relative_to(database.settings.profiles_root.resolve()) or not avatar.is_file() or account.get("avatar_mime") not in {"image/png","image/jpeg","image/webp"}:
+    if not avatar.is_relative_to(database.settings.accounts_root.resolve()) or not avatar.is_file() or account.get("avatar_mime") not in {"image/png","image/jpeg","image/webp"}:
         raise HTTPException(404,"平台头像尚未同步")
     return FileResponse(avatar,media_type=account["avatar_mime"],headers={"Cache-Control":"private, max-age=3600","X-Content-Type-Options":"nosniff"})
 
@@ -1141,7 +1256,7 @@ async def delete_account(account_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="该账号正在执行授权写入")
     try:
         database.delete_account(account_id)
-        shutil.rmtree(account["profile_dir"], ignore_errors=True)
+        shutil.rmtree(database.settings.account_root(account_id), ignore_errors=True)
     finally:
         database.release_resource_leases(lease_owner)
     return {"ok": True}
@@ -1356,9 +1471,26 @@ async def _perform_collection_locked(account_id: str, academic_year: int, *, sch
         database.update_collection_run(run["id"], **fields)
 
     try:
-        report = await platform_registry.get(account["platform"]).collect_assignments(
-            database, account_id, academic_year, run_id=run["id"], progress=update_progress,
+        async with asyncio.timeout(COLLECTION_TIMEOUT_SECONDS):
+            report = await platform_registry.get(account["platform"]).collect_assignments(
+                database, account_id, academic_year, run_id=run["id"], progress=update_progress,
+            )
+    except TimeoutError as error:
+        message = (
+            f"采集超过 {COLLECTION_TIMEOUT_SECONDS // 60} 分钟未完成，已中止。"
+            "请检查网络与浏览器状态后重新采集。"
         )
+        database.finish_collection_run(
+            run["id"],
+            "failed",
+            total_courses=0,
+            processed_courses=0,
+            failed_courses=0,
+            assignment_count=0,
+            submittable_count=0,
+            error=message,
+        )
+        raise RuntimeError(message) from error
     except Exception as error:
         database.finish_collection_run(
             run["id"],

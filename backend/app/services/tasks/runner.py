@@ -21,6 +21,8 @@ from browser_use.config import CONFIG
 from browser_use.llm.deepseek.chat import ChatDeepSeek
 from browser_use.llm.openai.chat import ChatOpenAI
 from browser_use.tools.service import Tools
+
+from ..agents.provider_chat import AnthropicMessagesChat, ResponsesChatOpenAI
 import browser_use.utils as browser_use_utils
 
 from ...config import Settings
@@ -368,7 +370,30 @@ def _build_agent_llm(
     *,
     temperature: float,
     max_retries: int,
+    api_format: str = "openai",
+    use_responses_api: bool = False,
 ) -> Any:
+    if api_format == "anthropic":
+        return AnthropicMessagesChat(
+            model=model,
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            temperature=temperature,
+            max_tokens=8192,
+            timeout=180,
+            max_retries=max_retries,
+        )
+    if use_responses_api:
+        return ResponsesChatOpenAI(
+            model=model,
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            temperature=temperature,
+            timeout=180,
+            max_retries=max_retries,
+            max_completion_tokens=8192,
+            reasoning_effort=_reasoning_effort(settings),
+        )
     if "deepseek" in model.lower():
         return ReasoningDeepSeekChat(
             model=model,
@@ -420,6 +445,8 @@ def _build_task_llm(
             temperature=temperature,
             # Route-level retry is owned by the model gateway.
             max_retries=0,
+            api_format=resolved.provider.api_format,
+            use_responses_api=resolved.provider.use_responses_api,
         )
 
     llm = gateway.build_route(
@@ -1596,7 +1623,7 @@ async def run_job(
 ) -> None:
     job = database.get_job(job_id)
     account = database.get_account(job["account_id"])
-    artifact_dir = settings.artifacts_root / job_id
+    artifact_dir = settings.account_artifacts_root(job["account_id"]) / job_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
     current_stage = "任务初始化"
     last_known_url = ""

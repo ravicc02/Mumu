@@ -54,6 +54,18 @@ class DiagnosticTests(unittest.TestCase):
 
     def tearDown(self): self.temp.cleanup()
 
+    def trace_events(self, identifier=None):
+        target = identifier or self.job['id']
+        rows = []
+        for name in ('main.log', 'oldmain.log'):
+            path = self.settings.logs_root / name
+            if not path.is_file(): continue
+            rows.extend(
+                row for row in iter_records(path.read_text(encoding='utf-8').splitlines(keepends=True))
+                if row.get('trace_id') == target and row.get('code') != 'runtime.log'
+            )
+        return rows
+
     def test_benign_provider_resource_failures_are_not_recorded_as_task_warnings(self):
         self.assertFalse(useful_request_failure(
             'https://mooc1.chaoxing.com/work.cssx',
@@ -139,7 +151,7 @@ class DiagnosticTests(unittest.TestCase):
 
     def test_task_creation_and_controls_are_automatically_journaled_with_correlation(self):
         self.db.add_event(self.job['id'], 'paused', 'Manual pause', {'unit_id':'q28:r1','step':4})
-        lines = [json.loads(line) for line in (self.trace.folder/'events.jsonl').read_text(encoding='utf-8').splitlines()]
+        lines = [row for row in self.trace_events() if isinstance(row.get('sequence'), int)]
         self.assertEqual(lines[0]['code'], 'task.created')
         self.assertEqual(lines[-1]['code'], 'assignment.paused')
         self.assertEqual(lines[-1]['trace_id'], self.job['id'])
@@ -160,7 +172,7 @@ class DiagnosticTests(unittest.TestCase):
         all_text = '\n'.join(item.decode('utf-8') for item in files.values())
         for secret in ('private-query','private-person','private-cookie-12345678','private-localstorage-12345678', self.settings.openai_api_key, 'unknown-secret','unknown-cookie','RemoteTester','name:pass','json-payload-enc-secret','private-json-person'):
             self.assertNotIn(secret, all_text)
-        raw = (self.trace.folder/'events.jsonl').read_text(encoding='utf-8')
+        raw = '\n'.join(json.dumps(row, ensure_ascii=False) for row in self.trace_events())
         self.assertNotIn('private-cookie-12345678', raw)
         stored = json.dumps(self.db.list_events(self.job['id']))
         self.assertNotIn('private-query', stored)
@@ -218,7 +230,7 @@ class DiagnosticTests(unittest.TestCase):
         self.db.mark_interrupted_jobs()
         manifest = json.loads((self.trace.folder/'manifest.json').read_text(encoding='utf-8'))
         self.assertEqual(manifest['state'],'interrupted')
-        self.assertIn('task.recovered',(self.trace.folder/'events.jsonl').read_text(encoding='utf-8'))
+        self.assertIn('task.recovered', [row['code'] for row in self.trace_events()])
 
     def test_screenshot_export_rejects_files_outside_the_artifact_directory(self):
         outside = self.settings.data_root/'private.png'; outside.write_bytes(b'\x89PNG\r\n\x1a\nPRIVATE OUTSIDE ARTIFACT')
@@ -237,7 +249,7 @@ class DiagnosticTests(unittest.TestCase):
         except ValueError as error:
             self.trace.exception(error, phase='model_generation')
         with self.trace.span('model.request', {'unit_count':48}): pass
-        records = [json.loads(line) for line in (self.trace.folder/'events.jsonl').read_text().splitlines()]
+        records = self.trace_events()
         exception = next(item for item in records if item['code']=='task.exception')
         self.assertEqual(exception['data']['http_status'],503)
         self.assertEqual(exception['data']['request_id'],'request-remote-123')
@@ -246,24 +258,22 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(records[-1]['data']['span_id'],records[-2]['data']['span_id'])
         self.assertGreaterEqual(records[-1]['data']['duration_ms'],0)
 
-    def test_reopened_journal_recovers_sequence_and_reports_a_partial_tail(self):
+    def test_reopened_journal_continues_the_sequence_from_manifest(self):
         self.trace.record('one')
-        path = self.trace.folder/'events.jsonl'
-        with path.open('ab') as output: output.write(b'{"sequence":')
-        manifest = json.loads((self.trace.folder/'manifest.json').read_text(encoding='utf-8')); manifest['last_sequence']=0
-        (self.trace.folder/'manifest.json').write_text(json.dumps(manifest))
+        first = self.trace.sequence
         reopened = DiagnosticStore(self.settings).trace('assignment',self.job['id'])
         reopened.record('after-restart')
-        self.assertGreater(reopened.sequence,2)
+        self.assertEqual(reopened.sequence, first + 1)
         self.db.diagnostics.traces[('assignment',self.job['id'])] = reopened
         package = unpack(build_bundle(self.db,'assignment',self.job['id']))
-        self.assertTrue(json.loads(package['manifest.json'])['read_errors'])
+        codes = [json.loads(line)['code'] for line in package['events.jsonl'].decode().splitlines() if line.strip()]
+        self.assertIn('after-restart', codes)
 
-    def test_rotation_is_bounded_and_distinct_snapshots_do_not_overwrite_each_other(self):
-        with patch('app.diagnostics.recorder.ROTATE_BYTES',800):
-            for index in range(14): self.trace.record('row', data={'index':index,'long':'x'*100})
-        self.assertLessEqual(len(list(self.trace.folder.glob('events*.jsonl'))),3)
-        self.assertTrue(self.trace.manifest['events_rotated'])
+    def test_events_are_written_once_and_snapshots_do_not_overwrite_each_other(self):
+        for index in range(14): self.trace.record('row', data={'index':index,'long':'x'*100})
+        self.assertFalse(list(self.trace.folder.glob('events*.jsonl')))
+        logged = [row for row in self.trace_events() if row.get('code') == 'row']
+        self.assertEqual([row['data']['index'] for row in logged], list(range(14)))
         self.trace.snapshot('page', {'number':1}); self.trace.snapshot('page', {'number':2})
         self.assertEqual(len(list((self.trace.folder/'evidence').glob('*-page.json'))),2)
 
@@ -330,7 +340,7 @@ class DiagnosticAsyncTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response.status_code,409)
                 self.assertEqual(response.json()['detail'],'Task state does not permit pause')
                 trace = db.diagnostics.trace('assignment',job['id'])
-                records = [json.loads(row) for row in (trace.folder/'events.jsonl').read_text(encoding='utf-8').splitlines()]
+                records = [row for row in iter_records((db.settings.logs_root/'main.log').read_text(encoding='utf-8').splitlines(keepends=True)) if row.get('trace_id') == job['id'] and row.get('code') != 'runtime.log']
                 failure = next(item for item in records if item['code']=='task.exception')
                 self.assertIn('Task state does not permit pause',failure['message'])
                 self.assertEqual(failure['data']['api_request_id'],response.headers['x-diagnostic-request-id'])

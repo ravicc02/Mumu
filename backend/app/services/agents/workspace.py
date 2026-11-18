@@ -44,6 +44,7 @@ class TaskWorkspace:
         data_root: Path,
         kind: str,
         attempt_id: str,
+        account_id: str | None = None,
         *,
         account: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
@@ -51,16 +52,17 @@ class TaskWorkspace:
     ) -> None:
         if kind not in WORKSPACE_KINDS:
             raise ValueError("未知任务工作区类型")
+        resolved_account_id = str(account_id or (account or {}).get("id") or "")
+        if not resolved_account_id:
+            raise ValueError("任务工作区缺少账号标识")
         self.kind = kind
         self.attempt_id = str(attempt_id)
+        self.account_id = resolved_account_id
         self.data_root = data_root.resolve()
-        self.root = (
-            self.data_root
-            / "task-workspaces"
-            / kind
-            / _safe_component(self.attempt_id)
+        task_root = (
+            self.data_root / "accounts" / _safe_component(self.account_id) / "tasks"
         ).resolve()
-        task_root = (self.data_root / "task-workspaces").resolve()
+        self.root = (task_root / kind / _safe_component(self.attempt_id)).resolve()
         if self.root.parent.parent != task_root:
             raise RuntimeError("任务工作区越过数据目录")
         self.checkpoints_dir = self.root / "checkpoints"
@@ -90,11 +92,12 @@ class TaskWorkspace:
         task_spec: Any = None,
     ) -> "TaskWorkspace":
         profile_dir = Path(account["profile_dir"]).resolve()
-        data_root = profile_dir.parent.parent
+        data_root = profile_dir.parent.parent.parent
         return cls(
             data_root,
             kind,
             attempt_id,
+            str(account.get("id") or ""),
             account=account,
             metadata=metadata,
             task_spec=task_spec,
@@ -300,9 +303,14 @@ class TaskWorkspace:
     ) -> bool:
         if kind not in WORKSPACE_KINDS:
             raise ValueError("未知任务工作区类型")
+        account_id = str(account.get("id") or "")
+        if not account_id:
+            return False
         profile_dir = Path(account["profile_dir"]).resolve()
-        data_root = profile_dir.parent.parent
-        task_root = (data_root / "task-workspaces").resolve()
+        data_root = profile_dir.parent.parent.parent
+        task_root = (
+            data_root / "accounts" / _safe_component(account_id) / "tasks"
+        ).resolve()
         root = (task_root / kind / _safe_component(attempt_id)).resolve()
         if root.parent.parent != task_root or not root.exists():
             return False

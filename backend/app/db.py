@@ -771,10 +771,11 @@ class Database:
                     """,
                     (interrupted_at, row["account_id"]),
                 )
+            self._migrate_sensitive_settings(connection)
 
     def create_account(self, name: str, platform: str, settings: Settings) -> dict[str, Any]:
         account_id = uuid.uuid4().hex
-        profile_dir = settings.profiles_root / account_id
+        profile_dir = settings.account_profile_dir(account_id)
         storage_state_path = profile_dir / "storage-state.json"
         profile_dir.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
@@ -2426,6 +2427,87 @@ class Database:
             ).fetchone()
         return dict(row)
 
+    SENSITIVE_SETTING_FIELDS = {
+        "weixin_binding": ("token", "context_token"),
+        "attendance_relay": ("admin_secret",),
+    }
+
+    @staticmethod
+    def _setting_secret_ref(key: str, field: str) -> str:
+        return f"app-setting:{key}:{field}"
+
+    def _setting_secret_store(self):
+        from .services.agents.secrets import secret_store_for
+
+        return secret_store_for(self.settings)
+
+    def protect_setting(self, key: str, value: Any) -> Any:
+        """Replace plaintext secret fields with DPAPI/Secret Service references."""
+        fields = self.SENSITIVE_SETTING_FIELDS.get(key)
+        if not fields or not isinstance(value, dict):
+            return value
+        protected = dict(value)
+        store = None
+        for field in fields:
+            raw = protected.get(field)
+            if not isinstance(raw, str) or not raw:
+                continue
+            if store is None:
+                try:
+                    store = self._setting_secret_store()
+                except Exception:
+                    break
+            reference = self._setting_secret_ref(key, field)
+            try:
+                store.put(reference, raw)
+            except Exception:
+                # Keep the plaintext value rather than losing it when the key store is unavailable.
+                continue
+            protected[field] = {"secret_ref": reference}
+        return protected
+
+    def reveal_setting(self, key: str, value: Any) -> Any:
+        """Restore secret references so callers keep reading plaintext values."""
+        fields = self.SENSITIVE_SETTING_FIELDS.get(key)
+        if not fields or not isinstance(value, dict):
+            return value
+        revealed = dict(value)
+        store = None
+        for field in fields:
+            entry = revealed.get(field)
+            if not isinstance(entry, dict) or not entry.get("secret_ref"):
+                continue
+            if store is None:
+                try:
+                    store = self._setting_secret_store()
+                except Exception:
+                    revealed[field] = ""
+                    continue
+            try:
+                revealed[field] = store.get(str(entry["secret_ref"]))
+            except Exception:
+                revealed[field] = ""
+        return revealed
+
+    def _migrate_sensitive_settings(self, connection) -> None:
+        for key in self.SENSITIVE_SETTING_FIELDS:
+            row = connection.execute(
+                "SELECT value FROM app_settings WHERE key = ?", (key,)
+            ).fetchone()
+            if not row:
+                continue
+            try:
+                value = json.loads(row["value"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            protected = self.protect_setting(key, value)
+            if protected == value:
+                continue
+            connection.execute(
+                "UPDATE app_settings SET value = ?, updated_at = ? WHERE key = ?",
+                (json.dumps(protected, ensure_ascii=False), utc_now(), key),
+            )
+
     def get_setting(self, key: str, default: Any = None) -> Any:
         with self.connect() as connection:
             row = connection.execute(
@@ -2435,12 +2517,13 @@ class Database:
         if not row:
             return default
         try:
-            return json.loads(row["value"])
+            value = json.loads(row["value"])
         except (TypeError, json.JSONDecodeError):
             return row["value"]
+        return self.reveal_setting(key, value)
 
     def set_setting(self, key: str, value: Any) -> None:
-        serialized = json.dumps(value, ensure_ascii=False)
+        serialized = json.dumps(self.protect_setting(key, value), ensure_ascii=False)
         with self.connect() as connection:
             connection.execute(
                 """

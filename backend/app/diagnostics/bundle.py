@@ -17,6 +17,44 @@ from .recorder import LOCK, SCHEMA_VERSION, encoded
 MAX_BUNDLE_BYTES = 40 * 1024 * 1024
 
 
+def events_from_logs(settings, identifier, errors, *, limit=8 * 1024 * 1024):
+    """Collect a task's structured events from the unified main log.
+
+    Events are written once to the main log; older traces may still carry an
+    ``events.jsonl`` copy, which is read first when present.
+    """
+    records, seen = [], set()
+    root = settings.logs_root
+    candidates = [root / "main.log", root / "oldmain.log"]
+    archive = root / "archive"
+    if archive.is_dir():
+        candidates.extend(sorted(archive.glob("*.log")))
+    for path in candidates:
+        if not path.is_file() or path.is_symlink():
+            continue
+        try:
+            if not path.resolve().is_relative_to(root.resolve()):
+                continue
+            with path.open("rb") as source:
+                offset = max(0, path.stat().st_size - limit)
+                if offset:
+                    source.seek(offset)
+                    source.readline()
+                for row in iter_records(raw.decode("utf-8", errors="replace") for raw in source):
+                    if not isinstance(row, dict) or row.get("trace_id") != identifier:
+                        continue
+                    if row.get("code") == "runtime.log":
+                        continue
+                    key = row.get("event_id") or (row.get("sequence"), row.get("code"), row.get("timestamp"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    records.append(row)
+        except (OSError, ValueError) as error:
+            errors.append({"file": path.name, "reason": type(error).__name__})
+    return records
+
+
 def fixture(nodes, include_content):
     def render(node):
         if not isinstance(node, dict): return ""
@@ -87,7 +125,6 @@ def build_bundle(database, kind, identifier, *, include_content=False, include_s
                             errors.append({"file": name, "line": index + 1, "reason": "invalid_record_identity_or_schema"}); continue
                         lines.append(record)
                     except ValueError: errors.append({"file": name, "line": index + 1, "reason": "invalid_json"})
-            files["events.jsonl"] = b"".join(encoded(scrubber.clean(line, include_content=include_content)) + b"\n" for line in lines)
             for path in sorted((trace.folder / "evidence").glob("*.json")):
                 if path.is_symlink() or not path.resolve().is_relative_to(trace.folder.resolve()): continue
                 try:
@@ -108,6 +145,11 @@ def build_bundle(database, kind, identifier, *, include_content=False, include_s
         exists = database.diagnostics.folder(kind, identifier).exists()
         omissions.append({"reason": "diagnostic_storage_unavailable" if exists else "capture_missing_or_expired", "message": "运行现场未采集、已过保留期或存储不完整，没有补造页面或环境。"})
         lines = []
+    if not lines:
+        lines = events_from_logs(database.settings, identifier, errors)
+        if lines:
+            omissions.append({"reason": "events_from_unified_log", "message": "事件取自统一主日志，未保留独立副本。"})
+    files["events.jsonl"] = b"".join(encoded(scrubber.clean(line, include_content=include_content)) + b"\n" for line in lines)
     runtime = deque(maxlen=1000)
     for name in ("backend.jsonl.3", "backend.jsonl.2", "backend.jsonl.1", "backend.jsonl", "oldmain.log", "main.log"):
         path = database.settings.logs_root / name
@@ -131,7 +173,7 @@ def build_bundle(database, kind, identifier, *, include_content=False, include_s
         path = Path(artifact["path"])
         if not include_screenshots:
             omissions.append({"artifact_id": artifact["id"], "reason": "screenshots_not_selected"}); continue
-        if path.is_symlink() or not path.resolve().is_relative_to(database.settings.artifacts_root.resolve()) or path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+        if path.is_symlink() or not path.resolve().is_relative_to(database.settings.accounts_root.resolve()) or path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
             omissions.append({"artifact_id": artifact["id"], "reason": "artifact_path_rejected"}); continue
         try:
             if path.stat().st_size > 8 * 1024 * 1024: raise ValueError("image_size_limit")

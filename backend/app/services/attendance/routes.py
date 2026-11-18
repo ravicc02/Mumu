@@ -380,7 +380,7 @@ def attendance_router(service, gateway, open_activity=None):
         )
         if not mime:
             raise HTTPException(422,'素材仅支持 PNG、JPEG 或 WebP')
-        folder = Path(service.database_provider().settings.data_root) / 'attendance-assets' / identifier
+        folder = service.database_provider().settings.account_attendance_dir(identifier)
         folder.mkdir(parents=True,exist_ok=True)
         suffix = {'image/png':'.png','image/jpeg':'.jpg','image/webp':'.webp'}[mime]
         target = folder / (kind + suffix)

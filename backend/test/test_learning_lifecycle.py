@@ -17,7 +17,7 @@ class NativeLearningLifecycleTests(unittest.IsolatedAsyncioTestCase):
             audio.writeframes(b"\0\0" * 8000 * 10)
         source = base64.b64encode(output.getvalue()).decode()
         with tempfile.TemporaryDirectory() as root:
-            browser = LearningBrowser({"profile_dir": str(Path(root) / "account")}, authenticate=False)
+            browser = LearningBrowser({"id": "fixture", "profile_dir": str(Path(root) / "account")}, authenticate=False)
             try:
                 await browser.open()
                 await browser.page.set_content('<audio controls src="data:audio/wav;base64,' + source + '"></audio><button>Play</button>')
@@ -48,7 +48,7 @@ class NativeLearningLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_closing_and_reopening_viewers_keeps_the_same_headless_worker_running(self):
         with tempfile.TemporaryDirectory() as root:
-            browser = LearningBrowser({"profile_dir": str(Path(root) / "account")}, authenticate=False)
+            browser = LearningBrowser({"id": "fixture", "profile_dir": str(Path(root) / "account")}, authenticate=False)
             try:
                 await browser.open()
                 await browser.page.set_content(
@@ -83,7 +83,7 @@ class NativeLearningLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_headless_chapter_popup_becomes_live_page_and_closing_it_reports_loss(self):
         with tempfile.TemporaryDirectory() as root:
-            browser = LearningBrowser({"profile_dir": str(Path(root) / "account")}, authenticate=False)
+            browser = LearningBrowser({"id": "fixture", "profile_dir": str(Path(root) / "account")}, authenticate=False)
             try:
                 await browser.open()
                 async def route(request):
@@ -110,7 +110,7 @@ class NativeLearningLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_closing_a_real_headed_or_headless_context_reports_browser_loss(self):
         for headless in (True, False):
             with self.subTest(headless=headless), tempfile.TemporaryDirectory() as root:
-                browser = LearningBrowser({"profile_dir": str(Path(root) / "account")}, headless=headless, authenticate=False)
+                browser = LearningBrowser({"id": "fixture", "profile_dir": str(Path(root) / "account")}, headless=headless, authenticate=False)
                 try:
                     await browser.open()
                     await browser.page.set_content("<h1>Task lifecycle test</h1>")
@@ -123,7 +123,7 @@ class NativeLearningLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_expected_shutdown_and_viewer_detach_do_not_report_browser_loss(self):
         with tempfile.TemporaryDirectory() as root:
-            browser = LearningBrowser({"profile_dir": str(Path(root) / "account")}, authenticate=False)
+            browser = LearningBrowser({"id": "fixture", "profile_dir": str(Path(root) / "account")}, authenticate=False)
             try:
                 await browser.open()
                 self.assertTrue(browser.headless)

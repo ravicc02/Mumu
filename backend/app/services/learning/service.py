@@ -694,7 +694,7 @@ class LearningService:
                 if browser and self.store.run(identifier)["status"] != "completed" and (not hasattr(browser, "page") or (browser.page and browser.page.url != "about:blank")):
                     try:
                         snapshot = await asyncio.wait_for(browser.snapshot(), 3)
-                        folder = self.settings.artifacts_root / "learning" / identifier
+                        folder = self.settings.account_artifacts_root(account["id"]) / identifier
                         folder.mkdir(parents=True, exist_ok=True)
                         path = folder / "last-page.jpg"
                         path.write_bytes(base64.b64decode(snapshot["image"].split(",", 1)[1]))
@@ -943,7 +943,8 @@ class LearningService:
             await control.run(lambda: asyncio.sleep(1))
 
     async def capture_evidence(self, identifier, browser, control):
-        folder = self.settings.artifacts_root / "learning" / identifier
+        account_id = self.store.run(identifier)["account_id"]
+        folder = self.settings.account_artifacts_root(account_id) / identifier
         folder.mkdir(parents=True, exist_ok=True)
         stream = browser.evidence()
         try:

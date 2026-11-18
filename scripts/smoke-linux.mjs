@@ -134,7 +134,7 @@ assert store.get('linux-smoke') == 'isolated-smoke-credential'
 store.delete('linux-smoke')
 async def check():
     async with async_playwright() as p:
-        context = await p.chromium.launch_persistent_context(str(settings.profiles_root / 'fixture'), executable_path=os.environ['MUMU_CHROME_PATH'], headless=False)
+        context = await p.chromium.launch_persistent_context(str(settings.account_profile_dir('fixture')), executable_path=os.environ['MUMU_CHROME_PATH'], headless=False)
         page = await context.new_page()
         await page.set_content('<title>Mumu isolated browser</title>')
         assert await page.title() == 'Mumu isolated browser'

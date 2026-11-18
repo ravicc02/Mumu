@@ -124,6 +124,21 @@ class AccountIdentityTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(renamed.status_code, 409)
             self.assertEqual(self.db.get_account(self.account["id"])["name"], "legacy alias")
 
+    async def test_deleting_account_removes_the_whole_account_directory(self):
+        import app.main as server
+        account_dir = self.settings.account_root(self.account["id"])
+        (account_dir / "tasks" / "manual" / "attempt1").mkdir(parents=True, exist_ok=True)
+        (account_dir / "artifacts" / "job1").mkdir(parents=True, exist_ok=True)
+        (account_dir / "attendance").mkdir(parents=True, exist_ok=True)
+        self.assertTrue((account_dir / "browser").is_dir())
+        with patch.object(server, "database", self.db), \
+             patch.object(server, "ensure_account_idle", MagicMock()), \
+             patch.object(server, "preview_manager", MagicMock(invalidate=AsyncMock())):
+            client = TestClient(server.app)
+            response = client.delete("/api/accounts/" + self.account["id"])
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(account_dir.exists())
+
     async def test_login_worker_finishes_on_the_canonical_account_and_removes_only_its_temporary_profile(self):
         self.db.update_account(self.account["id"], platform_user_id="123", status="ready")
         pending = self.db.create_account("pending", "chaoxing", self.settings)

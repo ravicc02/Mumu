@@ -9,8 +9,20 @@ from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
-from app.config import default_data_root, legacy_data_root, migrate_legacy_data_root, settings
-from app.product import DATA_DIRECTORY, DATABASE_FILENAME, LEGACY_DATA_DIRECTORY, PRODUCT_NAME
+from app.config import (
+    default_data_root,
+    legacy_data_root,
+    migrate_database_filename,
+    migrate_legacy_data_root,
+    settings,
+)
+from app.product import (
+    DATA_DIRECTORY,
+    DATABASE_FILENAME,
+    LEGACY_DATA_DIRECTORY,
+    LEGACY_DATABASE_FILENAME,
+    PRODUCT_NAME,
+)
 
 
 class ProductCompatibilityTests(unittest.TestCase):
@@ -18,7 +30,8 @@ class ProductCompatibilityTests(unittest.TestCase):
         self.assertEqual(PRODUCT_NAME, "Mumu")
         self.assertEqual(DATA_DIRECTORY, ".mumu")
         self.assertEqual(LEGACY_DATA_DIRECTORY, "AIAssistantStudio")
-        self.assertEqual(DATABASE_FILENAME, "answer-studio.sqlite3")
+        self.assertEqual(DATABASE_FILENAME, "mumu.sqlite3")
+        self.assertEqual(LEGACY_DATABASE_FILENAME, "answer-studio.sqlite3")
 
     def test_new_environment_name_wins_and_legacy_name_remains_supported(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -137,8 +150,86 @@ class ProductCompatibilityTests(unittest.TestCase):
                     (Path(directory) / LEGACY_DATA_DIRECTORY).resolve(),
                 )
 
-    def test_database_keeps_the_legacy_filename(self):
+    def test_database_uses_the_product_filename(self):
         self.assertEqual(settings.database_path.name, DATABASE_FILENAME)
+
+    def test_legacy_database_filename_is_renamed_in_place(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / LEGACY_DATABASE_FILENAME).write_bytes(b"legacy")
+            (root / f"{LEGACY_DATABASE_FILENAME}-wal").write_bytes(b"wal")
+            migrate_database_filename(root)
+            self.assertFalse((root / LEGACY_DATABASE_FILENAME).exists())
+            self.assertFalse((root / f"{LEGACY_DATABASE_FILENAME}-wal").exists())
+            self.assertEqual((root / DATABASE_FILENAME).read_bytes(), b"legacy")
+            self.assertEqual((root / f"{DATABASE_FILENAME}-wal").read_bytes(), b"wal")
+            migrate_database_filename(root)
+            self.assertEqual((root / DATABASE_FILENAME).read_bytes(), b"legacy")
+
+    def test_legacy_database_never_overwrites_an_existing_database(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / LEGACY_DATABASE_FILENAME).write_bytes(b"legacy")
+            (root / DATABASE_FILENAME).write_bytes(b"current")
+            migrate_database_filename(root)
+            self.assertEqual((root / DATABASE_FILENAME).read_bytes(), b"current")
+            self.assertEqual((root / LEGACY_DATABASE_FILENAME).read_bytes(), b"legacy")
+
+    def test_empty_current_database_does_not_hide_legacy_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            legacy = root / LEGACY_DATABASE_FILENAME
+            with closing(sqlite3.connect(legacy)) as connection:
+                with connection:
+                    connection.execute("CREATE TABLE accounts (id TEXT)")
+                    connection.execute("INSERT INTO accounts VALUES('kept')")
+            # A shell created before the rename shipped: valid SQLite, no account table rows.
+            with closing(sqlite3.connect(root / DATABASE_FILENAME)):
+                pass
+            migrate_database_filename(root)
+            self.assertFalse(legacy.exists())
+            with closing(sqlite3.connect(root / DATABASE_FILENAME)) as connection:
+                rows = connection.execute("SELECT id FROM accounts").fetchall()
+            self.assertEqual(rows, [("kept",)])
+
+    def test_current_database_with_rows_wins_over_legacy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            legacy = root / LEGACY_DATABASE_FILENAME
+            current = root / DATABASE_FILENAME
+            for path, marker in ((legacy, "legacy"), (current, "current")):
+                with closing(sqlite3.connect(path)) as connection:
+                    with connection:
+                        connection.execute("CREATE TABLE accounts (id TEXT)")
+                        connection.execute("INSERT INTO accounts VALUES(?)", (marker,))
+            migrate_database_filename(root)
+            self.assertTrue(legacy.exists())
+            with closing(sqlite3.connect(current)) as connection:
+                self.assertEqual(connection.execute("SELECT id FROM accounts").fetchall(), [("current",)])
+
+    def test_legacy_root_migration_renames_the_database(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            target = Path(directory) / "target"
+            source.mkdir()
+            with closing(sqlite3.connect(source / LEGACY_DATABASE_FILENAME)) as connection:
+                with connection:
+                    connection.execute("CREATE TABLE accounts (profile_dir TEXT)")
+                    connection.execute(
+                        "INSERT INTO accounts VALUES(?)",
+                        (str(source / "profiles" / "one"),),
+                    )
+            with patch.dict(
+                os.environ,
+                {"MUMU_DATA": "", "ANSWER_STUDIO_DATA": ""},
+                clear=False,
+            ):
+                migrate_legacy_data_root(target, source=source)
+            self.assertTrue((target / DATABASE_FILENAME).is_file())
+            self.assertFalse((target / LEGACY_DATABASE_FILENAME).exists())
+            with closing(sqlite3.connect(target / DATABASE_FILENAME)) as connection:
+                profile_dir = connection.execute("SELECT profile_dir FROM accounts").fetchone()[0]
+            self.assertEqual(profile_dir, str(target.resolve() / "profiles" / "one"))
 
 
 if __name__ == "__main__":

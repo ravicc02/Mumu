@@ -5,10 +5,11 @@ import logging
 
 import uvicorn
 
-from app.config import migrate_legacy_data_root, settings
+from app.config import migrate_database_filename, migrate_legacy_data_root, settings
 from app.diagnostics.logging import configure_logging
 
 migrate_legacy_data_root(settings.data_root)
+migrate_database_filename(settings.data_root)
 settings.ensure_directories()
 configure_logging(settings)
 try:

@@ -27,10 +27,10 @@ from app.services.runtime.preview import ProfilePreviewManager
 class BrowserProfileTests(unittest.TestCase):
     def test_task_directories_are_distinct_and_cleanup_preserves_authorization(self):
         with tempfile.TemporaryDirectory() as folder:
-            canonical = Path(folder) / "profiles" / "account"
+            canonical = Path(folder) / "accounts" / "account" / "browser"
             canonical.mkdir(parents=True)
             original = canonical / "keep.txt"; original.write_text("account profile")
-            account = {"profile_dir": str(canonical)}
+            account = {"id": "account", "profile_dir": str(canonical)}
             first = TaskBrowserProfile(account, "assignment", "one")
             second = TaskBrowserProfile(account, "assignment", "two")
             course = TaskBrowserProfile(account, "learning", "one")
@@ -44,7 +44,7 @@ class BrowserProfileTests(unittest.TestCase):
 
     def test_cleanup_rejects_a_directory_outside_the_owned_root(self):
         with tempfile.TemporaryDirectory() as folder:
-            profile = TaskBrowserProfile({"profile_dir": str(Path(folder) / "profiles" / "account")}, "assignment", "../unsafe")
+            profile = TaskBrowserProfile({"id": "account", "profile_dir": str(Path(folder) / "accounts" / "account" / "browser")}, "assignment", "../unsafe")
             owned = profile.path
             profile.path = Path(folder)
             with self.assertRaises(RuntimeError): profile.close()
@@ -53,7 +53,7 @@ class BrowserProfileTests(unittest.TestCase):
 
     def test_cleanup_retries_while_windows_releases_profile_handles(self):
         with tempfile.TemporaryDirectory() as folder:
-            profile = TaskBrowserProfile({"profile_dir": str(Path(folder) / "profiles" / "account")}, "assignment", "locked")
+            profile = TaskBrowserProfile({"id": "account", "profile_dir": str(Path(folder) / "accounts" / "account" / "browser")}, "assignment", "locked")
             attempts = []
             real_rmtree = shutil.rmtree
 
@@ -100,7 +100,7 @@ class TaskBrowserIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_same_account_assignment_and_learning_have_independent_processes_live_input_and_lifecycle(self):
         with tempfile.TemporaryDirectory() as folder:
-            profile = Path(folder) / "profiles" / "account"; profile.mkdir(parents=True)
+            profile = Path(folder) / "accounts" / "account" / "browser"; profile.mkdir(parents=True)
             state = Path(folder) / "state.json"
             state.write_text(json.dumps({"cookies": [{"name": "fixture_session", "value": "same-account", "domain": "127.0.0.1", "path": "/", "expires": -1, "httpOnly": False, "secure": False, "sameSite": "Lax"}],
                 "origins": [{"origin": "http://127.0.0.1:19346", "localStorage": [{"name": "fixture_auth", "value": "shared-authorization"}]}]}))

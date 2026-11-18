@@ -144,10 +144,36 @@ class DailyMainLog:
             self._save(state)
         if self.staged.exists(): self.staged.unlink()
 
+    ARCHIVE_MAX_BYTES = 64 * 1024 * 1024
+
+    def _rotate_archive(self, current):
+        """Split oldmain.log into dated archive files instead of growing without bound."""
+        try:
+            size = self.archive.stat().st_size
+        except OSError:
+            return
+        if size < self.ARCHIVE_MAX_BYTES:
+            return
+        target_dir = self.root / "archive"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if not target_dir.resolve().is_relative_to(self.root.resolve()):
+            raise ValueError("Log archive directory escaped log root")
+        stamp = current.strftime("%Y%m%d-%H%M%S")
+        target = (target_dir / f"oldmain-{stamp}.log").resolve()
+        suffix = 1
+        while target.exists():
+            target = (target_dir / f"oldmain-{stamp}-{suffix}.log").resolve()
+            suffix += 1
+        if not target.is_relative_to(target_dir.resolve()):
+            raise ValueError("Log archive path escaped archive directory")
+        os.replace(self.archive, target)
+        self.archive.touch()
+
     def _prepare(self, current):
         state = self._state()
         self._recover(state)
         self._upgrade_layout(state)
+        self._rotate_archive(current)
         today = current.date().isoformat()
         day = state.get("active_day")
         if not day and self.main.exists() and self.main.stat().st_size:

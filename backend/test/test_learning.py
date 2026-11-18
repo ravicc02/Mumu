@@ -617,7 +617,7 @@ class LearningRuntimeTests(unittest.IsolatedAsyncioTestCase):
             output.writeframes(b"\0\0" * 80000)
         source = "data:audio/wav;base64," + base64.b64encode(buffer.getvalue()).decode()
         with tempfile.TemporaryDirectory() as root:
-            browser = LearningBrowser({"profile_dir": str(Path(root) / "profile")}, authenticate=False)
+            browser = LearningBrowser({"id": "fixture", "profile_dir": str(Path(root) / "profile")}, authenticate=False)
             try:
                 await browser.open()
                 await browser.page.set_content(f'<audio src="{source}"></audio><button aria-label="播放" onclick="window.nativePlay()">Play</button>')
@@ -672,7 +672,7 @@ class LearningRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_live_stream_and_mouse_keyboard_share_the_actual_browser_page(self):
         with tempfile.TemporaryDirectory() as profile:
-            browser = LearningBrowser({"profile_dir": str(Path(profile) / "profiles" / "fixture")}, headless=True, authenticate=False)
+            browser = LearningBrowser({"id": "fixture", "profile_dir": str(Path(profile) / "accounts" / "fixture" / "browser")}, headless=True, authenticate=False)
             try:
                 await browser.open()
                 await browser.page.set_content('<input id="answer" style="position:absolute;left:100px;top:100px;width:200px;height:40px"><div style="height:3000px"></div>')

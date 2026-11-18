@@ -23,6 +23,8 @@ backend/*.spec
 desktop/node_modules/
 desktop/dist/
 desktop/release/
+desktop/release-*/
+
 *.log
 .DS_Store
 .finesse/

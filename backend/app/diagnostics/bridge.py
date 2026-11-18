@@ -27,7 +27,7 @@ def legacy_scrubber(settings):
                 for name, path in database.execute("SELECT name,storage_state_path FROM accounts"):
                     account = {"name": name}
                     candidate = Path(path) if path else None
-                    if candidate and candidate.is_file() and not candidate.is_symlink() and candidate.resolve().is_relative_to(settings.profiles_root.resolve()) and candidate.stat().st_size <= 4 * 1024 * 1024:
+                    if candidate and candidate.is_file() and not candidate.is_symlink() and candidate.resolve().is_relative_to(settings.accounts_root.resolve()) and candidate.stat().st_size <= 4 * 1024 * 1024:
                         account["storage_state_path"] = path
                     private = task_scrubber(settings, account)
                     scrubber.replacements.extend(private.replacements)
@@ -38,6 +38,13 @@ def legacy_scrubber(settings):
                     except ValueError: continue
                     if isinstance(value, dict):
                         for key, secret in value.items():
+                            if isinstance(secret, dict) and secret.get("secret_ref"):
+                                try:
+                                    from ..services.agents.secrets import secret_store_for
+
+                                    secret = secret_store_for(settings).get(str(secret["secret_ref"]))
+                                except Exception:
+                                    continue
                             if isinstance(secret, str) and secret and (normalize_key(key) in SECRET_KEYS or normalize_key(key).endswith(("token", "apikey"))):
                                 scrubber.replacements.append((secret, "[REDACTED]"))
     except (OSError, sqlite3.Error):

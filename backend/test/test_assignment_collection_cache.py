@@ -136,3 +136,13 @@ class AssignmentCollectionCacheTests(unittest.TestCase):
         with self.db.connect() as db:
             db.execute('DELETE FROM accounts WHERE id=?', (self.account['id'],))
             self.assertEqual(db.execute('SELECT COUNT(*) FROM assignment_collection_cache').fetchone()[0], 0)
+
+    def test_running_collection_is_marked_failed_after_restart(self):
+        run = self.db.create_collection_run(self.account['id'], 2026)
+
+        restarted = Database(self.settings); restarted.initialize()
+
+        with restarted.connect() as db:
+            row = db.execute('SELECT status,error FROM collection_runs WHERE id=?', (run['id'],)).fetchone()
+        self.assertEqual(row['status'], 'failed')
+        self.assertIn('采集已中断', row['error'])

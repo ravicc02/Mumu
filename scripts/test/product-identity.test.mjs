@@ -39,7 +39,8 @@ test('legacy installation and data identifiers remain explicit compatibility ent
   assert.equal(product.dataDirectory, '.mumu');
   assert.match(backendProduct, /DATA_DIRECTORY = "\.mumu"/);
   assert.match(backendProduct, /LEGACY_DATA_DIRECTORY = "AIAssistantStudio"/);
-  assert.match(backendProduct, /DATABASE_FILENAME = "answer-studio\.sqlite3"/);
+  assert.match(backendProduct, /DATABASE_FILENAME = "mumu\.sqlite3"/);
+  assert.match(backendProduct, /LEGACY_DATABASE_FILENAME = "answer-studio\.sqlite3"/);
 });
 
 test('current user-facing README does not advertise the legacy repository', () => {

@@ -134,6 +134,7 @@ def ingest_updates(
             binding = json.loads(binding_row["value"]) if binding_row else {}
         except (TypeError, json.JSONDecodeError):
             binding = {}
+        binding = database.reveal_setting("weixin_binding", binding)
         bound_user = str(binding.get("user_id") or "")
         latest_bound_context = ""
         for message in messages:
@@ -201,7 +202,7 @@ def ingest_updates(
                   value = excluded.value,
                   updated_at = excluded.updated_at
                 """,
-                (json.dumps(binding, ensure_ascii=False), now),
+                (json.dumps(database.protect_setting("weixin_binding", binding), ensure_ascii=False), now),
             )
     if inserted:
         set_channel_state(
