@@ -104,8 +104,20 @@ export const api = {
     }
   },
   preferences: () => request("/api/preferences"),
+  dataStats: () => request("/api/data/stats"),
+  optimizeData: (scope, retentionDays = 30) => request("/api/data/optimize", { method: "POST", body: JSON.stringify({ scope, retention_days: retentionDays }) }),
+  createDataBackup: options => request("/api/data/backup", { method: "POST", body: JSON.stringify(options) }),
+  dataBackups: () => request("/api/data/backups"),
+  restoreDataBackup: backupId => request("/api/data/restore", { method: "POST", body: JSON.stringify({ backup_id: backupId }) }),
+  backupPolicy: () => request("/api/data/backup-policy"),
+  saveBackupPolicy: policy => request("/api/data/backup-policy", { method: "PUT", body: JSON.stringify(policy) }),
   savePreferences: config => request("/api/preferences", { method: "PATCH", body: JSON.stringify(config) }),
   modelConfig: () => request("/api/model-config"),
+  modelUsage: params => request(`/api/model-usage?${new URLSearchParams(params)}`),
+  toolUsage: params => request(`/api/model-usage/tools?${new URLSearchParams(params)}`),
+  usagePricing: () => request('/api/model-usage/pricing'),
+  saveUsagePricing: rule => request('/api/model-usage/pricing', { method: 'POST', body: JSON.stringify(rule) }),
+  saveReasoningEffort: reasoning_effort => request("/api/model-config/reasoning", { method: "PATCH", body: JSON.stringify({ reasoning_effort }) }),
   saveModelConfig: (config) => request("/api/model-config", {
     method: "PUT",
     body: JSON.stringify(config)

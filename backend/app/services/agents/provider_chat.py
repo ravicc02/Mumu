@@ -237,7 +237,11 @@ def _anthropic_usage(response: Any) -> ChatInvokeUsage | None:
     usage = getattr(response, "usage", None)
     if usage is None:
         return None
-    prompt = int(getattr(usage, "input_tokens", 0) or 0)
+    prompt = (
+        int(getattr(usage, "input_tokens", 0) or 0)
+        + int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+        + int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+    )
     completion = int(getattr(usage, "output_tokens", 0) or 0)
     return ChatInvokeUsage(
         prompt_tokens=prompt,

@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import shutil
 import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
@@ -18,6 +19,12 @@ import httpx
 
 from .config import migrate_database_filename, settings
 from .data_layout import upgrade_layout
+from .model_usage import PricingRule
+from .data_backups import (
+    BackupPolicy, DataBackupRequest, automatic_backup,
+    create_backup as _create_backup, verify_backup as _verify_backup,
+    restore_backup as _restore_backup,
+)
 from .preferences import PreferencesUpdate, AccountSchedule, load_preferences, collection_interval_seconds
 from .onboarding import OnboardingUpdate, complete_onboarding, load_onboarding
 from .services.assignments.automation import save_preferences, record_discovery, pending_assignments, mark_pending, automation_status
@@ -78,6 +85,7 @@ from .services.assignments.readiness import direct_answerable, execution_block
 from .services.runtime.preview import preview_manager
 from .services.agents.config import (
     load_agent_model_config,
+    _store_config,
     resolve_provider_secret,
     save_agent_model_config,
     save_multi_provider_config,
@@ -342,6 +350,12 @@ async def run_memory_maintenance() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     database.initialize()
+    restore_request = settings.data_root / "pending-restore.json"
+    if restore_request.exists():
+        payload = json.loads(restore_request.read_text(encoding="utf-8"))
+        _restore_backup(settings.data_root, database, payload["backup_id"])
+        restore_request.unlink()
+        logger.info("数据恢复已在后台服务启动前完成")
     upgrade_layout(settings.data_root)
     asyncio.create_task(asyncio.to_thread(prune_accounts, settings.accounts_root))
     migrate_legacy_schedules(database)
@@ -393,6 +407,11 @@ async def lifespan(_: FastAPI):
         conversation_retention_days=memory_preferences.conversation_retention_days,
         memory_retention_days=memory_preferences.memory_retention_days,
     )
+    try:
+        _ensure_data_idle()
+        automatic_backup(settings.data_root, database)
+    except Exception:
+        logger.exception("启动自动备份失败")
     scheduler_task = asyncio.create_task(run_collection_scheduler())
     health_monitor_task = asyncio.create_task(run_job_health_monitor())
     memory_maintenance_task = asyncio.create_task(run_memory_maintenance())
@@ -533,7 +552,7 @@ class ModelConfigRequest(BaseModel):
     provider_id: str = ""
     api_format: str = "openai"
     use_responses_api: bool = False
-    reasoning_effort: str = "high"
+    reasoning_effort: str | None = None
     roles: dict[str, list[str]] | None = None
     capabilities: dict[str, list[str]] | None = None
     max_concurrency: int = Field(default=2, ge=1, le=32)
@@ -782,6 +801,327 @@ def ensure_account_idle(account_id: str) -> None:
         )
 
 
+_DATA_SIZE_SKIP_NAMES = {"Cache", "Code Cache", "GPUCache", "ShaderCache", "cache", "__pycache__"}
+
+
+def _directory_size(path: Path, *, include_cache: bool = False) -> int:
+    if not path.exists() or path.is_symlink() or path.is_junction():
+        return 0
+    total = 0
+    try:
+        with os.scandir(path) as entries:
+            for entry in entries:
+                if not include_cache and entry.name in _DATA_SIZE_SKIP_NAMES:
+                    continue
+                try:
+                    if entry.is_symlink() or Path(entry.path).is_junction():
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        total += _directory_size(Path(entry.path), include_cache=include_cache)
+                    elif entry.is_file(follow_symlinks=False):
+                        total += entry.stat(follow_symlinks=False).st_size
+                except OSError:
+                    continue
+    except OSError:
+        return 0
+    return total
+
+
+def _table_exists(connection, name: str) -> bool:
+    return connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    ).fetchone() is not None
+
+
+def _data_stats(data_root: Path, db: Database) -> dict[str, Any]:
+    data_root = Path(data_root).resolve()
+    accounts_root = data_root / "accounts"
+    account_sizes = {"browser": 0, "tasks": 0, "artifacts": 0, "attendance": 0}
+    account_dirs = accounts_root.iterdir() if accounts_root.is_dir() else ()
+    for account_dir in account_dirs:
+        if not account_dir.is_dir() or account_dir.is_symlink():
+            continue
+        for name in account_sizes:
+            account_sizes[name] += _directory_size(account_dir / name)
+
+    with db.connect() as connection:
+        counts = {
+            "accounts": connection.execute("SELECT COUNT(*) FROM accounts").fetchone()[0],
+            "assignments": connection.execute("SELECT COUNT(*) FROM assignments WHERE active=1").fetchone()[0],
+            "tasks": connection.execute("SELECT COUNT(*) FROM jobs WHERE deleted_at IS NULL").fetchone()[0],
+            "learning_runs": 0,
+            "artifacts": connection.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0],
+        }
+        if _table_exists(connection, "learning_runs"):
+            counts["learning_runs"] = connection.execute(
+                "SELECT COUNT(*) FROM learning_runs WHERE deleted_at IS NULL"
+            ).fetchone()[0]
+        if _table_exists(connection, "learning_artifacts"):
+            counts["artifacts"] += connection.execute(
+                "SELECT COUNT(*) FROM learning_artifacts"
+            ).fetchone()[0]
+
+    try:
+        database_size = db.path.stat().st_size
+    except OSError:
+        database_size = 0
+    return {
+        "sizes": {
+            "database": database_size,
+            "accounts": sum(account_sizes.values()),
+            "logs": _directory_size(data_root / "logs"),
+            "backups": _directory_size(data_root / "backups"),
+            "accounts_breakdown": account_sizes,
+        },
+        "counts": counts,
+    }
+
+
+def _safe_remove_tree(path: Path, root: Path) -> int:
+    resolved_root = root.resolve()
+    if path.is_symlink() or path.is_junction() or not path.exists():
+        raise ValueError("清理目标不能是链接或不存在的路径")
+    resolved = path.resolve()
+    if not resolved.is_relative_to(resolved_root) or resolved == resolved_root:
+        raise ValueError("清理路径不在数据目录内")
+    released = _directory_size(path, include_cache=True)
+    shutil.rmtree(path)
+    return released
+
+
+def _filesystem_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _active_data_state(db: Database) -> tuple[set[str], set[str]]:
+    active_identifiers: set[str] = set()
+    active_accounts: set[str] = set()
+    for job in db.list_jobs(include_deleted=False):
+        if job.get("status") in {"queued", "running", "paused", "stopping"} or job.get("browser_retained"):
+            active_identifiers.add(str(job["id"]))
+            active_accounts.add(str(job["account_id"]))
+    with db.connect() as connection:
+        if _table_exists(connection, "learning_runs"):
+            rows = connection.execute(
+                "SELECT id, account_id, status FROM learning_runs WHERE deleted_at IS NULL"
+            ).fetchall()
+            for row in rows:
+                if row["status"] not in {"completed", "failed", "interrupted", "stopped", "cancelled"}:
+                    active_identifiers.add(str(row["id"]))
+                    active_accounts.add(str(row["account_id"]))
+    return active_identifiers, active_accounts
+
+
+def _ensure_data_idle() -> None:
+    active_ids, _ = _active_data_state(database)
+    if active_ids:
+        raise HTTPException(409, "存在活动任务或保留浏览器：" + "、".join(sorted(active_ids)))
+    for account in database.list_accounts():
+        account_id = str(account["id"])
+        if database.has_active_job(account_id):
+            raise HTTPException(409, "存在运行中、暂停中或保留浏览器的任务，请先停止并关闭任务浏览器")
+        if learning_service.active(account_id):
+            raise HTTPException(409, "存在运行中的网课任务，请先停止网课任务")
+        if attendance_service.active(account_id):
+            raise HTTPException(409, "存在运行中的签到或采集，请先停止相关操作")
+        if collection_lock(account_id).locked():
+            raise HTTPException(409, "存在运行中的采集，请等待采集结束")
+        if platform_login_in_progress(account_id):
+            raise HTTPException(409, "存在进行中的账号授权，请先完成或关闭授权窗口")
+
+
+def _optimize_data(data_root: Path, db: Database, scope: str, retention_days: int) -> dict[str, Any]:
+    root = Path(data_root).resolve()
+    cutoff = datetime.now(timezone.utc).timestamp() - max(1, retention_days) * 86400
+    active_identifiers, active_accounts = _active_data_state(db)
+    removed: list[dict[str, Any]] = []
+    skipped: dict[str, int] = {}
+    released = 0
+
+    def skip(reason: str) -> None:
+        skipped[reason] = skipped.get(reason, 0) + 1
+
+    def remove(path: Path, kind: str) -> None:
+        nonlocal released
+        try:
+            current = path
+            while current != root:
+                if current.is_symlink() or current.is_junction() or not current.resolve().is_relative_to(root):
+                    raise ValueError("清理目标不能经过链接或越界")
+                current = current.parent
+            size = _safe_remove_tree(path, root) if path.is_dir() else path.stat().st_size
+            if path.is_file():
+                path.unlink()
+            released += size
+            removed.append({"path": str(path), "kind": kind, "bytes": size})
+        except (OSError, ValueError):
+            skip("删除失败或路径无效")
+
+    if scope == "logs":
+        logs_root = root / "logs"
+        candidates = [logs_root / "oldmain.log"]
+        archive = logs_root / "archive"
+        if archive.is_dir() and not archive.is_symlink():
+            candidates.extend(item for item in archive.iterdir() if item.is_file() and not item.is_symlink())
+        for path in candidates:
+            if not path.exists():
+                continue
+            if _filesystem_mtime(path) >= cutoff:
+                skip("未达到保留期限")
+            else:
+                remove(path, "日志归档")
+    elif scope == "workspaces":
+        accounts_root = root / "accounts"
+        if accounts_root.is_dir():
+            for account_dir in accounts_root.iterdir():
+                tasks_root = account_dir / "tasks"
+                if not account_dir.is_dir() or account_dir.is_symlink() or not tasks_root.is_dir():
+                    continue
+                for kind_root in tasks_root.iterdir():
+                    if kind_root.is_symlink() or not kind_root.is_dir():
+                        continue
+                    for attempt_dir in kind_root.iterdir():
+                        if attempt_dir.is_symlink() or not attempt_dir.is_dir():
+                            continue
+                        if attempt_dir.name in active_identifiers or account_dir.name in active_accounts:
+                            skip("任务仍在运行或保留浏览器")
+                        elif _filesystem_mtime(attempt_dir) >= cutoff:
+                            skip("未达到保留期限")
+                        else:
+                            remove(attempt_dir, "任务工作区")
+    elif scope == "artifacts":
+        accounts_root = root / "accounts"
+        if accounts_root.is_dir():
+            for account_dir in accounts_root.iterdir():
+                artifacts_root = account_dir / "artifacts"
+                if not account_dir.is_dir() or account_dir.is_symlink() or not artifacts_root.is_dir():
+                    continue
+                for artifact_dir in artifacts_root.iterdir():
+                    if artifact_dir.is_symlink() or not artifact_dir.is_dir():
+                        continue
+                    if artifact_dir.name in active_identifiers or account_dir.name in active_accounts:
+                        skip("所属任务仍在运行或保留浏览器")
+                    elif _filesystem_mtime(artifact_dir) >= cutoff:
+                        skip("未达到保留期限")
+                    else:
+                        remove(artifact_dir, "任务产物")
+    elif scope == "browser-cache":
+        accounts_root = root / "accounts"
+        if accounts_root.is_dir():
+            for account_dir in accounts_root.iterdir():
+                browser_root = account_dir / "browser"
+                if account_dir.name in active_accounts:
+                    skip("账号仍有运行中的任务")
+                    continue
+                if account_dir.is_symlink() or not browser_root.is_dir() or browser_root.is_symlink():
+                    continue
+                for current, directories, _ in os.walk(browser_root, topdown=True):
+                    current_path = Path(current)
+                    directories[:] = [name for name in directories if not (current_path / name).is_symlink()]
+                    for name in list(directories):
+                        if name not in _DATA_SIZE_SKIP_NAMES:
+                            continue
+                        cache_dir = current_path / name
+                        remove(cache_dir, "浏览器缓存")
+                        directories.remove(name)
+    else:
+        raise ValueError("不支持的清理范围")
+
+    return {
+        "scope": scope,
+        "retention_days": retention_days,
+        "released_bytes": released,
+        "removed": removed,
+        "skipped": skipped,
+    }
+
+
+@app.get("/api/data/stats")
+async def get_data_stats() -> dict[str, Any]:
+    return await asyncio.to_thread(_data_stats, settings.data_root, database)
+
+
+@app.post("/api/data/backup")
+async def create_data_backup(payload: DataBackupRequest) -> dict[str, Any]:
+    _ensure_data_idle()
+    try:
+        return _create_backup(settings.data_root, database, payload)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/api/data/backups")
+async def list_data_backups() -> list[dict[str, Any]]:
+    backups_root = (settings.data_root / "backups").resolve()
+    backups_root.mkdir(parents=True, exist_ok=True)
+    result = []
+    for path in sorted(backups_root.glob("*.zip"), key=_filesystem_mtime, reverse=True):
+        if path.is_symlink():
+            continue
+        checked = await asyncio.to_thread(_verify_backup, path, backups_root)
+        manifest = checked.get("manifest") or {}
+        result.append({
+            "id": path.name,
+            "bytes": path.stat().st_size,
+            "created_at": manifest.get("created_at"),
+            "contents": manifest.get("contents", {}),
+            "valid": checked["valid"],
+            **({"error": checked["error"]} if not checked["valid"] else {}),
+        })
+    return result
+
+
+class DataRestoreRequest(BaseModel):
+    backup_id: str = Field(min_length=1, max_length=160)
+
+
+@app.post("/api/data/restore")
+async def request_data_restore(payload: DataRestoreRequest) -> dict[str, Any]:
+    _ensure_data_idle()
+    if Path(payload.backup_id).name != payload.backup_id:
+        raise HTTPException(400, "备份标识无效")
+    checked = _verify_backup(settings.data_root / "backups" / payload.backup_id, settings.data_root / "backups")
+    if not checked["valid"]:
+        raise HTTPException(400, checked["error"])
+    marker = settings.data_root / "pending-restore.json"
+    if marker.exists():
+        raise HTTPException(409, "已有待恢复请求，请先重启应用")
+    with marker.open("x", encoding="utf-8") as output:
+        json.dump({"backup_id": payload.backup_id}, output)
+    return {"restart_required": True, "backup_id": payload.backup_id}
+
+
+@app.get("/api/data/backup-policy")
+async def get_backup_policy() -> dict[str, Any]:
+    return BackupPolicy.model_validate(database.get_setting("data_backup_policy", {}) or {}).model_dump()
+
+
+@app.put("/api/data/backup-policy")
+async def update_backup_policy(payload: BackupPolicy) -> dict[str, Any]:
+    database.set_setting("data_backup_policy", payload.model_dump())
+    return payload.model_dump()
+
+
+class DataOptimizeRequest(BaseModel):
+    scope: str = Field(pattern="^(workspaces|artifacts|logs|browser-cache)$")
+    retention_days: int = Field(default=30, ge=1, le=3650)
+
+
+@app.post("/api/data/optimize")
+async def optimize_data(payload: DataOptimizeRequest) -> dict[str, Any]:
+    _ensure_data_idle()
+    try:
+        return _optimize_data(
+            settings.data_root, database, payload.scope,
+            load_preferences(database).system.log_retention_days,
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
     model_config = get_model_config()
@@ -876,6 +1216,44 @@ async def update_preferences(payload: PreferencesUpdate) -> dict[str, Any]:
     return result
 
 
+@app.get("/api/model-usage")
+def get_model_usage(
+    period: Literal["24h", "7d", "30d", "all"] = "24h",
+    model: str = "",
+    provider_id: str = "",
+    details: bool = False,
+    status: Literal["all", "running", "succeeded", "error", "cancelled"] = "all",
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    from .model_usage import model_usage
+    return model_usage(database, period=period, model=model, provider_id=provider_id, details=details, status=status, limit=limit, offset=offset, providers=model_providers_view())
+
+
+@app.get("/api/model-usage/pricing")
+def get_usage_pricing() -> dict[str, Any]:
+    from .model_usage import pricing_rules
+    return {"rules": pricing_rules(database)}
+
+
+@app.post("/api/model-usage/pricing")
+def add_usage_pricing(payload: PricingRule) -> dict[str, Any]:
+    from .model_usage import save_pricing
+    return save_pricing(database, payload)
+
+
+@app.get("/api/model-usage/tools")
+def get_usage_tools(
+    period: Literal["24h", "7d", "30d", "all"] = "24h",
+    tool: str = "",
+    status: Literal["all", "running", "succeeded", "error"] = "all",
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    from .model_usage import tool_usage
+    return tool_usage(database, period=period, tool=tool, status=status, limit=limit, offset=offset)
+
+
 @app.get("/api/model-config")
 async def get_model_settings() -> dict[str, Any]:
     config = get_model_config()
@@ -896,9 +1274,25 @@ async def get_model_settings() -> dict[str, Any]:
     }
 
 
+class ReasoningEffortRequest(BaseModel):
+    reasoning_effort: str
+
+
+@app.patch("/api/model-config/reasoning")
+async def save_reasoning_effort(payload: ReasoningEffortRequest) -> dict[str, Any]:
+    effort = payload.reasoning_effort.strip().lower()
+    if effort not in {"none", "minimal", "low", "medium", "high", "xhigh"}:
+        raise HTTPException(status_code=400, detail="不支持的思考强度")
+    config = load_agent_model_config(database, getattr(database, "settings", settings))
+    if config is None:
+        raise HTTPException(status_code=409, detail="请先配置模型供应商")
+    _store_config(database, config.model_copy(update={"reasoning_effort": effort}))
+    return {"reasoning_effort": effort}
+
+
 @app.put("/api/model-config")
 async def save_model_settings(payload: ModelConfigRequest) -> dict[str, Any]:
-    reasoning_effort = payload.reasoning_effort.strip().lower()
+    reasoning_effort = (payload.reasoning_effort or get_model_config().get("reasoning_effort", "high")).strip().lower()
     if reasoning_effort not in {
         "none",
         "minimal",
