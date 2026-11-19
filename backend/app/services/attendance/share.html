@@ -478,6 +478,10 @@
     let scanFrame = null;
     let scannerOpen = false;
     let lastDecodeAt = 0;
+    let cameraGeneration = 0;
+    let lastFullDecodeAt = 0;
+    const scanCanvas = document.createElement('canvas');
+    const scanContext = scanCanvas.getContext('2d', {willReadFrequently:true});
 
     function pin() {
       return el('pin').value.trim();
@@ -642,6 +646,7 @@
     }
 
     function stopCamera() {
+      cameraGeneration++;
       if (scanFrame) cancelAnimationFrame(scanFrame);
       scanFrame = null;
       if (stream) stream.getTracks().forEach(track => track.stop());
@@ -669,6 +674,32 @@
       startCamera();
     }
 
+    // 将 object-fit:cover 下的可见扫码框映射到视频原始像素，并留出二维码静区。
+    function scanRegion(width, height) {
+      const videoRect = el('video').getBoundingClientRect();
+      const frameRect = el('scanFrame').getBoundingClientRect();
+      if (!videoRect.width || !videoRect.height || !frameRect.width) return {x:0,y:0,width,height};
+      const scale = Math.max(videoRect.width / width, videoRect.height / height);
+      const left = videoRect.left + (videoRect.width - width * scale) / 2;
+      const top = videoRect.top + (videoRect.height - height * scale) / 2;
+      const margin = frameRect.width * .15;
+      const x = Math.max(0, (frameRect.left - margin - left) / scale);
+      const y = Math.max(0, (frameRect.top - margin - top) / scale);
+      const right = Math.min(width, (frameRect.right + margin - left) / scale);
+      const bottom = Math.min(height, (frameRect.bottom + margin - top) / scale);
+      return {x, y, width:Math.max(1,right-x), height:Math.max(1,bottom-y)};
+    }
+
+    function decodeRegion(region, maxSide) {
+      if (!scanContext) return null;
+      const scale = Math.min(1, maxSide / Math.max(region.width, region.height));
+      scanCanvas.width = Math.max(1, Math.round(region.width * scale));
+      scanCanvas.height = Math.max(1, Math.round(region.height * scale));
+      scanContext.drawImage(el('video'), region.x, region.y, region.width, region.height, 0, 0, scanCanvas.width, scanCanvas.height);
+      const pixels = scanContext.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+      return decodeQrCode(pixels.data, pixels.width, pixels.height);
+    }
+
     function scanNextFrame() {
       if (scanFrame || !scannerOpen || busy || !stream) return;
       scanFrame = requestAnimationFrame(now => {
@@ -685,14 +716,17 @@
           scanNextFrame();
           return;
         }
-        const scale = Math.min(1, 900 / Math.max(width, height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(width * scale));
-        canvas.height = Math.max(1, Math.round(height * scale));
-        const context = canvas.getContext('2d', {willReadFrequently:true});
-        context.drawImage(el('video'), 0, 0, canvas.width, canvas.height);
-        const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
-        const found = decodeQrCode(pixels.data, pixels.width, pixels.height);
+        let found;
+        try {
+          found = decodeRegion(scanRegion(width, height), 1280);
+          if (!found?.data && now - lastFullDecodeAt >= 800) {
+            lastFullDecodeAt = now;
+            found = decodeRegion({x:0,y:0,width,height}, 1600);
+          }
+        } catch (error) {
+          setScanState('画面识别失败，请重新打开扫码或从相册选择', 'error');
+          return;
+        }
         if (found?.data) {
           capture(found.data, 'camera');
           return;
@@ -706,21 +740,50 @@
         setScanState('无法打开摄像头，可从相册选择', 'error');
         return;
       }
+      const generation = ++cameraGeneration;
+      let acquired = null;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {facingMode:{ideal:'environment'}},
-          audio: false
-        });
-        if (!scannerOpen) {
-          stopCamera();
+        const profiles = [
+          {facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:24,max:30}},
+          {facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720}},
+          {facingMode:{ideal:'environment'}}
+        ];
+        for (let index = 0; index < profiles.length; index++) {
+          try {
+            acquired = await navigator.mediaDevices.getUserMedia({video:profiles[index], audio:false});
+            break;
+          } catch (error) {
+            if (generation !== cameraGeneration || !scannerOpen) return;
+            if (!['OverconstrainedError','ConstraintNotSatisfiedError'].includes(error?.name) || index === profiles.length - 1) throw error;
+          }
+        }
+        if (generation !== cameraGeneration || !scannerOpen) {
+          acquired?.getTracks().forEach(track => track.stop());
           return;
         }
-        el('video').srcObject = stream;
+        stream = acquired;
+        const track = acquired.getVideoTracks()[0];
+        // 部分浏览器不支持或拒绝对焦约束，不能因此阻止扫码。
+        try {
+          const capabilities = track?.getCapabilities?.();
+          if (capabilities?.focusMode?.includes('continuous')) {
+            await track.applyConstraints({advanced:[{focusMode:'continuous'}]});
+          }
+        } catch (_) { /* 保留设备默认对焦。 */ }
+        if (generation !== cameraGeneration || !scannerOpen) {
+          acquired.getTracks().forEach(track => track.stop());
+          return;
+        }
+        el('video').srcObject = acquired;
         await el('video').play();
-        setScanState('将二维码放入框内');
+        if (generation !== cameraGeneration || !scannerOpen) return;
+        setScanState('将二维码放入框内，保持适当距离以便对焦');
         lastDecodeAt = 0;
+        lastFullDecodeAt = 0;
         scanNextFrame();
       } catch (error) {
+        acquired?.getTracks().forEach(track => track.stop());
+        if (generation !== cameraGeneration || !scannerOpen) return;
         stopCamera();
         const denied = ['NotAllowedError','PermissionDeniedError'].includes(error?.name);
         setScanState(denied ? '请允许摄像头权限，或从相册选择' : '无法打开摄像头，可从相册选择', 'error');
