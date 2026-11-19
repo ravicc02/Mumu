@@ -13,35 +13,23 @@
 
 .application-settings-dialog .settings-card {
   overflow: hidden;
-  border: 1px solid rgba(24, 33, 44, .11);
-  border-radius: 14px;
-  background: #fdfefe;
-  box-shadow: 0 1px 3px rgba(20, 30, 42, .04);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: none;
 }
 
 .application-settings-dialog .settings-card-heading {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
-  min-height: 68px;
+  min-height: 60px;
   border-bottom: 1px solid var(--line);
-  background: #f7f9fb;
-  padding: 18px 32px;
+  background: var(--bg);
+  padding: 16px 28px;
 }
 
-.application-settings-dialog .settings-card-index {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  flex: none;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--subtle);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
+.application-settings-dialog .settings-card-index { display: none; }
 
 .application-settings-dialog .settings-card-title {
   min-width: 0;
@@ -70,7 +58,7 @@
 }
 
 .application-settings-dialog .settings-card-body {
-  padding: 0 32px;
+  padding: 0 28px;
 }
 
 .application-settings-dialog .settings-card-body.flush {
@@ -78,7 +66,7 @@
 }
 
 .application-settings-dialog .settings-card-body.padded {
-  padding: 24px 32px;
+  padding: 22px 28px;
 }
 
 .application-settings-dialog .settings-card .preference-section {

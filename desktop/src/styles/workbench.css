@@ -1,28 +1,32 @@
-/* Mumu tide palette: accent sampled from the water mascot; three surface layers
- * (canvas → panel → raised) carry hierarchy so dividers can stay quiet. */
+/* Mumu 事务型界面：浅色画布、黑色操作与海蓝色选中表面。 */
 :root {
   color-scheme: light;
-  --bg: #f1f5f6; --surface: #ffffff; --surface-muted: #e9eff1;
-  --ink: #15242c; --muted: #53646d; --subtle: #6b7c85;
-  --line: rgba(21,48,60,.09); --line-strong: rgba(21,48,60,.18);
-  --accent-rgb: 11,111,140;
-  --accent: #0b6f8c; --accent-hover: #095d76; --accent-soft: #e3f3f6; --accent-wash: rgba(var(--accent-rgb),.12); --accent-glow: #6cd8e8;
-  --green: #1b7550; --green-soft: #e6f4ec;
+  --bg: #fbfbf5; --surface: #ffffff; --surface-muted: #f4f4f0;
+  --ink: #000000; --muted: #52525b; --subtle: #62626b;
+  --line: #e4e4e7; --line-strong: #c4c4ca;
+  --accent-rgb: 0,0,0;
+  --accent: #000000; --accent-hover: #3f3f46; --accent-soft: #cceeff; --accent-wash: #e7f6ff; --accent-glow: #0077b6;
+  --green: #1b7550; --green-soft: #d4f9e0;
   --orange: #94620f; --orange-soft: #fbf2de;
   --red: #b6413b; --red-soft: #fbedeb; --on-accent: #fbfeff;
-  --media-bg: #e8eef0; --focus: rgba(var(--accent-rgb),.20); --overlay: rgba(14,32,40,.36);
-  --disabled-bg: #e6ebed; --disabled-ink: #8d9aa1;
+  --media-bg: #f4f4f0; --focus: rgba(var(--accent-rgb),.14); --overlay: rgba(0,0,0,.36);
+  --disabled-bg: #e4e4e7; --disabled-ink: #62626b;
   --status-neutral: var(--muted); --status-accent: var(--accent); --status-success: var(--green); --status-warning: var(--orange); --status-danger: var(--red);
   --duration-fast: 120ms; --duration-standard: 160ms; --duration-slow: 220ms;
-  --control-height: 36px; --field-height: 38px;
-  --radius-control: 8px; --radius-card: 12px; --radius-panel: 16px;
-  --text-xs: 12px; --text-sm: 13px; --text-md: 14px; --text-lg: 16px; --page-title: 24px;
-  --shadow: 0 1px 2px rgba(14,40,52,.05);
-  --shadow-raised: 0 1px 2px rgba(14,40,52,.04), 0 4px 14px -6px rgba(14,40,52,.10);
-  --shadow-menu: 0 10px 28px -6px rgba(14,40,52,.16), 0 2px 6px rgba(14,40,52,.06);
-  --shadow-modal: 0 24px 72px -18px rgba(14,40,52,.26);
+  --control-height: 40px; --field-height: 44px;
+  --radius-control: 8px; --radius-card: 12px; --radius-panel: 20px; --radius-pill: 9999px;
+  --space-xs: 4px; --space-sm: 8px; --space-md: 12px; --space-lg: 16px; --space-xl: 24px; --space-xxl: 32px;
+  --text-xs: 12px; --text-sm: 14px; --text-md: 16px; --text-lg: 18px; --page-title: 28px;
+  --shadow: 0 1px 2px rgba(0,0,0,.04);
+  --shadow-raised: 0 1px 3px rgba(0,0,0,.06);
+  --shadow-menu: 0 8px 16px rgba(0,0,0,.10), 0 0 0 1px rgba(0,0,0,.06);
+  --shadow-modal: 0 25px 50px -12px rgba(0,0,0,.25);
   --ease: cubic-bezier(.22,1,.36,1); --ease-standard: cubic-bezier(.2,.8,.2,1);
-  font-family: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Inter Variable", Inter, "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", sans-serif;
+  --font-display: "Neue Haas Grotesk Display", "Helvetica Neue", Helvetica, "Segoe UI Variable Display", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-ui);
+  font-feature-settings: "ss03";
+  font-weight: 420;
   font-size: var(--text-md); color: var(--ink); background: var(--bg); font-synthesis: none;
 }
 

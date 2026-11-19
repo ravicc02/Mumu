@@ -30,14 +30,17 @@ test("first-run setup is full screen and describes browser automation setup", as
   assert.match(model, /placeholder="例如：My API Provider"/);
   assert.match(model, /placeholder="https:\/\/api\.example\.com\/v1"/);
   assert.match(model, /placeholder="your-model-name"/);
-  assert.match(model, /class="reasoning-options"/);
+  assert.doesNotMatch(model, /class="reasoning-options"/);
+  const slider = await read("../src/features/settings/components/ReasoningSlider.vue");
+  assert.match(slider, /type="range"/);
+  assert.match(slider, /saveReasoningEffort/);
 });
 
 test("model settings expose providers, protocol and fallback ordering", async () => {
   const model = await read("../src/features/settings/components/ModelConfiguration.vue");
   // 多供应商：左侧列表可拖拽排序，首位为默认。
   assert.match(model, /class="provider-list"/);
-  assert.match(model, /拖拽排序，首位为默认/);
+  assert.match(model, /v-if="index === 0" class="provider-default"/);
   assert.match(model, /dropProvider\(index\)/);
   // 协议与 Responses 开关。
   assert.match(model, /OpenAI 格式/);
@@ -45,9 +48,12 @@ test("model settings expose providers, protocol and fallback ordering", async ()
   assert.match(model, /使用 Responses API/);
   assert.match(model, /use_responses_api/);
   // 供应商内模型优先级与跨供应商回退说明。
-  assert.match(model, /<h4>模型优先级<\/h4>/);
+  assert.match(model, /<h4>模型优先级（至少添加一个）<\/h4>/);
   assert.match(model, /dropModel\(index\)/);
-  assert.match(model, /全部不可用再换下一个供应商/);
+  assert.match(model, /class="model-priority-box"/);
+  assert.match(model, /编辑 \$\{model\}/);
+  assert.match(model, /从服务商拉取模型列表/);
+  assert.doesNotMatch(model, /class="model-masthead"|class="model-facts"/);
 });
 
 test("learning workspace uses a searchable account picker", async () => {

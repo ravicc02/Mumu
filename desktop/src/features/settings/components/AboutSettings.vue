@@ -1,11 +1,13 @@
 <script setup>
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { ArrowUpRight, Check, FileText, FolderOpen, LoaderCircle, RefreshCw, Scale } from "@lucide/vue";
+import ChangelogDialog from "./ChangelogDialog.vue";
 import { appInfo, displayVersion } from "../../../app/lib/product.js";
 import ToggleSwitch from "../../../shared/controls/ToggleSwitch.vue";
 
 const props = defineProps({
   update: { type: Object, required: true },
+  visible: { type: Boolean, default: false },
   autoCheck: { type: Boolean, default: false },
   setAutoCheck: { type: Function, required: true },
   checkUpdates: { type: Function, required: true },
@@ -15,6 +17,8 @@ const props = defineProps({
 });
 
 const error = ref("");
+const changelogOpen = ref(false);
+watch(() => props.visible, visible => { if (!visible) changelogOpen.value = false; });
 const year = new Date().getFullYear();
 const statusText = {
   available: "发现可用更新",
@@ -87,18 +91,16 @@ function toggleAutoCheck(event) {
       </section>
 
       <nav class="about-links" aria-label="关于页面操作">
-        <button type="button" @click="openLink(appInfo.repository + '/releases')">
+        <button type="button" @click="changelogOpen = true">
           <FileText :size="15" />查看更新日志
         </button>
         <button type="button" @click="openLogs">
           <FolderOpen :size="15" />打开日志目录
         </button>
-        <button type="button" title="查看 GPL-3.0-only 许可证" @click="openLink(appInfo.repository + '/blob/main/LICENSE')">
-          <Scale :size="15" />GPL-3.0-only · 无担保
-        </button>
       </nav>
 
       <p class="about-copyright">© {{ year }} {{ appInfo.name }}. All rights reserved.</p>
+      <button class="about-license" type="button" @click="openLink(appInfo.repository + '/blob/main/LICENSE')"><Scale :size="13" />GPL-3.0-only · 无担保</button>
     </div>
 
     <footer class="about-actions">
@@ -106,6 +108,7 @@ function toggleAutoCheck(event) {
     </footer>
 
     <p v-if="error" class="about-error validation-error" role="alert">{{ error }}</p>
+    <ChangelogDialog :open="changelogOpen" @close="changelogOpen = false" />
   </div>
 </template>
 
@@ -271,6 +274,8 @@ function toggleAutoCheck(event) {
   text-align: center;
 }
 
+.about-license{display:inline-flex;align-items:center;gap:5px;margin-top:8px;border:0;background:transparent;color:var(--subtle);font-size:11px}
+.about-license:hover{color:var(--ink)}
 .about-actions {
   display: flex;
   justify-content: flex-end;

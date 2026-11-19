@@ -1,4 +1,22 @@
 /* PC company workspace. Scene controls remain outside task and browser actions. */
+.town-panel { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); grid-template-rows:repeat(2,minmax(0,clamp(220px,calc((100dvh - 250px)/2),420px))); align-content:start; gap:16px; min-height:0; overflow-y:auto; padding:16px 20px 24px; flex:1; background:var(--bg); }
+.town-panel-group { display:flex; flex-direction:column; min-width:0; min-height:0; border:1px solid var(--line); border-radius:var(--radius-card); background:var(--surface); overflow:hidden; }
+.town-panel-group>header { display:flex; align-items:center; justify-content:space-between; gap:8px; flex:none; padding:14px 16px; border-bottom:1px solid var(--line); }
+.town-panel-group h3 { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; }
+.town-panel-group h3::before { content:""; width:8px; height:8px; flex:none; border-radius:50%; background:var(--district-color); }
+.town-panel-group>header>span { min-width:24px; border-radius:12px; background:var(--bg); padding:2px 6px; color:var(--muted); font-size:var(--text-xs); text-align:center; font-variant-numeric:tabular-nums; }
+.town-panel-list { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:0 12px 10px; scrollbar-gutter:stable; }
+.town-panel-group-empty { padding:20px 4px; color:var(--muted); font-size:var(--text-sm); }
+.town-panel-task { display:flex; align-items:center; gap:10px; width:100%; min-width:0; padding:12px 2px; border:0; border-bottom:1px solid var(--line); background:transparent; text-align:left; color:var(--ink); }
+.town-panel-task .platform-logo { flex:0 0 24px; }
+.town-panel-task>svg { flex:none; }
+.town-panel-task>span { flex:1; min-width:0; display:grid; gap:6px; }
+.town-panel-task strong { min-width:0; font-size:13px; font-weight:500; line-height:1.45; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.town-panel-task small { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; }
+.town-panel-task:hover { background:var(--bg); }
+.town-panel-task:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.town-panel-empty { grid-column:1/-1; display:flex; align-items:center; justify-content:center; gap:16px; padding:48px; color:var(--muted); }
+@media(max-width:900px) { .town-panel { grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(3,minmax(220px,1fr)); } }
 .dashboard-main.town-dashboard { display: grid; grid-template-rows: auto minmax(380px, 1fr); gap: 0; overflow: auto; padding: 24px 24px 0; }
 .town-dashboard .dashboard-heading { margin-bottom: 9px; }
 .town-dashboard .dashboard-heading h2 { font-size: var(--page-title); }

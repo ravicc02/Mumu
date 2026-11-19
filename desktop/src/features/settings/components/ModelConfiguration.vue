@@ -1,17 +1,11 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { Check, Download, Eye, EyeOff, GripVertical, LoaderCircle, Plus, Save, Trash2, Zap } from "@lucide/vue";
+import { Check, Download, Eye, EyeOff, GripVertical, LoaderCircle, Pencil, Plus, Save, Trash2, Zap } from "@lucide/vue";
 import { api } from "../../../app/api.js";
+import ModelUsage from "./ModelUsage.vue";
 
 const emit = defineEmits(["saved"]);
-const reasoningOptions = [
-  { value: "none", label: "无" },
-  { value: "minimal", label: "最少" },
-  { value: "low", label: "低" },
-  { value: "medium", label: "中" },
-  { value: "high", label: "高" },
-  { value: "xhigh", label: "极高" },
-];
+const activeTab = ref("model");
 
 function emptyProvider() {
   return {
@@ -27,12 +21,14 @@ function emptyProvider() {
 }
 
 const providers = ref([]);
-const reasoningEffort = ref("high");
 const selectedIndex = ref(0);
 const original = ref("");
 const catalog = ref([]);
 const catalogSource = ref(-1);
 const modelName = ref("");
+const addingModel = ref(false);
+const editingModel = ref(-1);
+const editedModelName = ref("");
 const revealed = ref(false);
 const loading = ref(true);
 const loadFailed = ref(false);
@@ -45,7 +41,6 @@ const modelDrag = ref(-1);
 const selected = computed(() => providers.value[selectedIndex.value] || null);
 const keyReady = computed(() => Boolean(selected.value && (selected.value.api_key_configured || selected.value.api_key.trim())));
 const fetchReady = computed(() => Boolean(selected.value && /^https?:\/\//.test(selected.value.base_url.trim()) && keyReady.value));
-const totalModels = computed(() => providers.value.reduce((sum, item) => sum + item.models.length, 0));
 const valid = computed(() => providers.value.length > 0 && providers.value.every(provider => (
   provider.name.trim()
   && /^https?:\/\//.test(provider.base_url.trim())
@@ -57,7 +52,6 @@ const activeCatalog = computed(() => (catalogSource.value === selectedIndex.valu
 
 function snapshot() {
   return {
-    reasoning_effort: reasoningEffort.value,
     providers: providers.value.map(provider => ({
       id: provider.id || "",
       name: provider.name,
@@ -87,9 +81,9 @@ async function load() {
         api_key_configured: Boolean(config.api_key_configured),
       }];
     providers.value = list.map(provider => ({ ...emptyProvider(), ...provider, api_key: "" }));
-    reasoningEffort.value = config.reasoning_effort || "high";
     selectedIndex.value = 0;
     catalog.value = []; catalogSource.value = -1; revealed.value = false;
+    addingModel.value = false; editingModel.value = -1; modelName.value = "";
     original.value = JSON.stringify(snapshot());
   } catch (error) { loadFailed.value = true; failed.value = true; message.value = error.message; }
   finally { loading.value = false; }
@@ -107,7 +101,7 @@ function removeProvider(index) {
   if (catalogSource.value === index) { catalog.value = []; catalogSource.value = -1; }
 }
 
-function select(index) { selectedIndex.value = index; revealed.value = false; }
+function select(index) { selectedIndex.value = index; revealed.value = false; addingModel.value = false; editingModel.value = -1; }
 
 function addModel(value = modelName.value) {
   if (!selected.value) return;
@@ -115,10 +109,28 @@ function addModel(value = modelName.value) {
   if (model && !selected.value.models.includes(model)) {
     selected.value.models.push(model);
     modelName.value = "";
+    addingModel.value = false;
+    failed.value = false; message.value = "";
+  } else if (model && selected.value.models.includes(model)) {
+    failed.value = true; message.value = "模型名称不能重复";
   }
 }
 
-function removeModel(index) { selected.value?.models.splice(index, 1); }
+function editModel(index) {
+  editingModel.value = index;
+  editedModelName.value = selected.value?.models[index] || "";
+}
+function confirmModelEdit(index) {
+  const name = editedModelName.value.trim();
+  if (!name || selected.value?.models.some((model, position) => position !== index && model === name)) {
+    failed.value = true; message.value = name ? "模型名称不能重复" : "模型名称不能为空";
+    return;
+  }
+  failed.value = false; message.value = "";
+  selected.value.models[index] = name;
+  editingModel.value = -1;
+}
+function removeModel(index) { selected.value?.models.splice(index, 1); editingModel.value = -1; }
 
 function startProviderDrag(index, event) {
   providerDrag.value = index;
@@ -176,7 +188,6 @@ async function perform(kind) {
       message.value = `连接成功：${provider.name || provider.base_url}`;
     } else {
       await api.saveModelConfig({
-        reasoning_effort: reasoningEffort.value,
         providers: providers.value.map(item => ({
           id: item.id || undefined,
           name: item.name,
@@ -197,6 +208,13 @@ async function perform(kind) {
 </script>
 
 <template>
+  <div class="model-workspace">
+    <div class="model-subtabs" role="tablist" aria-label="模型页面">
+      <button id="model-config-tab" type="button" role="tab" :aria-selected="activeTab === 'model'" aria-controls="model-config-panel" :tabindex="activeTab === 'model' ? 0 : -1" @keydown.right.prevent="activeTab = 'stats'; $event.currentTarget.nextElementSibling.focus()" @click="activeTab = 'model'">模型</button>
+      <button id="model-stats-tab" type="button" role="tab" :aria-selected="activeTab === 'stats'" aria-controls="model-stats-panel" :tabindex="activeTab === 'stats' ? 0 : -1" @keydown.left.prevent="activeTab = 'model'; $event.currentTarget.previousElementSibling.focus()" @click="activeTab = 'stats'">统计</button>
+    </div>
+    <section id="model-stats-panel" v-if="activeTab === 'stats'" role="tabpanel" aria-labelledby="model-stats-tab"><ModelUsage /></section>
+    <div id="model-config-panel" v-show="activeTab === 'model'" role="tabpanel" aria-labelledby="model-config-tab">
   <form class="model-configuration" @submit.prevent="perform('save')" :aria-busy="loading || Boolean(pending)">
     <div v-if="loading" class="settings-loading" role="status">
       <LoaderCircle class="spinning" :size="18" />正在读取模型配置
@@ -207,37 +225,11 @@ async function perform(kind) {
     </div>
 
     <div v-else class="model-sheet">
-      <header class="model-masthead">
-        <div class="model-brand-lockup">
-          <span class="model-mark" aria-hidden="true">{{ (selected?.name || "?").slice(0, 1).toUpperCase() }}</span>
-          <div class="model-brand-copy">
-            <span class="model-eyebrow">模型服务</span>
-            <h3>{{ selected?.name || "模型配置" }}</h3>
-          </div>
-        </div>
-        <div class="model-metrics">
-          <div><span>供应商</span><strong>{{ providers.length }}</strong></div>
-          <div><span>模型</span><strong>{{ totalModels }}</strong></div>
-        </div>
-      </header>
-
-      <dl class="model-facts">
-        <div>
-          <dt>默认供应商</dt>
-          <dd>{{ providers[0]?.name || "未配置" }}</dd>
-        </div>
-        <div>
-          <dt>回退顺序</dt>
-          <dd>供应商内按模型顺序，全部不可用再换下一个供应商</dd>
-        </div>
-      </dl>
-
       <div class="model-layout">
         <aside class="provider-rail">
           <header class="rail-head">
             <div>
               <h4>供应商</h4>
-              <p>拖拽排序，首位为默认</p>
             </div>
             <button class="icon-button" type="button" title="添加供应商" aria-label="添加供应商" :disabled="Boolean(pending)" @click="addProvider">
               <Plus :size="16" />
@@ -266,7 +258,6 @@ async function perform(kind) {
             </li>
           </ul>
           <p v-if="!providers.length" class="provider-empty">还没有供应商。点击右上角添加。</p>
-          <p class="rail-note">该供应商的模型全部不可用时，才按顺序换用下一个。</p>
         </aside>
 
         <div v-if="selected" class="provider-detail">
@@ -285,7 +276,6 @@ async function perform(kind) {
             <header class="detail-section-head">
               <div class="detail-section-copy">
                 <h4>连接</h4>
-                <p>填写服务商文档里的地址与密钥，再拉取可用模型。</p>
               </div>
             </header>
             <div class="detail-section-body">
@@ -295,9 +285,9 @@ async function perform(kind) {
               </label>
 
               <label class="field-label settings-field">
-                <span>API 地址（自定义服务）</span>
+                <span>API 地址</span>
                 <input v-model="selected.base_url" type="url" inputmode="url" autocomplete="off" placeholder="https://api.example.com/v1" :disabled="Boolean(pending)">
-                <small>填写服务商文档里的 Base URL，结尾是否带 /v1 按服务商说明。</small>
+
               </label>
 
               <label class="field-label settings-field">
@@ -328,7 +318,7 @@ async function perform(kind) {
               <div class="field-label settings-field switch-field">
                 <div class="switch-text">
                   <span>使用 Responses API</span>
-                  <small>改为调用 /v1/responses。仅当中转或服务商支持该端点时开启，否则会返回 404。</small>
+                  <small>仅在服务商支持 /v1/responses 时开启。</small>
                 </div>
                 <button
                   class="switch-control"
@@ -344,82 +334,62 @@ async function perform(kind) {
                 </button>
               </div>
 
-              <div class="detail-actions">
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <header class="detail-section-head">
+              <div class="detail-section-copy">
+                <h4>模型优先级（至少添加一个）</h4>
+              </div>
+            </header>
+            <div class="detail-section-body model-priority-body">
+              <div class="model-priority-box">
+                <ol v-if="selected.models.length" class="priority-list">
+                  <li
+                    v-for="(model, index) in selected.models"
+                    :key="model"
+                    :draggable="editingModel === -1"
+                    :class="{ dragging: modelDrag === index }"
+                    @dragstart="startModelDrag(index, $event)"
+                    @dragover.prevent
+                    @drop.prevent="dropModel(index)"
+                    @dragend="modelDrag = -1"
+                  >
+                    <GripVertical class="model-grip" :size="14" aria-hidden="true" />
+                    <span class="model-tag" :class="{ primary: index === 0 }">{{ index === 0 ? '主模型' : `备用 ${index}` }}</span>
+                    <input v-if="editingModel === index" v-model="editedModelName" class="model-edit-input" :aria-label="`编辑 ${model}`" :disabled="Boolean(pending)" @keydown.enter.prevent="confirmModelEdit(index)" @keydown.esc.prevent="editingModel = -1">
+                    <strong v-else class="model-id" :title="model">{{ model }}</strong>
+                    <button class="icon-button" type="button" :disabled="Boolean(pending)" :aria-label="editingModel === index ? `确认编辑 ${model}` : `编辑 ${model}`" :title="editingModel === index ? '确认' : '编辑'" @click="editingModel === index ? confirmModelEdit(index) : editModel(index)">
+                      <Check v-if="editingModel === index" :size="15" /><Pencil v-else :size="15" />
+                    </button>
+                    <button class="icon-button" type="button" :disabled="Boolean(pending)" :aria-label="`移除 ${model}`" title="移除" @click="removeModel(index)"><Trash2 :size="15" /></button>
+                  </li>
+                </ol>
+                <p v-else class="model-empty">还没有模型。请添加模型，或从服务商拉取模型列表。</p>
+                <div v-if="addingModel" class="model-add-row">
+                  <input v-model="modelName" aria-label="模型名称" placeholder="your-model-name" autocomplete="off" :disabled="Boolean(pending)" @keydown.enter.prevent="addModel()" @keydown.esc.prevent="addingModel = false">
+                  <button class="button light" type="button" :disabled="!modelName.trim() || Boolean(pending)" @click="addModel()">添加</button>
+                  <button class="button light" type="button" @click="addingModel = false">取消</button>
+                </div>
+                <button v-else class="model-add-trigger" type="button" :disabled="Boolean(pending)" @click="addingModel = true"><Plus :size="16" />添加模型</button>
+              </div>
+              <p class="model-drag-hint">拖拽调整优先级</p>
+              <div class="model-priority-actions">
                 <button class="button light" type="button" :disabled="Boolean(pending) || !fetchReady" :title="fetchReady ? '从该供应商读取可用模型' : '请先填写 API 地址和密钥'" @click="perform('fetch')">
-                  <LoaderCircle v-if="pending === 'fetch'" class="spinning" :size="14" />
-                  <Download v-else :size="14" />拉取模型列表
+                  <LoaderCircle v-if="pending === 'fetch'" class="spinning" :size="16" /><Download v-else :size="16" />从服务商拉取模型列表
                 </button>
-                <button class="button light" type="button" :disabled="Boolean(pending) || !fetchReady" @click="perform('test')">
-                  <LoaderCircle v-if="pending === 'test'" class="spinning" :size="14" />
-                  <Zap v-else :size="14" />测试连接
+                <select v-if="activeCatalog.length" class="model-catalog" aria-label="从已获取模型中选择" :disabled="Boolean(pending)" @change="addModel($event.target.value); $event.target.value = ''">
+                  <option value="">从已获取模型中选择</option>
+                  <option v-for="model in activeCatalog" :key="model" :value="model">{{ model }}</option>
+                </select>
+                <button class="button light model-test" type="button" :disabled="Boolean(pending) || !fetchReady || !selected.models.length" @click="perform('test')">
+                  <LoaderCircle v-if="pending === 'test'" class="spinning" :size="16" /><Zap v-else :size="16" />测试连接
                 </button>
               </div>
             </div>
           </section>
 
-          <section class="detail-section">
-            <header class="detail-section-head">
-              <div class="detail-section-copy">
-                <h4>模型优先级</h4>
-                <p>同一供应商内按此顺序尝试，主模型失败后依次回退。</p>
-              </div>
-              <span class="settings-scope">{{ selected.models.length }} 个模型</span>
-            </header>
-            <div class="detail-section-body">
-              <ol v-if="selected.models.length" class="priority-list">
-                <li
-                  v-for="(model, index) in selected.models"
-                  :key="model"
-                  draggable="true"
-                  :class="{ dragging: modelDrag === index }"
-                  @dragstart="startModelDrag(index, $event)"
-                  @dragover.prevent
-                  @drop.prevent="dropModel(index)"
-                  @dragend="modelDrag = -1"
-                >
-                  <GripVertical class="model-grip" :size="14" aria-hidden="true" />
-                  <span class="model-tag" :class="{ primary: index === 0 }">{{ index === 0 ? '主模型' : `备用 ${index}` }}</span>
-                  <strong class="model-id">{{ model }}</strong>
-                  <button class="icon-button" type="button" :disabled="Boolean(pending)" :aria-label="`移除 ${model}`" title="移除" @click="removeModel(index)">
-                    <Trash2 :size="14" />
-                  </button>
-                </li>
-              </ol>
-              <p v-else class="model-empty">还没有模型。连接服务后获取模型，或手动填写模型名称。</p>
-              <div class="model-add-row">
-                <input v-model="modelName" aria-label="模型名称" placeholder="your-model-name" autocomplete="off" :disabled="Boolean(pending)" @keydown.enter.prevent="addModel()">
-                <button class="button light" type="button" :disabled="!modelName.trim() || Boolean(pending)" @click="addModel()"><Plus :size="14" />添加模型</button>
-              </div>
-              <select v-if="activeCatalog.length" class="model-catalog" aria-label="从已获取模型中选择" :disabled="Boolean(pending)" @change="addModel($event.target.value); $event.target.value = ''">
-                <option value="">从已获取模型中选择</option>
-                <option v-for="model in activeCatalog" :key="model" :value="model">{{ model }}</option>
-              </select>
-            </div>
-          </section>
-
-          <section class="detail-section">
-            <header class="detail-section-head">
-              <div class="detail-section-copy">
-                <h4>思考强度</h4>
-                <p>对全部供应商生效，随每次模型请求一起提交。</p>
-              </div>
-            </header>
-            <div class="detail-section-body">
-              <div class="reasoning-options" role="group" aria-label="思考强度">
-                <button
-                  v-for="option in reasoningOptions"
-                  :key="option.value"
-                  type="button"
-                  :class="{ active: reasoningEffort === option.value }"
-                  :aria-pressed="reasoningEffort === option.value"
-                  :disabled="Boolean(pending)"
-                  @click="reasoningEffort = option.value"
-                >
-                  {{ option.label }}
-                </button>
-              </div>
-            </div>
-          </section>
         </div>
       </div>
 
@@ -436,11 +406,18 @@ async function perform(kind) {
       </footer>
     </div>
   </form>
+    </div>
+  </div>
 </template>
 
 <style scoped>
 /* finesse · component: model-configuration · register=product · shell=colophon-sheet
  * layout=masthead+facts+sections+footer · SOUL=5 SPECTACLE=1 DENSITY=5 */
+.model-workspace { min-width: 0; width: 100%; }
+.model-subtabs { display: flex; width: fit-content; gap: 4px; padding: 4px; margin-bottom: 20px; border-radius: 24px; background: var(--accent-soft, #edf3f2); }
+.model-subtabs button { min-width: 84px; border: 0; border-radius: 20px; padding: 8px 22px; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-size: 13px; }
+.model-subtabs button[aria-selected="true"] { background: var(--surface, #fff); color: var(--ink); box-shadow: 0 1px 3px #152b2520; }
+.model-subtabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .model-configuration { width: 100%; }
 
 .model-sheet {
@@ -500,7 +477,7 @@ async function perform(kind) {
 .model-facts dt { color: var(--muted); font-size: 11px; }
 .model-facts dd { margin: 0; color: var(--ink); font-size: 13px; line-height: 1.5; }
 
-.model-layout { display: grid; grid-template-columns: 248px minmax(0, 1fr); align-items: stretch; }
+.model-layout { display: grid; grid-template-columns: 184px minmax(0, 1fr); align-items: stretch; }
 
 .provider-rail {
   display: grid;
@@ -532,7 +509,8 @@ async function perform(kind) {
 .provider-list li.active {
   border-color: rgba(24, 33, 44, .13);
   background: var(--surface);
-  box-shadow: inset 2px 0 0 var(--accent), 0 1px 2px rgba(20, 30, 42, .05);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .provider-list li.dragging { opacity: .55; }
@@ -589,14 +567,14 @@ async function perform(kind) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 20px 32px 2px;
+  padding: 18px 24px 0;
 }
 
 .detail-section-copy { min-width: 0; flex: 1; }
 .detail-section-copy h4 { margin: 0; color: var(--ink); font-size: 14px; font-weight: 500; }
 .detail-section-copy p { margin: 4px 0 0; max-width: 620px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
-.detail-section-body { display: grid; gap: 15px; padding: 14px 32px 24px; }
+.detail-section-body { display: grid; gap: 15px; padding: 12px 24px 24px; }
 
 .field-label small, .switch-text small {
   display: block;
@@ -609,16 +587,16 @@ async function perform(kind) {
 .format-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  min-height: 38px;
+  min-height: 44px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #f3f5f7;
+  border-radius: var(--radius-pill);
+  background: var(--bg);
   padding: 3px;
   gap: 2px;
 }
 
-.format-options button { border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; }
-.format-options button.active { background: var(--surface); color: var(--accent); box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb),.28); }
+.format-options button { border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--muted); font-size: 14px; }
+.format-options button.active { background: var(--accent-soft); color: var(--ink); box-shadow: none; }
 
 .switch-field { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .switch-text { display: grid; min-width: 0; }
@@ -649,46 +627,40 @@ async function perform(kind) {
 .switch-control.on .switch-knob { transform: translateX(18px); }
 .switch-control:disabled { opacity: .45; }
 
-.priority-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
-
+.model-priority-body { gap: 0; }
+.model-priority-box { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--bg); padding: 8px 12px 14px; }
+.priority-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
 .priority-list li {
   display: grid;
-  grid-template-columns: 14px auto minmax(0, 1fr) auto;
+  grid-template-columns: 16px auto minmax(0, 1fr) 28px 28px;
   align-items: center;
-  gap: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fafbfc;
-  padding: 8px 10px;
+  gap: 9px;
+  min-width: 0;
+  min-height: 54px;
+  border-radius: 10px;
+  padding: 4px 6px;
 }
-
+.priority-list li:hover { background: var(--surface-muted); }
 .priority-list li.dragging { opacity: .55; }
-.model-grip { color: var(--subtle); cursor: grab; }
-
-.model-tag {
-  border-radius: 4px;
-  background: rgba(24, 33, 44, .08);
-  color: var(--muted);
-  font-size: 10px;
-  padding: 2px 6px;
-  white-space: nowrap;
-}
-
-.model-tag.primary { background: rgba(var(--accent-rgb),.12); color: var(--accent); }
-.model-id { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-
-.model-empty {
-  margin: 0;
-  border: 1px dashed rgba(24, 33, 44, .18);
-  border-radius: 8px;
-  background: #fafbfc;
-  padding: 14px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.model-add-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-.model-catalog { min-width: 180px; }
+.model-grip { color: var(--muted); cursor: grab; }
+.model-tag { border-radius: var(--radius-pill); background: var(--surface-muted); color: var(--muted); font-size: 12px; padding: 2px 8px; white-space: nowrap; }
+.model-tag.primary { background: var(--ink); color: var(--on-accent); }
+.model-id { min-width: 0; overflow: hidden; font-size: 14px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.model-edit-input { min-width: 0; width: 100%; height: 32px; border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; background: #fff; }
+.priority-list .icon-button { width: 28px; height: 28px; min-width: 28px; color: var(--muted); }
+.model-empty { margin: 0; padding: 14px 8px; color: var(--muted); font-size: 12px; }
+.model-add-trigger { display: inline-flex; align-items: center; gap: 10px; min-height: 38px; border: 0; border-radius: 8px; background: transparent; padding: 0 8px; color: var(--ink); font-size: 13px; cursor: pointer; }
+.model-add-trigger:hover { background: #e4e8e6; }
+.model-add-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; margin-top: 7px; }
+.model-add-row input { width:100%; min-width:0; height:38px; border:1px solid var(--line); border-radius:8px; padding:0 12px; color:var(--ink); background:var(--surface); }
+.model-add-row input:focus-visible,.model-edit-input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.model-drag-hint { margin: 10px 16px 12px; color: var(--muted); font-size: 12px; }
+.model-priority-actions { display: grid; justify-items: start; gap: 16px; }
+.model-priority-actions > .button:first-child { border: 1px solid var(--line-strong); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink); }
+.model-priority-actions > .button:first-child:hover:not(:disabled) { background: var(--bg); border-color: var(--ink); }
+.model-catalog { min-width: 180px; max-width: 100%; }
+.model-priority-actions .model-test { justify-content: center; width: 100%; min-height: 44px; border: 1px solid var(--ink); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink); }
+@media (max-width: 620px) { .model-add-row { grid-template-columns: minmax(0, 1fr) auto; } .model-add-row .button:last-child { grid-column: 1/-1; } }
 
 .reasoning-options {
   display: grid;
@@ -709,10 +681,11 @@ async function perform(kind) {
 .model-footer {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   min-height: 60px;
   border-top: 1px solid var(--line);
-  background: #fbfcfd;
+  background: var(--surface);
   padding: 12px 32px;
 }
 

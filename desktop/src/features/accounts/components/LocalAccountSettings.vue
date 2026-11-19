@@ -99,35 +99,38 @@ async function save() {
 
 .local-account-settings {
   display: grid;
-  grid-template-columns: minmax(220px, .72fr) minmax(0, 1.28fr);
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   width: 100%;
 }
 
 .local-profile-summary {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  min-height: 306px;
+  gap: 20px;
+  min-height: 0;
   border-top: 2px solid var(--accent);
-  padding: 24px;
+  padding: 20px 24px;
   background: #f1f4f8;
 }
 
 .local-profile-identity {
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: 18px;
+  min-width: 0;
 }
 
 .profile-avatar-frame {
   display: grid;
   place-items: center;
-  width: 104px;
-  height: 104px;
+  width: 88px;
+  height: 88px;
+  flex: none;
   border: 1px solid rgba(24, 33, 44, .14);
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--surface);
 }
 
@@ -189,12 +192,9 @@ async function save() {
 }
 
 @media (max-width: 760px) {
-  .local-account-settings {
-    grid-template-columns: 1fr;
-  }
-
   .local-profile-summary {
-    min-height: auto;
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 

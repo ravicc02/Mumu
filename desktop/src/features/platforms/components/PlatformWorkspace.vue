@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from "vue";
-import { ArrowUpRight, BookOpen, Check, ClipboardList, Ellipsis, Layers3, LoaderCircle, LogIn, Search, Trash2 } from "@lucide/vue";
+import { ArrowUpRight, BookOpen, Check, ClipboardList, Ellipsis, Layers3, LogIn, Search, Trash2 } from "@lucide/vue";
 import PlatformLogo from "./PlatformLogo.vue";
 import AccountAvatar from "../../accounts/components/AccountAvatar.vue";
 import PlatformCapabilities from "./PlatformCapabilities.vue";
@@ -19,10 +19,12 @@ const emit = defineEmits(["update:modelValue", "add", "authorize", "delete", "me
 const query = ref(""), filter = ref("all");
 const platform = computed(() => props.platforms.find(item => item.name === props.modelValue));
 const records = computed(() => props.accounts.filter(item => item.platform === props.modelValue));
+const readyCount = computed(() => records.value.filter(item => item.status === "ready").length);
+const pendingCount = computed(() => records.value.length - readyCount.value);
 const tabs = computed(() => [
   { value: "all", label: "全部", count: records.value.length },
-  { value: "ready", label: "已授权", count: records.value.filter(item => item.status === "ready").length },
-  { value: "pending", label: "待授权", count: records.value.filter(item => item.status !== "ready").length },
+  { value: "ready", label: "已授权", count: readyCount.value },
+  { value: "pending", label: "待授权", count: pendingCount.value },
 ]);
 const filtered = computed(() => records.value.filter(item => item.name.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase())
   && (filter.value === "all" || (filter.value === "ready" ? item.status === "ready" : item.status !== "ready"))));
@@ -42,8 +44,25 @@ watch(() => props.modelValue, () => { query.value = ""; filter.value = "all"; })
       </button>
     </aside>
     <section class="platform-accounts">
-      <header class="platform-accounts-heading"><div><PlatformLogo :platform="modelValue" :size="34" /><h1>{{ platform?.label || '平台' }}</h1><PlatformCapabilities v-if="platform" :platform="platform" /></div><StatefulButton label="授权" :status="platform ? 'idle' : 'disabled'" @click="emit('add', modelValue)" /></header>
-      <div class="platform-account-tools"><h2>授权记录 <span class="count">{{ records.length }}</span></h2><div><Tabs v-model="filter" :items="tabs" label="授权状态" /><label class="search-field"><Search :size="14" /><input v-model="query" placeholder="搜索账号" aria-label="搜索平台账号"></label></div></div>
+      <header class="platform-accounts-heading">
+        <div class="platform-heading-identity">
+          <PlatformLogo :platform="modelValue" :size="40" />
+          <div class="platform-heading-copy">
+            <h1>{{ platform?.label || '平台' }}</h1>
+            <div class="platform-heading-meta">
+              <PlatformCapabilities v-if="platform" :platform="platform" />
+              <span class="platform-heading-separator" aria-hidden="true">·</span>
+              <span>{{ readyCount }} 个已授权</span>
+            </div>
+          </div>
+        </div>
+        <StatefulButton label="授权账号" :status="platform ? 'idle' : 'disabled'" @click="emit('add', modelValue)" />
+      </header>
+      <section class="platform-record-panel" aria-label="授权记录">
+      <div class="platform-account-tools">
+        <div class="platform-record-title"><h2>授权记录</h2><span class="count">{{ records.length }}</span><span v-if="pendingCount" class="platform-pending-hint">{{ pendingCount }} 个待处理</span></div>
+        <div class="platform-record-filters"><Tabs v-model="filter" :items="tabs" label="授权状态" /><label class="search-field"><Search :size="14" /><input v-model="query" placeholder="搜索账号" aria-label="搜索平台账号"></label></div>
+      </div>
       <div class="platform-records">
         <table v-if="filtered.length" class="platform-account-table">
           <thead><tr><th scope="col">账号</th><th scope="col">授权状态</th><th scope="col">最近授权</th><th scope="col">操作</th></tr></thead>
@@ -68,6 +87,7 @@ watch(() => props.modelValue, () => { query.value = ""; filter.value = "all"; })
         </table>
         <div v-else class="empty-state"><Layers3 :size="30" /><h3>{{ query || filter !== 'all' ? '没有匹配的账号' : '暂无授权账号' }}</h3><button v-if="query || filter !== 'all'" class="button light" type="button" @click="query = ''; filter = 'all'">清除筛选</button><button v-else class="button dark" type="button" @click="emit('add', modelValue)"><LogIn :size="14" />授权</button></div>
       </div>
+      </section>
     </section>
   </main>
 </template>
@@ -89,12 +109,19 @@ watch(() => props.modelValue, () => { query.value = ""; filter.value = "all"; })
 .platform-accounts { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 28px 32px; }
 .platform-accounts-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 25px; border-bottom: 1px solid var(--line); }
 .platform-accounts-heading > div { display: flex; align-items: center; gap: 12px; }
+.platform-heading-identity { min-width: 0; }
+.platform-heading-copy { display: grid; gap: 5px; min-width: 0; }
 .platform-accounts-heading h1 { font-size: var(--page-title); line-height: 1.25; font-weight: 600; }
+.platform-heading-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; color: var(--muted); font-size: var(--text-xs); }
+.platform-heading-meta .platform-capabilities { color: inherit; }
+.platform-heading-separator { color: var(--line-strong); }
 .platform-account-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 24px 0 18px; }
-.platform-account-tools h2 { display: flex; align-items: center; gap: 9px; font-size: 15px; }
-.platform-account-tools > div { display: flex; align-items: center; gap: 16px; }
+.platform-record-title { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.platform-record-title h2 { font-size: 15px; }
+.platform-pending-hint { color: var(--orange); font-size: var(--text-xs); }
+.platform-record-filters { display: flex; align-items: center; gap: 16px; }
 .platform-account-tools .search-field { width: 200px; }
-.platform-records { flex: 1; min-height: 0; overflow: auto; padding-bottom: 150px; }
+.platform-records { flex: 1; min-height: 0; overflow: auto; padding-bottom: 24px; }
 .platform-account-table { width: 100%; border-collapse: collapse; table-layout: fixed; text-align: left; }
 .platform-account-table th { font-size: var(--text-xs); font-weight: 500; color: var(--muted); padding: 12px 14px; background: var(--bg); border-bottom: 1px solid var(--line); }
 .platform-account-table td { padding: 20px 14px; border-bottom: 1px solid var(--line); font-size: var(--text-sm); vertical-align: middle; }
@@ -120,4 +147,6 @@ watch(() => props.modelValue, () => { query.value = ""; filter.value = "all"; })
 .platform-record-actions .account-more { position: static; flex: none; }
 .platform-account-table th:last-child { text-align: right; }
 @media(max-width:1200px) { .platform-management { grid-template-columns: 224px minmax(0,1fr); } .platform-accounts { padding: 24px; } .platform-record-actions { gap: 3px; } .platform-record-actions .button { padding: 5px; } .platform-account-table td { padding: 18px 9px; } }
+@media(max-width:1080px) { .platform-account-table th:nth-child(3), .platform-account-table td:nth-child(3) { display: none; } .platform-account-table th:first-child { width: 34%; } .platform-account-table th:nth-child(2) { width: 28%; } .platform-account-table th:last-child { width: 38%; } }
+@media(max-width:760px) { .platform-management { display: block; overflow-y: auto; } .platform-catalog { display: flex; gap: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; } .platform-catalog .section-title { display: none; } .platform-catalog .platform-chip { flex: 0 0 190px; margin-top: 0; } .platform-accounts { padding: 20px 16px 28px; } .platform-accounts-heading { align-items: flex-start; } .platform-account-tools { align-items: flex-start; } .platform-record-filters { width: 100%; flex-wrap: wrap; gap: 10px; } .platform-account-tools .search-field { flex: 1 1 180px; width: auto; } .platform-account-table, .platform-account-table tbody, .platform-account-table tr, .platform-account-table td { display: block; width: 100%; } .platform-account-table thead { display: none; } .platform-account-table tr { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; border-bottom: 1px solid var(--line); padding: 16px 0; } .platform-account-table td { display: block !important; border: 0; padding: 0; } .platform-account-table td:nth-child(2) { grid-column: 1; } .platform-account-table td:last-child { grid-column: 1 / -1; } .platform-record-actions { justify-content: flex-start; flex-wrap: wrap; } .platform-auth-error { max-width: none; } }
 </style>

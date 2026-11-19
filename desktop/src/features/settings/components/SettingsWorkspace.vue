@@ -1,13 +1,13 @@
 <script setup>
 import ToggleSwitch from "../../../shared/controls/ToggleSwitch.vue";
 import { computed, onMounted, ref, watch } from "vue";
-import { BookOpen, Check, ClipboardList, Cpu, FolderOpen, Globe2, HardDrive, LoaderCircle, RotateCcw, Save, Settings2 } from "@lucide/vue";
+import { BookOpen, Check, ClipboardList, Cpu, Globe2, LoaderCircle, RotateCcw, Save, Settings2 } from "@lucide/vue";
 import { api } from "../../../app/api.js";
 import ModelConfiguration from "./ModelConfiguration.vue";
 import AttendanceDomainSettings from "./AttendanceDomainSettings.vue";
+import CommonSettings from "./CommonSettings.vue";
 
-const props = defineProps({ accounts: { type: Array, default: () => [] }, info: Object, section: { type: String, default: "model" }, embedded: Boolean });
-const desktopAvailable = Boolean(window.desktopApi);
+const props = defineProps({ accounts: { type: Array, default: () => [] }, info: Object, section: { type: String, default: "model" }, embedded: Boolean, autoCheck: Boolean, setAutoCheck: Function });
 const emit = defineEmits(["saved", "model-saved", "update:section", "open-data", "open-logs", "platforms"]);
 const tabs = [{ id: "model", label: "模型配置", icon: Cpu }, { id: "assignments", label: "作业配置", icon: ClipboardList }, { id: "learning", label: "网课配置", icon: BookOpen }, { id: "attendance", label: "签到域名", icon: Globe2 }, { id: "system", label: "系统设置", icon: Settings2 }];
 const current = computed(() => tabs.find(item => item.id === props.section) || tabs[0]);
@@ -57,7 +57,13 @@ async function save() {
   if (pending.value || validation.value) return;
   pending.value = section; messages.value[section] = ""; errors.value[section] = "";
   try {
-    const result = await api.savePreferences({ [section]: preferences.value[section] });
+    const payload = { ...preferences.value[section] };
+    if (section === "system") {
+      const latest = await api.preferences();
+      payload.log_retention_days = latest.system.log_retention_days;
+      payload.log_size_mb = latest.system.log_size_mb;
+    }
+    const result = await api.savePreferences({ [section]: payload });
     originals.value[section] = snapshot(section);
     messages.value[section] = "已保存";
     cache(); emit("saved", { preferences: result, section });
@@ -114,12 +120,13 @@ function reset() {
             {{ loadError }}
             <button class="button light" type="button" @click="load"><RotateCcw :size="14" />重试</button>
           </div>
-          <form v-else-if="preferences" @submit.prevent="save" :aria-busy="Boolean(pending)">
+          <template v-else-if="preferences">
+          <CommonSettings v-if="current.id === 'system'" :auto-check="autoCheck" :set-auto-check="setAutoCheck" />
+          <form @submit.prevent="save" :aria-busy="Boolean(pending)">
             <fieldset :disabled="Boolean(pending)">
               <template v-if="current.id === 'assignments'">
                 <section class="settings-card">
                   <header class="settings-card-heading">
-                    <span class="settings-card-index">01</span>
                     <div class="settings-card-title">
                       <h3>执行策略</h3>
                     </div>
@@ -155,7 +162,6 @@ function reset() {
               <template v-else-if="current.id === 'learning'">
                 <section class="settings-card">
                   <header class="settings-card-heading">
-                    <span class="settings-card-index">01</span>
                     <div class="settings-card-title">
                       <h3>浏览器与播放</h3>
                     </div>
@@ -197,7 +203,6 @@ function reset() {
 
                 <section class="settings-card">
                   <header class="settings-card-heading">
-                    <span class="settings-card-index">02</span>
                     <div class="settings-card-title">
                       <h3>等待与核验</h3>
                     </div>
@@ -242,7 +247,6 @@ function reset() {
               <template v-else-if="current.id === 'system'">
                 <section class="settings-card">
                   <header class="settings-card-heading">
-                    <span class="settings-card-index">01</span>
                     <div class="settings-card-title">
                       <h3>调度</h3>
                     </div>
@@ -261,73 +265,6 @@ function reset() {
                   </div>
                 </section>
 
-                <section class="settings-card">
-                  <header class="settings-card-heading">
-                    <span class="settings-card-index">02</span>
-                    <div class="settings-card-title">
-                      <h3>现场记录</h3>
-                    </div>
-                  </header>
-                  <div class="settings-card-body">
-                    <div class="settings-control-grid">
-                      <label class="settings-control-cell">
-                        <span class="settings-control-copy">
-                          <strong>保留时间</strong>
-                          <small>超过期限的现场记录会被清理</small>
-                        </span>
-                        <span class="settings-number-wrap">
-                          <input v-model.number="preferences.system.log_retention_days" class="settings-number" type="number" required min="1" max="365" step="1">
-                          <span>天</span>
-                        </span>
-                      </label>
-                      <label class="settings-control-cell">
-                        <span class="settings-control-copy">
-                          <strong>空间上限</strong>
-                          <small>现场记录占用的最大空间</small>
-                        </span>
-                        <span class="settings-number-wrap">
-                          <input v-model.number="preferences.system.log_size_mb" class="settings-number" type="number" required min="20" max="4096" step="1">
-                          <span>MiB</span>
-                        </span>
-                      </label>
-                    </div>
-                    <p class="settings-note">仅清理任务现场记录；主日志仍按自然日归档。</p>
-                  </div>
-                </section>
-
-                <section class="settings-card">
-                  <header class="settings-card-heading">
-                    <span class="settings-card-index">03</span>
-                    <div class="settings-card-title">
-                      <h3>本地存储</h3>
-                    </div>
-                    <div class="settings-card-heading-actions">
-                      <span class="settings-scope"><HardDrive :size="13" />本机</span>
-                    </div>
-                  </header>
-                  <div class="settings-card-body">
-                    <div class="settings-path-list">
-                      <div class="settings-path-row">
-                        <span class="settings-path-copy">
-                          <strong>数据目录</strong>
-                          <code>{{ info?.data_root }}</code>
-                        </span>
-                        <button class="button light compact" type="button" @click="emit('open-data')">
-                          <FolderOpen :size="14" />{{ desktopAvailable ? '打开' : '复制路径' }}
-                        </button>
-                      </div>
-                      <div class="settings-path-row">
-                        <span class="settings-path-copy">
-                          <strong>今日日志</strong>
-                          <code>{{ info?.main_log_path || (info?.logs_root ? info.logs_root + '/main.log' : '') }}</code>
-                        </span>
-                        <button class="button light compact" type="button" @click="emit('open-logs')">
-                          <FolderOpen :size="14" />打开日志目录
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </section>
               </template>
             </fieldset>
             <footer class="settings-action-bar preferences-save-bar">
@@ -345,6 +282,7 @@ function reset() {
               </button>
             </footer>
           </form>
+          </template>
         </div>
       </Transition>
     </div>

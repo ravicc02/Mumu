@@ -2276,7 +2276,7 @@ onUnmounted(() => {
       </div>
       <div class="topbar-breadcrumb"><span>{{ isolatedPreview ? '隔离验证' : '工作区' }}</span><ChevronRight :size="13" /><strong>{{ navItems.find(item => item.id === activePage)?.label }}</strong></div>
       <div class="topbar-meta">
-        <TaskMonitor ref="taskMonitor" :hide-trigger="activePage === 'dashboard'" @summary="townMonitor = $event" :tasks="recentAssignmentJobs" :removed-ids="deletedTaskIds" :accounts="accounts" :ready="taskSnapshotAt > 0 && Boolean(settingsInfo?.data_root)" :online="Boolean(health?.ok)" :scope="settingsInfo?.data_root || ''" :updated-at="taskSnapshotAt" :creating="batchCreating" :refresh="loadJobs" @open-task="openOverviewTask" @open-dashboard="activePage = 'dashboard'" />
+        <TaskMonitor ref="taskMonitor" :hide-trigger="false" @summary="townMonitor = $event" :tasks="recentAssignmentJobs" :removed-ids="deletedTaskIds" :accounts="accounts" :ready="taskSnapshotAt > 0 && Boolean(settingsInfo?.data_root)" :online="Boolean(health?.ok)" :scope="settingsInfo?.data_root || ''" :updated-at="taskSnapshotAt" :creating="batchCreating" :refresh="loadJobs" @open-task="openOverviewTask" @open-dashboard="activePage = 'dashboard'" />
       </div>
     </header>
 

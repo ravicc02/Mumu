@@ -6,6 +6,7 @@ import { conciseMessage } from "../lib/presentation.js";
 import WaterMascot from "../../brand/components/WaterMascot.vue";
 import PlatformLogo from "../../platforms/components/PlatformLogo.vue";
 import StatusBadge from "../../../shared/controls/StatusBadge.vue";
+import ReasoningSlider from "../../settings/components/ReasoningSlider.vue";
 
 const props = defineProps({ tasks: { type: Array, default: () => [] }, accounts: { type: Array, default: () => [] }, ready: Boolean, online: Boolean, scope: String, updatedAt: Number, creating: Boolean, refresh: Function, inline: Boolean, hideTrigger: Boolean, host: Object, removedIds: { type: Array, default: () => [] } });
 const emit = defineEmits(["open-task", "open-dashboard", "summary"]);
@@ -87,6 +88,7 @@ onUnmounted(() => { disposed = true; clearInterval(timer); document.removeEventL
     <Transition name="monitor-space">
       <section v-if="inline || opened" id="task-monitor-space" class="monitor-space" :role="inline ? 'region' : 'dialog'" aria-labelledby="monitor-title" :data-state="summary.mood" :aria-busy="!ready">
         <header class="monitor-heading"><div><span class="monitor-monogram"><Waves :size="16" /></span><h2 id="monitor-title">Mumu</h2><span class="monitor-live-dot" :class="{ online: fresh }" :title="fresh ? '已连接任务状态' : '任务状态尚未同步'"></span></div><div class="monitor-tools"><button class="icon-button" type="button" :disabled="refreshing || !refresh" title="刷新任务状态" aria-label="刷新任务状态" @click="refresh(true)"><RefreshCw :size="14" :class="{ spinning: refreshing }" /></button><button class="icon-button" type="button" :title="quiet ? '恢复角色动效' : '暂停角色动效'" :aria-label="quiet ? '恢复角色动效' : '暂停角色动效'" :aria-pressed="quiet" @click="motion"><Play v-if="quiet" :size="14" /><Pause v-else :size="14" /></button><button v-if="!inline" ref="closeButton" class="icon-button" type="button" title="收起监控" aria-label="收起监控" @click="setOpened(false)"><X :size="15" /></button></div></header>
+        <ReasoningSlider v-if="!inline" />
         <div class="monitor-stage"><span class="monitor-stage-kicker">值守舱</span><WaterMascot :mood="summary.mood" :water="summary.water" :total="summary.total" :paused="quiet || !fresh" detail /><span class="monitor-stage-id">{{ summary.total ? '本轮 ' + summary.total + ' 项' : '等待任务' }}</span></div>
         <div class="monitor-readout"><div><span class="monitor-current-state"><component :is="stateIcon" :size="14" :class="{ spinning: !ready }" />{{ summary.label }}</span><p>{{ summary.detail }}</p></div><div v-if="summary.total" class="monitor-fraction"><strong>{{ summary.completed }}<span>/ {{ summary.total }}</span></strong><small>{{ summary.percent }}%</small></div></div>
         <div v-if="summary.total" class="monitor-partitions" :style="partitionStyle" role="progressbar" aria-label="本轮任务完成比例" :aria-valuenow="summary.completed" :aria-valuemax="summary.total" aria-valuemin="0" :aria-valuetext="summary.completed + '/' + summary.total + ' 个任务完成'"><span v-for="task in summary.entries" :key="task.key" :class="statusClass(task)" :title="task.assignment_title + ' · ' + statusLabel(task)"></span></div>

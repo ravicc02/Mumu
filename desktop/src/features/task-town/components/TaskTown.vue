@@ -20,6 +20,13 @@ const loading = ref(true), graphicsError = ref(""), selectedKey = ref(null), hov
 const query = ref(""), accountFilter = ref(""), roaming = ref(true), quiet = ref(false);
 const currentRoom = ref('office'), interaction = ref(null), bossMarker = ref(null), liveKey = ref(''), streamState = ref('idle');
 const walkState = ref('idle');
+const view = ref('panel');
+async function toggleView() {
+  view.value = view.value === 'panel' ? 'office' : 'panel';
+  selectedKey.value = null; hoveredKey.value = null; nearbyKey.value = null;
+  if (view.value === 'office') { await nextTick(); if (mounted) boot(); }
+  else { bootGeneration++; screenFeed?.dispose(); screenFeed = null; controller?.dispose(); controller = null; botElements.clear(); }
+}
 const liveCandidates = computed(() => props.tasks.filter(task => task.status === 'running' && task.browser_available === true));
 const liveTask = computed(() => companyLiveTask(props.tasks, liveKey.value));
 const rooms = computed(() => COMPANY_ROOMS.map(room => ({ ...room, count: filtered.value.filter(task => companyRoomForTask(task) === room.id).length })));
@@ -104,7 +111,7 @@ async function boot() {
   loading.value = true; graphicsError.value = "";
   try {
     const { createTaskTown } = await import("../lib/scene.js");
-    if (!mounted || generation !== bootGeneration) return;
+    if (!mounted || generation !== bootGeneration || view.value !== 'office') return;
     controller = createTaskTown(canvas.value, {
       frame, selection: selectTask, nearby: key => { nearbyKey.value = key; },
       monitor: () => emit("open-monitor"),
@@ -134,14 +141,13 @@ function closeCard() { selectedKey.value = null; hoveredKey.value = null; contro
 function visitRoom(id) { controller?.visitRoom(id); canvas.value?.focus({ preventScroll: true }); }
 function hover(task) { hoveredKey.value = task ? townTaskKey(task) : null; controller?.hover(hoveredKey.value); }
 function toggleMotion() { quiet.value = !quiet.value; controller?.setPaused(quiet.value); }
-function toggleRoaming() { controller?.setRoaming(!roaming.value); }
 function zoom(direction) { controller?.zoom(direction); }
 function register(map, key, element) { if (element) map.set(key, element); else map.delete(key); }
 watch(() => props.tasks, synchronize, { deep: true });
 watch(filtered, synchronize);
 watch(() => [liveTask.value?.id, liveTask.value?.task_kind, props.online], () => screenFeed?.select(props.online ? liveTask.value : null));
 watch(() => props.monitor, () => { controller?.setWater(props.monitor?.water ?? .12); controller?.setMood(props.monitor?.mood || "idle"); });
-onMounted(() => { mounted = true; boot(); });
+onMounted(() => { mounted = true; });
 onUnmounted(() => { mounted = false; bootGeneration++; screenFeed?.dispose(); controller?.dispose(); botElements.clear(); });
 </script>
 
@@ -154,14 +160,26 @@ onUnmounted(() => { mounted = false; bootGeneration++; screenFeed?.dispose(); co
       </div>
       <div class="town-tools">
         <span class="town-connection" :class="{ offline: !online }"><i></i>{{ online ? '实时同步' : '连接中断' }}</span>
-        <button class="icon-button" type="button" title="全景视角" aria-label="全景视角" @click="reset"><RotateCcw :size="16" /></button>
-        <button class="icon-button" type="button" title="拉近视角" aria-label="拉近视角" :disabled="!!graphicsError" @click="zoom(1)"><ZoomIn :size="16" /></button>
-        <button class="icon-button" type="button" title="拉远视角" aria-label="拉远视角" :disabled="!!graphicsError" @click="zoom(-1)"><ZoomOut :size="16" /></button>
-        <button class="icon-button" :class="{ 'is-on': roaming }" type="button" title="Mumu 漫游（WASD / 方向键）" aria-label="Mumu 漫游" :aria-pressed="roaming" :disabled="!!graphicsError" @click="toggleRoaming"><Gamepad2 :size="17" /></button>
-        <button class="icon-button" type="button" :title="quiet ? '恢复场景动效' : '暂停场景动效'" :aria-label="quiet ? '恢复场景动效' : '暂停场景动效'" :aria-pressed="quiet" @click="toggleMotion"><Play v-if="quiet" :size="15" /><Pause v-else :size="15" /></button>
+        <button v-if="view === 'office'" class="icon-button" type="button" title="全景视角" aria-label="全景视角" @click="reset"><RotateCcw :size="16" /></button>
+        <button v-if="view === 'office'" class="icon-button" type="button" title="拉近视角" aria-label="拉近视角" :disabled="!!graphicsError" @click="zoom(1)"><ZoomIn :size="16" /></button>
+        <button v-if="view === 'office'" class="icon-button" type="button" title="拉远视角" aria-label="拉远视角" :disabled="!!graphicsError" @click="zoom(-1)"><ZoomOut :size="16" /></button>
+        <button class="icon-button" :class="{ 'is-on': view === 'office' }" type="button" :title="view === 'office' ? '切换普通面板' : '切换 3D 办公室'" :aria-label="view === 'office' ? '切换普通面板' : '切换 3D 办公室'" :aria-pressed="view === 'office'" @click="toggleView"><Gamepad2 :size="17" /></button>
+        <button v-if="view === 'office'" class="icon-button" type="button" :title="quiet ? '恢复场景动效' : '暂停场景动效'" :aria-label="quiet ? '恢复场景动效' : '暂停场景动效'" :aria-pressed="quiet" @click="toggleMotion"><Play v-if="quiet" :size="15" /><Pause v-else :size="15" /></button>
       </div>
     </div>
-    <div ref="stage" class="town-stage" :class="{ 'has-selection': selected, 'is-roaming': roaming }">
+    <div v-if="view === 'panel'" class="town-panel">
+      <section v-for="district in TOWN_DISTRICTS" :key="district.id" class="town-panel-group" :style="{ '--district-color': district.color }" :aria-label="district.label + '任务'">
+        <header><h3>{{ district.label }}</h3><span>{{ filtered.filter(task => townDistrict(task) === district.id).length }}</span></header>
+        <div class="town-panel-list">
+          <button v-for="task in filtered.filter(task => townDistrict(task) === district.id)" :key="townTaskKey(task)" class="town-panel-task" type="button" @click="emit('details', task)">
+            <PlatformLogo :platform="taskPlatform(task)" :size="24" /><span><strong :title="task.assignment_title || task.course_name">{{ task.assignment_title || task.course_name }}</strong><small :title="task.account_name + ' · ' + statusText(task)">{{ task.account_name }} · {{ statusText(task) }}</small></span><ArrowUpRight :size="14" aria-hidden="true" />
+          </button>
+          <p v-if="!filtered.some(task => townDistrict(task) === district.id)" class="town-panel-group-empty">暂无任务</p>
+        </div>
+      </section>
+      <div v-if="!filtered.length" class="town-panel-empty"><span>{{ ready ? '暂无匹配任务' : '正在同步任务' }}</span><button class="button light" type="button" @click="emit('create')">执行作业</button></div>
+    </div>
+    <div v-else ref="stage" class="town-stage" :class="{ 'has-selection': selected, 'is-roaming': roaming }">
       <canvas ref="canvas" class="town-canvas" tabindex="0" role="application" aria-label="总控中心 3D 场景" aria-description="点击地面自动寻路，WASD 或方向键随时接管移动，空格跳跃。拖动转向，滚轮缩放，靠近角色或老板办公桌按 F 交互。"></canvas>
       <div v-if="walkState === 'blocked'" class="company-navigation-feedback" role="status">该位置无法到达</div>
       <div v-if="loading || !ready" class="town-loading" role="status"><LoaderCircle :size="22" class="spin" /><span>{{ loading ? '正在进入公司' : '正在同步任务' }}</span></div>
