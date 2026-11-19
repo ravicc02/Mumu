@@ -1,11 +1,16 @@
 import fs from 'node:fs';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { projectRoot, checkVersion } from './version.mjs';
 import { checkRelease, readProduct, verifyReleaseAssets } from './release.mjs';
 import { verifyLinuxReleaseAssets } from './release-linux.mjs';
+
+export function publicAssetNames(version, artifactId = 'Mumu') {
+  return [`${artifactId}-${version}-windows-x64-setup.exe`, `Mumu-${version}-linux-x64.AppImage`, `Mumu-${version}-linux-amd64.deb`];
+}
 
 export function assertEditableRelease(release) {
   if (release && release.isDraft !== true) throw new Error('Published releases are immutable; create a new version instead.');
@@ -31,8 +36,9 @@ export function manageRelease(action, tag, directory=path.join(projectRoot,'desk
   const release=gh(['release','view',tag,'--repo',repository,'--json','isDraft,assets,tagName'],{json:true,missing:true});
   assertEditableRelease(release);
   if(action==='guard') return {tag,editable:true};
-  const names=[product.artifactId+'-'+version+'-windows-x64-setup.exe','SHA256SUMS.txt','release-manifest.json','RELEASE_NOTES.md','build-environment.txt','smoke-result.json'];
-  const linuxNames=['Mumu-'+version+'-linux-x64.AppImage','Mumu-'+version+'-linux-amd64.deb','SHA256SUMS-linux-x64.txt','release-manifest-linux-x64.json','RELEASE_NOTES.md','build-environment-linux-x64.txt','smoke-linux-result.json'];
+  const required = publicAssetNames(version, product.artifactId);
+  const names = required.slice(0, 1);
+  const linuxNames = required.slice(1);
   if(action==='draft') {
     verifyReleaseAssets(directory,version);
     const assets=names.map(name=>path.join(directory,name));
@@ -47,13 +53,17 @@ export function manageRelease(action, tag, directory=path.join(projectRoot,'desk
   }
   if(action==='publish') {
     if(!release) throw new Error('Build the release draft first');
-    const required = [...new Set([...names, ...linuxNames])];
+    // 验收证据仅保留在构建记录；公开下载只含安装包，源码由 GitHub 标签归档提供。
     if(release.assets.length!==required.length || !required.every(name=>release.assets.some(asset=>asset.name===name))) throw new Error('Windows and Linux draft release assets are incomplete');
     const download=fs.mkdtempSync(path.join(os.tmpdir(),'mumu-release-verify-'));
     try {
       gh(['release','download',tag,'--repo',repository,'--dir',download]);
-      const evidence=verifyReleaseAssets(download,version);
-      const linuxEvidence = verifyLinuxReleaseAssets(download,version);
+      const evidence=verifyReleaseAssets(directory,version);
+      const linuxEvidence = verifyLinuxReleaseAssets(directory,version);
+      for (const name of required) {
+        const digest = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+        if (digest(path.join(download, name)) !== digest(path.join(directory, name))) throw new Error('Downloaded installer differs from verified build: ' + name);
+      }
       const commit=checkRelease(projectRoot,{strict:true,tag}).git_commit;
       if(evidence.git_commit!==commit) throw new Error('Downloaded release was built from another commit');
       if(linuxEvidence && linuxEvidence.git_commit !== commit) throw new Error('Downloaded Linux release was built from another commit');
@@ -75,6 +85,6 @@ export function manageRelease(action, tag, directory=path.join(projectRoot,'desk
 }
 
 if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
-  try { const [action,tag]=process.argv.slice(2); console.log(JSON.stringify(manageRelease(action,tag),null,2)); }
+  try { const [action,tag,directory]=process.argv.slice(2); console.log(JSON.stringify(manageRelease(action,tag,directory),null,2)); }
   catch(error) { console.error(error.message); process.exitCode=1; }
 }
