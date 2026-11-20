@@ -549,6 +549,7 @@ class ExperimentRuntime:
             try:
                 if path == f"/api/tasks/{self.task_id}/game_build.json" and response.request.method == "POST":
                     build_seen = True
+                    build_state["http_status"] = getattr(response, "status", None)
                     body = await response.json()
                     if isinstance(body, dict):
                         ticket.update({key: body[key] for key in ("resubmit", "sec_key", "port") if key in body})
@@ -581,6 +582,7 @@ class ExperimentRuntime:
             probe = {}
             started_at = asyncio.get_running_loop().time()
             deadline = started_at + self.evaluation_timeout
+            queue_retries = 0
             while asyncio.get_running_loop().time() < deadline:
                 if self.control: await self.control.wait_if_paused()
                 # The build ticket exists before the compute service has started.
@@ -610,16 +612,42 @@ class ExperimentRuntime:
                         report.evidence["source"] = "task_state_readback"
                         self.evaluation_sent = False
                         return await self.attach_platform_output(report)
+                if (build_state.get("status") == -2 and "排队" in build_state.get("message", "")
+                        and not poll_ready and not status_seen and current.get("in_review") is not True
+                        and type(count) is int and count == baseline):
+                    if queue_retries >= 3:
+                        self.evaluation_sent = False
+                        if self.on_submission_rollback: self.on_submission_rollback()
+                        raise ExperimentError("平台明确返回实验资源排队，已退避重试 3 次仍未启动。代码已保留，未调用模型重写。",
+                                              interrupted=True, unknown=False, category="evaluation_resource_queue")
+                    await asyncio.sleep(15 * (queue_retries + 1))
+                    if self.control: await self.control.wait_if_paused()
+                    # 等待期间平台可能已开始；下轮先核对，不直接再次点击。
+                    ready = await self.task(allow_pending=True)
+                    if (ready is None or ready["game"].get("status") == 2 or ready.get("in_review") is True
+                            or ready["game"].get("evaluate_count") != baseline or poll_ready or status_seen):
+                        build_state.clear()
+                        continue
+                    for path, expected in self.expected_files.items():
+                        if await self.read(path) != expected:
+                            raise ExperimentError("排队期间代码已变化，未重新评测或覆盖。", category="concurrent_edit")
+                    queue_retries += 1
+                    ticket.clear(); build_state.clear(); self.evaluation_payload = None
+                    button = self.page.get_by_role("button", name=re.compile("评测"))
+                    await button.click(timeout=20000)
+                    continue
                 if (self.evaluation_sent and not poll_ready and not status_seen
+                        and current.get("in_review") is not True
                         and type(count) is int and count == baseline
                         and asyncio.get_running_loop().time() - started_at >= self.evaluation_start_timeout):
-                    # 构建请求已发出，但平台既没有开始轮询状态，也没有增加评测次数：
-                    # 平台没有执行这次评测，不存在“结果未知”，无需人工核对即可重试。
+                    # 没有启动凭据不等于已确认平台繁忙；只报告实际观察到的响应。
                     self.evaluation_sent = False
                     if self.on_submission_rollback: self.on_submission_rollback()
+                    build_note = (f"已观察到构建响应（HTTP {build_state.get('http_status') or '未记录'}，"
+                                  f"状态 {build_state.get('status')}，提示 {build_state.get('message') or '无'}）" if build_seen else "未观察到构建响应")
                     raise ExperimentError(
-                        "平台没有启动评测：构建请求已发出，但平台未返回评测进度、评测次数也没有增加。"
-                        "这通常是平台评测服务繁忙，稍后重试即可，代码已保留。",
+                        f"未取得评测启动凭据：已点击评测，{build_note}，平台未返回评测进度、评测次数也没有增加。"
+                        "尚不能确定是页面未发起请求、请求失败还是平台排队。代码已保留，可直接重试。",
                         interrupted=True, unknown=False, category="evaluation_not_started")
                 if (self.evaluation_sent and type(count) is int and count > baseline
                         and current.get("in_review") is False and not failed_cases

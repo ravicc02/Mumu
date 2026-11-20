@@ -4,7 +4,7 @@ import unittest
 import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import test_educoder as fixtures
 from app.services.educoder.executor import CodeFile, CodePatch, ExperimentError, ExperimentRuntime, challenge_list, trim_feedback
@@ -311,7 +311,57 @@ class EvaluationRuntimeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ExperimentError) as failure: await runtime.evaluate()
         self.assertFalse(failure.exception.unknown)
         self.assertEqual(failure.exception.category,"evaluation_not_started")
+        self.assertIn("未观察到构建响应",str(failure.exception))
+        self.assertNotIn("通常是平台评测服务繁忙",str(failure.exception))
         runtime.on_submission_rollback.assert_called_once()
+
+    async def test_build_rejection_is_reported_without_leaking_evaluation_ticket(self):
+        runtime,button=self.runtime()
+        runtime.evaluation_start_timeout=0
+        listeners={}
+        runtime.page.on=lambda event,callback:listeners.update({event:callback})
+        async def click(**kwargs):
+            listeners['response'](SimpleNamespace(url='https://data.educoder.net/api/tasks/task/game_build.json',status=503,request=SimpleNamespace(method='POST'),json=AsyncMock(return_value={'status':-1,'message':'busy','sec_key':'private-ticket'})))
+            await asyncio.sleep(0)
+        button.click.side_effect=click
+        with self.assertRaises(ExperimentError) as failure: await runtime.evaluate()
+        self.assertIn("HTTP 503",str(failure.exception))
+        self.assertIn("状态 -1",str(failure.exception))
+        self.assertNotIn("private-ticket",str(failure.exception))
+
+    async def test_explicit_resource_queue_retries_without_rewriting_files(self):
+        runtime,button=self.runtime()
+        listeners={}
+        runtime.page.on=lambda event,callback:listeners.update({event:callback})
+        async def click(**kwargs):
+            listeners['response'](SimpleNamespace(url='https://data.educoder.net/api/tasks/task/game_build.json',status=200,request=SimpleNamespace(method='POST'),json=AsyncMock(return_value={'status':-2,'message':'当前实验资源排队中，请稍后再试。'})))
+            # 同步处理响应观察器，避免测试时序依赖。
+            await original_sleep(0)
+        original_sleep=asyncio.sleep
+        button.click.side_effect=click
+        with patch('app.services.educoder.executor.asyncio.sleep',new=AsyncMock()):
+            with self.assertRaises(ExperimentError) as failure: await runtime.evaluate()
+        self.assertEqual(failure.exception.category,'evaluation_resource_queue')
+        self.assertFalse(failure.exception.unknown)
+        self.assertEqual(button.click.await_count,4)
+
+    async def test_resource_queue_does_not_resubmit_if_platform_started_during_backoff(self):
+        runtime,button=self.runtime()
+        listeners={}
+        runtime.page.on=lambda event,callback:listeners.update({event:callback})
+        original_sleep=asyncio.sleep
+        async def click(**kwargs):
+            listeners['response'](SimpleNamespace(url='https://data.educoder.net/api/tasks/task/game_build.json',status=200,request=SimpleNamespace(method='POST'),json=AsyncMock(return_value={'status':-2,'message':'资源排队'})))
+            await original_sleep(0)
+        button.click.side_effect=click
+        runtime.task=AsyncMock(side_effect=[
+            {'game':{'status':0,'evaluate_count':0}},
+            {'game':{'status':0,'evaluate_count':0}},
+            {'game':{'status':0,'evaluate_count':1},'in_review':True},
+            {'game':{'status':2,'evaluate_count':1}}])
+        with patch('app.services.educoder.executor.asyncio.sleep',new=AsyncMock()):
+            self.assertEqual((await runtime.evaluate()).status,'passed')
+        self.assertEqual(button.click.await_count,1)
 
     async def test_recorded_evaluation_without_result_is_directly_retryable(self):
         runtime,button=self.runtime()
