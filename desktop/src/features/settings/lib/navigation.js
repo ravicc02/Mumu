@@ -6,7 +6,7 @@ export const settingsNavigation = [
   { id: "attendance", label: "签到", group: "AI 与任务", keywords: "签到 签到域名 扫码 链接分组 域名 中继 服务器 HTTPS" },
   { id: "system", label: "系统", group: "系统", keywords: "常用 系统 系统设置 开机自启 登录启动 自动检查更新 启动 常规 通用设置 采集 并发 浏览器任务" },
   { id: "data", label: "数据", group: "系统", keywords: "备份 恢复 存储 清理 数据目录 日志 体积 账号 任务 产物" },
-  { id: "about", label: "关于", group: "系统", keywords: "版本 更新 检查更新 项目 主页 许可证 GPL 开源 日志目录" },
+  { id: "about", label: "关于", group: "系统", keywords: "版本 更新 检查更新 项目 主页 许可证 MIT 开源 日志目录" },
 ];
 export function filterSettingsNavigation(query) {
   const needle = String(query || "").replace(/\s+/g, "").toLocaleLowerCase();

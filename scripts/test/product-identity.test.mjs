@@ -59,9 +59,9 @@ test('security and licensing documents define private reporting and license boun
   assert.match(security, /支持范围/);
   assert.match(security, /披露流程/);
   assert.doesNotMatch(security, /English Summary|Do not disclose security vulnerabilities/i);
-  assert.equal(rootPackage.license, 'GPL-3.0-only');
-  assert.equal(desktopPackage.license, 'GPL-3.0-only');
-  assert.match(licensing, /GPL-3\.0-only/);
+  assert.equal(rootPackage.license, 'MIT');
+  assert.equal(desktopPackage.license, 'MIT');
+  assert.match(licensing, /MIT/);
   assert.match(licensing, /商业使用/);
   assert.match(licensing, /闭源/);
   assert.doesNotMatch(licensing, /UNLICENSED|PolyForm/);

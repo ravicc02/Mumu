@@ -29,7 +29,7 @@ test("about settings keeps update and logs without a reinitialization action",as
   assert.match(source,/查看更新日志/);
   assert.match(source,/changelogOpen = true/);
   assert.doesNotMatch(source,/openLink\(appInfo.repository \+ '\/releases'\)/);
-  assert.match(source,/GPL-3\.0-only/);
+  assert.match(source,/MIT · 无担保/);
   assert.match(source,/无担保/);
   assert.match(source,/日志目录/);
   assert.match(source,/检查更新/);

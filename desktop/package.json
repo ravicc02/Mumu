@@ -4,7 +4,7 @@
   "description": "Mumu local Windows learning task workspace",
   "homepage": "https://github.com/ravicc02/Mumu",
   "author": "Mumu Contributors",
-  "license": "GPL-3.0-only",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
