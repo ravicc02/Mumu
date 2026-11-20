@@ -89,13 +89,17 @@ def create_backup(root: Path, db, request: DataBackupRequest, *, automatic=False
                 if request.include_accounts:
                     state = Path(account["storage_state_path"])
                     if state.is_file() and not state.is_symlink() and state.resolve().is_relative_to(account_root.resolve()):
-                        entries.append((state.relative_to(root).as_posix(), state))
+                        entries.append((state.resolve().relative_to(root).as_posix(), state))
                 for include, folder in ((request.include_artifacts, "artifacts"), (request.include_browser_profile, "browser")):
                     if include:
                         entries.extend((p.relative_to(root).as_posix(), p) for p in safe_files(account_root / folder) or ())
             with zipfile.ZipFile(pending, "x", compression=zipfile.ZIP_DEFLATED) as archive:
+                written = set()
                 for name, source in entries:
                     archive_name(name)
+                    if name in written:
+                        continue
+                    written.add(name)
                     digest = hashlib.sha256()
                     size = 0
                     with source.open("rb") as input_file, archive.open(name, "w", force_zip64=True) as output_file:
@@ -147,6 +151,7 @@ def verify_backup(path: Path, directory: Path) -> dict:
 
 
 def restore_backup(root: Path, db, backup_id: str) -> dict:
+    root = root.resolve()
     directory = backup_root(root)
     if Path(backup_id).name != backup_id or not backup_id.endswith(".zip"):
         raise ValueError("备份标识无效")
@@ -172,7 +177,7 @@ def restore_backup(root: Path, db, backup_id: str) -> dict:
             if [(r[0], r[1]) for r in schema(connection)] != [(r[0], r[1]) for r in schema(current)]:
                 raise ValueError("备份数据库表结构与当前数据不匹配")
             old_root = manifest.get("data_root", "")
-            if old_root and old_root != str(root):
+            if old_root and Path(old_root).resolve() != root:
                 raise ValueError("当前仅支持恢复到原数据目录，不支持跨机器或跨目录迁移")
             connection.commit()
         targets = []

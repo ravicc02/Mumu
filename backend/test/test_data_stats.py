@@ -95,6 +95,32 @@ class DataStatsTests(unittest.TestCase):
         self.assertEqual(len(self.database.list_accounts()), 1)
         self.assertTrue((self.root / "backups" / restored["snapshot"]["id"]).exists())
 
+    def test_snapshot_with_browser_profile_has_no_duplicate_entries(self) -> None:
+        account = self.database.create_account("快照账号", "chaoxing", self.settings)
+        state = Path(account["storage_state_path"])
+        state.write_text("{}", encoding="utf-8")
+        result = _create_backup(self.root, self.database, DataBackupRequest(include_browser_profile=True))
+        backup = self.root / "backups" / result["id"]
+        self.assertTrue(_verify_backup(backup, backup.parent)["valid"])
+
+    @unittest.skipUnless(__import__("os").name == "nt", "Windows 短路径回归")
+    def test_backup_and_restore_accept_windows_short_path_alias(self) -> None:
+        import ctypes
+        from app.data_backups import restore_backup
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = ctypes.windll.kernel32.GetShortPathNameW(str(self.root), buffer, len(buffer))
+        self.assertGreater(length, 0)
+        self.assertLess(length, len(buffer))
+        alias = Path(buffer.value)
+        settings = Settings(data_root=alias)
+        account = self.database.create_account("短路径账号", "chaoxing", settings)
+        Path(account["storage_state_path"]).write_text("{}", encoding="utf-8")
+        result = _create_backup(alias, self.database, DataBackupRequest())
+        backup = alias / "backups" / result["id"]
+        self.assertTrue(_verify_backup(backup, backup.parent)["valid"])
+        restored = restore_backup(alias, self.database, result["id"])
+        self.assertEqual(restored["backup_id"], result["id"])
+
     def test_restore_rejects_schema_change_before_snapshot(self) -> None:
         from app.data_backups import restore_backup
         backup = _create_backup(self.root, self.database, DataBackupRequest())
@@ -119,7 +145,7 @@ class DataStatsTests(unittest.TestCase):
 
         def fail_once(source, target, *args, **kwargs):
             nonlocal failed
-            if Path(target) == state and not failed:
+            if Path(target).resolve() == state.resolve() and not failed:
                 failed = True
                 raise OSError("模拟写入失败")
             return copy(source, target, *args, **kwargs)

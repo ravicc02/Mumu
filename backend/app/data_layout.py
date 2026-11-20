@@ -168,7 +168,7 @@ def upgrade_layout(root: Path) -> dict[str, int]:
             for row in list(connection.execute(f"SELECT id, path FROM {table}")):
                 original = Path(str(row["path"]))
                 try:
-                    relative = original.relative_to(artifacts_root)
+                    relative = original.resolve().relative_to(artifacts_root)
                 except ValueError:
                     continue
                 parts = relative.parts

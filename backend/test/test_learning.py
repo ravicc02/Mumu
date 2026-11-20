@@ -426,6 +426,7 @@ class LearningTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError): self.service.store.save_chapters(self.course["id"], [])
 
     async def test_unknown_task_keeps_browser_for_manual_continue(self):
+        self.db.set_setting("preferences", {"learning": {"resource_wait_seconds": 5}})
         with patch.object(FakeLearningBrowser, "inspect", AsyncMock(return_value=({}, []))):
             run = self.service.start(self.course["id"])
             await self.wait_until(lambda: self.service.store.run(run["id"])["status"] == "awaiting_user", timeout=19)

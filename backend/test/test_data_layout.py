@@ -83,12 +83,12 @@ class DataLayoutTests(unittest.TestCase):
             connection = sqlite3.connect(root / DATABASE_FILENAME)
             connection.row_factory = sqlite3.Row
             row = connection.execute("SELECT * FROM accounts").fetchone()
-            self.assertEqual(row["profile_dir"], str(browser))
-            self.assertEqual(row["storage_state_path"], str(browser / "storage-state.json"))
+            self.assertEqual(Path(row["profile_dir"]).resolve(), browser.resolve())
+            self.assertEqual(Path(row["storage_state_path"]).resolve(), (browser / "storage-state.json").resolve())
             artifact_path = connection.execute("SELECT path FROM artifacts").fetchone()["path"]
             self.assertEqual(
-                Path(artifact_path),
-                root / "accounts" / account_id / "artifacts" / job_id / "step.png",
+                Path(artifact_path).resolve(),
+                (root / "accounts" / account_id / "artifacts" / job_id / "step.png").resolve(),
             )
             connection.close()
 
@@ -176,7 +176,7 @@ class DataLayoutTests(unittest.TestCase):
             connection = sqlite3.connect(root / DATABASE_FILENAME)
             path = connection.execute("SELECT path FROM learning_artifacts").fetchone()[0]
             connection.close()
-            self.assertEqual(Path(path), expected)
+            self.assertEqual(Path(path).resolve(), expected.resolve())
 
 
 if __name__ == "__main__":
