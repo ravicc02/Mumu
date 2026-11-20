@@ -113,8 +113,8 @@ onMounted(loadAutoLaunch);
 <style scoped>
 .common-settings {
   display: grid;
-  gap: 12px;
-  width: min(860px,100%);
+  gap: var(--module-gap, 24px);
+  width: 100%;
 }
 
 .common-switch {
