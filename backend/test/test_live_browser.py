@@ -85,7 +85,8 @@ class AssignmentLiveTests(unittest.IsolatedAsyncioTestCase):
                 async with async_playwright() as playwright:
                     browser = await playwright.chromium.connect_over_cdp(endpoint)
                     context = browser.contexts[0]
-                    page = context.pages[0]
+                    # 调试端口就绪不代表默认标签已创建；测试使用自己创建的页面。
+                    page = await context.new_page()
                     await page.set_content('<body style="height:4000px;margin:0;background:linear-gradient(#f00,#00f)"><input style="position:fixed;top:30px;left:30px" value="original"><div id="tick">first</div></body>')
                     client = await context.new_cdp_session(page)
                     target = (await client.send("Target.getTargetInfo"))["targetInfo"]["targetId"]
