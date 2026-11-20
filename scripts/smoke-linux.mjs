@@ -78,7 +78,9 @@ async function exercise(executable, name, platform) {
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         }
         await page.getByRole('button', {name:'帮助与关于', exact:true}).click();
-        assert.equal(await page.locator('.about-platform').innerText(), 'Linux 桌面端');
+        assert.equal(await application.evaluate(() => process.platform), 'linux');
+        assert.equal(await application.evaluate(({app}) => app.getVersion()), version);
+        assert.equal(await page.locator('.about-version').innerText(), `版本 ${version}`);
         await page.getByRole('button', {name:'关闭设置', exact:true}).click();
         await page.screenshot({path:path.join(scope, 'workspace.png')});
         const windowId = await application.evaluate(({BrowserWindow}) => BrowserWindow.getAllWindows()[0].id);
