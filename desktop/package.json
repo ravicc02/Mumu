@@ -1,6 +1,6 @@
 {
   "name": "mumu-desktop",
-  "version": "0.10.5",
+  "version": "0.10.6",
   "description": "Mumu local Windows learning task workspace",
   "homepage": "https://github.com/ravicc02/Mumu",
   "author": "Mumu Contributors",
@@ -89,6 +89,9 @@
       "desktop": {
         "StartupWMClass": "Mumu"
       }
+    },
+    "appImage": {
+      "artifactName": "Mumu-${version}-linux-x64.${ext}"
     },
     "deb": {
       "artifactName": "Mumu-${version}-linux-amd64.deb",
