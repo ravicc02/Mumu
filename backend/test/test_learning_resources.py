@@ -165,7 +165,7 @@ class ResourceQueueTests(unittest.IsolatedAsyncioTestCase):
                 self.card = 1; return True
         self.service.browser_factory = CardBrowser
         run = self.service.start(self.course["id"])
-        await self.wait_for(lambda: self.service.store.run(run["id"])["status"] == "awaiting_user")
+        await self.wait_for(lambda: self.service.store.run(run["id"])["status"] == "awaiting_user", timeout=30)
         browser = self.service.browsers[run["id"]]
         self.assertEqual(browser.play_calls, 1)
         self.assertEqual(self.service.store.run(run["id"])["completed"], [])

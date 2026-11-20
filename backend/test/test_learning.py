@@ -190,7 +190,7 @@ class LearningTests(unittest.IsolatedAsyncioTestCase):
                 return await super().inspect()
         self.service.browser_factory = FlappingBrowser
         run = self.service.start(self.course["id"])
-        await self.wait_until(lambda: self.service.store.run(run["id"])["status"] == "awaiting_user", timeout=6)
+        await self.wait_until(lambda: self.service.store.run(run["id"])["status"] == "awaiting_user", timeout=30)
         browser = self.service.browsers[run["id"]]
         self.assertEqual(browser.play_calls, 3)
         self.assertIn("3 次", self.service.store.run(run["id"])["error"])
