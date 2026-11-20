@@ -81,6 +81,14 @@ class ModelConfigApiTests(unittest.TestCase):
         self.addCleanup(self._settings_patch.stop)
         self.addCleanup(self._database_patch.stop)
         self.addCleanup(self._temp.cleanup)
+        if sys.platform == "linux":
+            class MemorySecretStore:
+                def __init__(self): self.values = {}
+                def put(self, reference, value): self.values[reference] = value
+                def get(self, reference): return self.values[reference]
+            secrets = patch("app.services.agents.config.secret_store_for", return_value=MemorySecretStore())
+            secrets.start()
+            self.addCleanup(secrets.stop)
         self.client = TestClient(main.app)
 
     def test_multi_provider_round_trip(self) -> None:

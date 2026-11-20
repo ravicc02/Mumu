@@ -195,6 +195,7 @@ class CodeExecutionTests(unittest.IsolatedAsyncioTestCase):
 class EvaluationRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_header_refresh_never_reloads_the_active_experiment_page(self):
         client=EduCoderClient({})
+        client.observed_at = float("-inf")
         client.page=SimpleNamespace(reload=AsyncMock())
         async def refresh(*args,**kwargs): client.header_ready.set()
         refresh_page=SimpleNamespace(goto=AsyncMock(side_effect=refresh),close=AsyncMock())

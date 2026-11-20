@@ -188,7 +188,7 @@ class ResourceQueueTests(unittest.IsolatedAsyncioTestCase):
 class ReaderRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.browser = LearningBrowser({"id": "fixture", "profile_dir": str(Path(self.temp.name) / "profile")}, authenticate=False)
+        self.browser = LearningBrowser({"id": "fixture", "profile_dir": str(Path(self.temp.name) / "accounts" / "fixture" / "browser")}, authenticate=False)
         await self.browser.open()
 
     async def asyncTearDown(self):
