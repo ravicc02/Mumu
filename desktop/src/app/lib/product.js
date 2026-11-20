@@ -31,10 +31,36 @@ function stableVersion(value) {
   if (!match) return null;
   return match.slice(1).map(Number);
 }
-export async function checkPublishedRelease({ currentVersion = appInfo.version, fetcher = fetch, checkedAt = new Date().toISOString() } = {}) {
+const updateRequests = new WeakMap();
+export async function checkPublishedRelease(options = {}) {
+  const { currentVersion = appInfo.version, fetcher = fetch, checkedAt = new Date().toISOString() } = options;
+  let requests = updateRequests.get(fetcher);
+  if (!requests) { requests = new Map(); updateRequests.set(fetcher, requests); }
+  const cached = requests.get(currentVersion);
+  if (cached && cached.expires > Date.now()) return { ...await cached.promise, checkedAt };
+  const entry = { expires: Date.now() + 60000 };
+  entry.promise = fetchPublishedRelease({ currentVersion, fetcher, checkedAt }).catch(error => {
+    requests.delete(currentVersion);
+    throw error;
+  });
+  requests.set(currentVersion, entry);
+  return entry.promise;
+}
+async function fetchPublishedRelease({ currentVersion, fetcher, checkedAt }) {
   const response = await fetcher(appInfo.releaseApi, { headers: { Accept: "application/vnd.github+json" }, credentials: "omit", signal: AbortSignal.timeout(12000) });
   if (response.status === 404) return { status: "unpublished", checkedAt, message: "暂未找到可用的发布版本。" };
-  if ([403,429].includes(response.status)) throw new Error("更新检查频率受限，请稍后重试。");
+  if ([403,429].includes(response.status)) {
+    const remaining = response.headers?.get("x-ratelimit-remaining");
+    const retry = response.headers?.get("retry-after");
+    if (response.status === 429 || remaining === "0" || retry) {
+      const seconds = Number(retry);
+      const reset = Number(response.headers?.get("x-ratelimit-reset"));
+      const wait = retry && Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds)
+        : reset > Date.now() / 1000 ? Math.ceil(reset - Date.now() / 1000) : 0;
+      throw new Error("更新检查频率受限，" + (wait ? `请在 ${wait} 秒后重试。` : "请稍后重试。"));
+    }
+    throw new Error("GitHub 拒绝访问更新信息，请检查代理或网络，或到项目主页查看。");
+  }
   if (!response.ok) throw new Error("暂时无法获取发布信息，请稍后重试。");
   const release = await response.json(), current = stableVersion(String(currentVersion).split("-")[0]), remote = stableVersion(release.tag_name);
   if (release.draft || release.prerelease || !remote || !current || !allowedProjectLink(release.html_url) || !release.html_url.startsWith(appInfo.repository + "/releases/")) throw new Error("发布信息无法核验，请到项目主页查看。");

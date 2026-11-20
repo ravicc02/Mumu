@@ -23,7 +23,10 @@ let app, backendPid;
 try {
   const occupied = execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',"Get-NetTCPConnection -LocalPort 8877 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess; exit 0"],{encoding:'utf8'}).trim();
   if (occupied) throw new Error('Installer smoke port is occupied; no existing service was stopped.');
-  await execute(installer,['/S','/D='+installRoot],{timeout:120000,windowsHide:true,maxBuffer:1024*1024});
+  // 使用 Windows 原生启动器等待安装器及其子进程，避免直接子进程启动差异。
+  await execute('powershell.exe',['-NoProfile','-NonInteractive','-Command',
+    '$p = Start-Process -FilePath $env:MUMU_SMOKE_INSTALLER -ArgumentList @(\'/S\', (\'/D=\' + $env:MUMU_SMOKE_INSTALL_ROOT)) -PassThru -Wait; exit $p.ExitCode'],
+    {timeout:120000,windowsHide:true,maxBuffer:1024*1024,env:{...process.env,MUMU_SMOKE_INSTALLER:installer,MUMU_SMOKE_INSTALL_ROOT:installRoot}});
   const executable = path.join(installRoot,manifest.build.productName+'.exe');
   await fs.access(executable);
   app = await _electron.launch({executablePath:executable,args:['--no-sandbox','--user-data-dir='+profileRoot],cwd:installRoot,

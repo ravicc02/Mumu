@@ -27,13 +27,26 @@ test("update check distinguishes newer, same, and older published versions",asyn
 });
 test("missing releases or failed requests never claim an up-to-date version",async()=>{
   assert.equal((await checkPublishedRelease({fetcher:async()=>response(404)})).status,"unpublished");
-  await assert.rejects(checkPublishedRelease({fetcher:async()=>response(403)}),/频率受限/);
+  await assert.rejects(checkPublishedRelease({fetcher:async()=>response(403)}),/拒绝访问/);
   await assert.rejects(checkPublishedRelease({fetcher:async()=>response(503)}),/暂时无法/);
   await assert.rejects(checkPublishedRelease({fetcher:async()=>{throw new Error("network");}}),/network/);
 });
 test("update checks omit credentials and only accept verified project release links",async()=>{
   await checkPublishedRelease({fetcher:async(url,options)=>{assert.equal(url,appInfo.releaseApi);assert.equal(options.credentials,"omit");assert.equal(options.headers.Authorization,undefined);return response(404);}});
   for(const value of [{...release("v0.4.3"),html_url:"https://untrusted.example/download"},{...release("v0.4.3"),html_url:appInfo.legacyRepository+"/releases/tag/v0.4.3"},{...release("v0.4.3"),prerelease:true},release("unknown-version")])await assert.rejects(checkPublishedRelease({fetcher:async()=>response(200,value)}),/无法核验/);
+});
+test("update rate limits distinguish denied access and explain retry time",async()=>{
+  for (const status of [403,429]) {
+    const limited={...response(status),headers:{get:name=>name==="x-ratelimit-remaining"?"0":name==="retry-after"?"60":null}};
+    await assert.rejects(checkPublishedRelease({fetcher:async()=>limited}),/频率受限.*60 秒/);
+  }
+});
+test("repeated update checks reuse successful responses without sharing injected fetchers",async()=>{
+  let calls=0;
+  const fetcher=async()=>{calls++;return response(200,release("v0.4.3"));};
+  await checkPublishedRelease({currentVersion:"0.4.2",fetcher});
+  await checkPublishedRelease({currentVersion:"0.4.2",fetcher});
+  assert.equal(calls,1);
 });
 test("browser and native project links share the same restricted boundary",()=>{
   for(const url of [appInfo.repository,appInfo.repository+"/releases",appInfo.repository+"/releases/tag/v0.6.0",appInfo.legacyRepository,appInfo.legacyRepository+"/releases/tag/v0.5.1"]){assert.equal(allowedProjectLink(url),true);assert.equal(nativeLinks.allowedProjectLink(url),true);}
