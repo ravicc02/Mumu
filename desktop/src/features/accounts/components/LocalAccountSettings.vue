@@ -113,7 +113,7 @@ async function save() {
   min-height: 0;
   border-top: 2px solid var(--accent);
   padding: 20px 24px;
-  background: #f1f4f8;
+  background: var(--ds-surface-muted);
 }
 
 .local-profile-identity {
@@ -129,32 +129,32 @@ async function save() {
   width: 88px;
   height: 88px;
   flex: none;
-  border: 1px solid rgba(24, 33, 44, .14);
-  border-radius: 14px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-md);
   background: var(--surface);
 }
 
 .local-profile-copy {
   display: grid;
-  gap: 5px;
+  gap: 4px;
 }
 
 .local-profile-kicker {
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--ds-text-xs);
 }
 
 .local-profile-copy strong {
   overflow-wrap: anywhere;
   color: var(--ink);
-  font-size: 20px;
+  font-size: var(--ds-text-xl);
   line-height: 1.35;
   font-weight: 500;
 }
 
 .local-profile-copy p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   line-height: 1.65;
 }
 

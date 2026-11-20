@@ -176,7 +176,7 @@ onUnmounted(() => document.removeEventListener("pointerdown", outside));
 }
 
 .account-picker-copy strong {
-  font-size: 14px;
+  font-size: var(--ds-text-base);
   line-height: 1.4;
 }
 
@@ -190,7 +190,7 @@ onUnmounted(() => document.removeEventListener("pointerdown", outside));
   width: 16px;
   height: 16px;
   color: var(--muted);
-  transition: transform 160ms var(--ease);
+  transition: transform var(--ds-motion-swift);
 }
 
 .account-picker-trigger > svg.rotated {
@@ -201,7 +201,7 @@ onUnmounted(() => document.removeEventListener("pointerdown", outside));
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  z-index: 45;
+  z-index: var(--ds-z-floating);
   width: 100%;
   min-width: 240px;
   overflow: hidden;
@@ -225,7 +225,7 @@ onUnmounted(() => document.removeEventListener("pointerdown", outside));
 
 .account-picker-search:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--focus);
+  box-shadow: var(--ds-input-shadow-focus);
 }
 
 .account-picker-search input {
@@ -288,11 +288,11 @@ onUnmounted(() => document.removeEventListener("pointerdown", outside));
 }
 
 .account-picker-list strong {
-  font-size: 14px;
+  font-size: var(--ds-text-base);
 }
 
 .account-picker-list small {
-  margin-top: 3px;
+  margin-top: 4px;
   color: var(--muted);
   font-size: var(--text-xs);
 }
@@ -313,7 +313,7 @@ onUnmounted(() => document.removeEventListener("pointerdown", outside));
 
 .account-picker-enter-active,
 .account-picker-leave-active {
-  transition: opacity 160ms var(--ease), transform 180ms var(--ease);
+  transition: opacity var(--ds-motion-swift), transform var(--ds-motion-swift);
 }
 
 .account-picker-enter-from,

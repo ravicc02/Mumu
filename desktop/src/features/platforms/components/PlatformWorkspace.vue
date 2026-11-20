@@ -94,30 +94,30 @@ watch(() => props.modelValue, () => { query.value = ""; filter.value = "all"; })
 
 <style scoped>
 .platform-management { display: grid; grid-column: 2; grid-row: 2; grid-template-columns: 236px minmax(0,1fr); min-width: 0; min-height: 0; background: var(--surface); }
-.platform-catalog { border-right: 1px solid var(--line); background: var(--bg); padding: 25px 16px; overflow-y: auto; }
-.platform-catalog h2 { font-size: 14px; }
+.platform-catalog { border-right: 1px solid var(--line); background: var(--bg); padding: 24px 16px; overflow-y: auto; }
+.platform-catalog h2 { font-size: var(--ds-text-base); }
 .platform-catalog .platform-chip { margin-top: 10px; width: 100%; min-height: 68px; }
 .platform-catalog .platform-chip > span:nth-child(2) { display: grid; gap: 2px; min-width: 0; }
 .platform-catalog .platform-chip { position: relative; }
 .platform-catalog .platform-chip :deep(.platform-capabilities) { flex-wrap: nowrap; gap: 4px; overflow: hidden; }
-.platform-catalog .platform-chip :deep(.platform-capabilities > span) { gap: 0; padding: 0 6px; border-radius: 4px; background: var(--surface-muted); font-size: 11px; line-height: 18px; }
+.platform-catalog .platform-chip :deep(.platform-capabilities > span) { gap: 0; padding: 0 6px; border-radius: 4px; background: var(--surface-muted); font-size: var(--ds-text-xs); line-height: 18px; }
 .platform-catalog .platform-chip.active :deep(.platform-capabilities > span) { background: var(--accent-soft); color: var(--accent); }
 .platform-catalog .platform-chip :deep(.platform-capabilities svg) { display: none; }
 .platform-catalog .platform-chip > svg { position: absolute; top: 8px; right: 8px; color: var(--accent); }
 .platform-catalog .platform-chip small { margin-top: 0; }
 .platform-catalog .section-title { margin-bottom: 4px; }
 .platform-accounts { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 28px 32px; }
-.platform-accounts-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 25px; border-bottom: 1px solid var(--line); }
+.platform-accounts-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
 .platform-accounts-heading > div { display: flex; align-items: center; gap: 12px; }
 .platform-heading-identity { min-width: 0; }
-.platform-heading-copy { display: grid; gap: 5px; min-width: 0; }
+.platform-heading-copy { display: grid; gap: 4px; min-width: 0; }
 .platform-accounts-heading h1 { font-size: var(--page-title); line-height: 1.25; font-weight: 600; }
-.platform-heading-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; color: var(--muted); font-size: var(--text-xs); }
+.platform-heading-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: var(--text-xs); }
 .platform-heading-meta .platform-capabilities { color: inherit; }
 .platform-heading-separator { color: var(--line-strong); }
 .platform-account-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 24px 0 18px; }
-.platform-record-title { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.platform-record-title h2 { font-size: 15px; }
+.platform-record-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.platform-record-title h2 { font-size: var(--ds-text-md); }
 .platform-pending-hint { color: var(--orange); font-size: var(--text-xs); }
 .platform-record-filters { display: flex; align-items: center; gap: 16px; }
 .platform-account-tools .search-field { width: 200px; }
@@ -132,7 +132,7 @@ watch(() => props.modelValue, () => { query.value = ""; filter.value = "all"; })
 .platform-account-table tr { transition: background 150ms var(--ease); }
 .platform-account-table tbody tr:hover { background: var(--bg); }
 .platform-record-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.platform-record-name strong { overflow-wrap: anywhere; font-size: 14px; font-weight: 500; }
+.platform-record-name strong { overflow-wrap: anywhere; font-size: var(--ds-text-base); font-weight: 500; }
 .platform-record-name .account-avatar { flex: none; }
 .selected .platform-record-name .account-avatar { background: var(--accent-soft); color: var(--accent); }
 .platform-auth-status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
@@ -146,7 +146,7 @@ watch(() => props.modelValue, () => { query.value = ""; filter.value = "all"; })
 .platform-record-actions .account-menu-wrap { position: relative; top: auto; right: auto; }
 .platform-record-actions .account-more { position: static; flex: none; }
 .platform-account-table th:last-child { text-align: right; }
-@media(max-width:1200px) { .platform-management { grid-template-columns: 224px minmax(0,1fr); } .platform-accounts { padding: 24px; } .platform-record-actions { gap: 3px; } .platform-record-actions .button { padding: 5px; } .platform-account-table td { padding: 18px 9px; } }
+@media(max-width:1200px) { .platform-management { grid-template-columns: 224px minmax(0,1fr); } .platform-accounts { padding: 24px; } .platform-record-actions { gap: 4px; } .platform-record-actions .button { padding: 4px; } .platform-account-table td { padding: 18px 8px; } }
 @media(max-width:1080px) { .platform-account-table th:nth-child(3), .platform-account-table td:nth-child(3) { display: none; } .platform-account-table th:first-child { width: 34%; } .platform-account-table th:nth-child(2) { width: 28%; } .platform-account-table th:last-child { width: 38%; } }
 @media(max-width:760px) { .platform-management { display: block; overflow-y: auto; } .platform-catalog { display: flex; gap: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; } .platform-catalog .section-title { display: none; } .platform-catalog .platform-chip { flex: 0 0 190px; margin-top: 0; } .platform-accounts { padding: 20px 16px 28px; } .platform-accounts-heading { align-items: flex-start; } .platform-account-tools { align-items: flex-start; } .platform-record-filters { width: 100%; flex-wrap: wrap; gap: 10px; } .platform-account-tools .search-field { flex: 1 1 180px; width: auto; } .platform-account-table, .platform-account-table tbody, .platform-account-table tr, .platform-account-table td { display: block; width: 100%; } .platform-account-table thead { display: none; } .platform-account-table tr { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; border-bottom: 1px solid var(--line); padding: 16px 0; } .platform-account-table td { display: block !important; border: 0; padding: 0; } .platform-account-table td:nth-child(2) { grid-column: 1; } .platform-account-table td:last-child { grid-column: 1 / -1; } .platform-record-actions { justify-content: flex-start; flex-wrap: wrap; } .platform-auth-error { max-width: none; } }
 </style>

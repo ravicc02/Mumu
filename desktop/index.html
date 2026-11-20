@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mumu</title>
     <link rel="icon" type="image/png" href="/brand/mumu.png">
+    <style>html.dark { background: #151a22; }</style>
+    <script>
+      (function () {
+        var root = document.documentElement;
+        var state = {};
+        try { state = JSON.parse(localStorage.getItem("studio:appearance") || "null") || {}; } catch (error) { state = {}; }
+        var dark = state.theme === "dark" || (state.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) root.classList.add("dark");
+        if (state.reduceMotion === true) root.classList.add("reduce-motion");
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

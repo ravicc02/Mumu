@@ -5,7 +5,7 @@ function allowedProjectLink(value) {
   try {
     const url = new URL(value);
     return url.protocol === "https:" && url.hostname === "github.com" && !url.port && !url.username && !url.password && !url.search
-      && roots.some(root => url.pathname === root || url.pathname === root + "/releases" || url.pathname.startsWith(root + "/releases/"));
+      && roots.some(root => url.pathname === root || url.pathname === root + "/releases" || url.pathname.startsWith(root + "/releases/") || url.pathname === root + "/blob/main/LICENSE");
   } catch { return false; }
 }
 module.exports = { allowedProjectLink };

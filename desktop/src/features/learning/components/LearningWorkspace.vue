@@ -221,44 +221,44 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer); });
 .learning-browser-mode { margin-left: auto; color: var(--muted); font-size: var(--text-xs); white-space: nowrap; }
 .learning-workspace { grid-column: 2; grid-row: 2; display: grid; grid-template-columns: 320px minmax(0,1fr); min-height: 0; min-width: 0; background: var(--surface); }
 .learning-courses { display: flex; flex-direction: column; gap: 16px; padding: 24px 16px; min-height: 0; border-right: 1px solid var(--line); }
-.learning-title { display: flex; align-items: center; gap: 9px; }
-.learning-title h2 { font-size: 19px; }
-.learning-filters { display: grid; gap: 7px; }
-.learning-filter-actions { display: flex; align-items: center; gap: 7px; }
+.learning-title { display: flex; align-items: center; gap: 8px; }
+.learning-title h2 { font-size: var(--ds-text-xl); }
+.learning-filters { display: grid; gap: 8px; }
+.learning-filter-actions { display: flex; align-items: center; gap: 8px; }
 .learning-filter-actions input { width: 75px; }
 .learning-filter-actions input { height: 36px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius-control); padding: 0 10px; font-size: var(--text-sm); }
-.learning-filters .button { font-size: var(--text-sm); min-height: 36px; padding: 7px 11px; }
+.learning-filters .button { font-size: var(--text-sm); min-height: 36px; padding: 8px 12px; }
 .learning-search { display: flex; align-items: center; gap: 8px; min-height: 38px; border: 1px solid var(--line); border-radius: var(--radius-control); padding: 8px 10px; color: var(--muted); }
 .learning-search input { min-width: 0; flex: 1; border: 0; background: transparent; font-size: var(--text-sm); outline: none; }
 .learning-course-list { flex: 1; min-height: 0; overflow-y: auto; }
 .learning-course-list article { display: flex; align-items: center; gap: 8px; min-height: 72px; border-bottom: 1px solid var(--line); padding: 14px 6px; }
 .learning-course-list article.selected { background: var(--accent-soft); }
-.learning-course-select { display: flex; flex: 1; align-items: center; gap: 9px; min-width: 0; border: 0; background: transparent; padding: 4px; text-align: left; }
+.learning-course-select { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; border: 0; background: transparent; padding: 4px; text-align: left; }
 .learning-course-select span { min-width: 0; }
-.learning-course-select strong { display: block; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
-.learning-course-select small { display: block; font-size: var(--text-xs); color: var(--muted); margin-top: 5px; }
+.learning-course-select strong { display: block; font-size: var(--ds-text-base); line-height: 1.6; overflow-wrap: anywhere; }
+.learning-course-select small { display: block; font-size: var(--text-xs); color: var(--muted); margin-top: 4px; }
 .learning-detail { display: flex; flex-direction: column; gap: 16px; padding: 24px; min-width: 0; min-height: 0; }
 .learning-run-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 .learning-run-heading > div { min-width: 0; }
-.learning-run-heading h2 { font-size: 20px; line-height: 1.5; margin-top: 10px; overflow-wrap: anywhere; }
+.learning-run-heading h2 { font-size: var(--ds-text-xl); line-height: 1.5; margin-top: 10px; overflow-wrap: anywhere; }
 .learning-retry-count { margin-left: 8px; color: var(--orange); font-size: var(--text-xs); white-space: nowrap; }
 .learning-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 36px; }
 .learning-controls .button { font-size: var(--text-sm); min-height: 36px; }
 .learning-progress > div:first-child { display: flex; justify-content: space-between; gap: 10px; font-size: var(--text-sm); }
 .learning-progress .progress-track { margin-top: 10px; }
-.learning-progress p { display: flex; justify-content: space-between; gap: 12px; font-size: var(--text-sm); line-height: 1.7; margin-top: 9px; overflow-wrap: anywhere; }
+.learning-progress p { display: flex; justify-content: space-between; gap: 12px; font-size: var(--text-sm); line-height: 1.7; margin-top: 8px; overflow-wrap: anywhere; }
 .learning-progress .learning-blocker { display: block; color: var(--orange); background: var(--orange-soft); padding: 10px; border-radius: 4px; }
 .learning-result-line { font-size: var(--text-sm); line-height: 1.7; color: var(--muted); overflow-wrap: anywhere; }
 .learning-result-line.interrupted,.learning-result-line.incomplete { color: var(--red); }
 .learning-live-grid { display: grid; grid-template-columns: minmax(0,1fr) 280px; flex: 1; min-height: 0; gap: 20px; }
 .learning-browser { min-height: 0; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--bg); }
 .learning-log { display: flex; flex-direction: column; gap: 12px; min-height: 0; min-width: 0; }
-.learning-log h3 { display: flex; justify-content: space-between; gap: 6px; font-size: 13px; }
+.learning-log h3 { display: flex; justify-content: space-between; gap: 6px; font-size: var(--ds-text-base); }
 .learning-log-stream { overflow-y: auto; min-height: 0; flex: 1; }
-.learning-log-stream article { display: flex; align-items: start; gap: 9px; border-bottom: 1px solid var(--line); padding: 12px 0; }
+.learning-log-stream article { display: flex; align-items: start; gap: 8px; border-bottom: 1px solid var(--line); padding: 12px 0; }
 .learning-log-stream .event-dot { margin-top: 6px; flex: none; }
 .learning-log-stream strong { font-size: var(--text-sm); line-height: 1.7; font-weight: 500; overflow-wrap: anywhere; }
-.learning-log-stream time { display: block; color: var(--muted); font-size: var(--text-xs); margin-top: 5px; }
+.learning-log-stream time { display: block; color: var(--muted); font-size: var(--text-xs); margin-top: 4px; }
 .learning-message { font-size: var(--text-sm); color: var(--green); }
 .learning-error { display: flex; align-items: center; gap: 8px; padding: 10px; color: var(--red); background: var(--red-soft); font-size: var(--text-sm); overflow-wrap: anywhere; border-radius: 4px; }
 .job-badge.awaiting_user { color: var(--orange); background: var(--orange-soft); }

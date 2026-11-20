@@ -13,6 +13,6 @@ const supported = computed(() => businessTypes.filter(item => supportsBusiness(p
 </template>
 
 <style scoped>
-.platform-capabilities { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 9px; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
+.platform-capabilities { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
 .platform-capabilities > span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 </style>

@@ -5,6 +5,7 @@ import ModelConfiguration from '../../settings/components/ModelConfiguration.vue
 import PlatformLogo from '../../platforms/components/PlatformLogo.vue';
 import AccountAvatar from '../../accounts/components/AccountAvatar.vue';
 import { api } from '../../../app/api.js';
+import { copyText } from '../../../app/lib/clipboard.js';
 import { platformCatalog, businessTypes } from '../../platforms/lib/catalog.js';
 import { createAccountAuthorization } from '../../accounts/lib/authorization.js';
 import { completeOnboarding, environmentReady } from '../../../app/lib/onboarding.js';
@@ -79,7 +80,8 @@ async function check(install = false) {
 }
 
 async function copy(command, id) {
-  try { await navigator.clipboard.writeText(command); copied.value = id; }
+  error.value = ''; copied.value = '';
+  try { await copyText(command); copied.value = id; }
   catch { error.value = '无法复制，请选中命令后手动复制。'; }
 }
 
@@ -207,7 +209,7 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer); flow.dis
 </template>
 
 <style scoped>
-.startup-backdrop { position: fixed; inset: 0; z-index: 90; background: var(--surface); }
+.startup-backdrop { position: fixed; inset: 0; z-index: var(--ds-z-dialog); background: var(--surface); }
 .startup-experience { display: grid; grid-template-rows: 72px minmax(0,1fr) 78px; width: 100%; height: 100dvh; overflow: hidden; outline: none; animation: setup-arrive .32s ease both; }
 .startup-header { position: relative; display: flex; align-items: center; justify-content: center; width: min(1120px, calc(100% - 64px)); margin: 0 auto; border-bottom: 1px solid var(--line); padding: 0 42px; }
 .startup-header nav { display: flex; align-items: center; justify-content: center; gap: 8px; }
@@ -221,13 +223,13 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer); flow.dis
 .startup-content { min-height: 0; overflow-y: auto; padding: 42px 32px 34px; }
 .startup-stage { width: min(880px, 100%); min-height: 100%; margin: 0 auto; }
 .startup-heading { display: grid; grid-template-columns: 32px minmax(0,1fr); gap: 12px; align-items: start; margin-bottom: 30px; }
-.startup-step { padding-top: 7px; color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
-.startup-heading h1 { font-size: 30px; font-weight: 500; line-height: 1.3; }
+.startup-step { padding-top: 8px; color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.startup-heading h1 { font-size: var(--ds-text-3xl); font-weight: 500; line-height: 1.3; }
 .startup-heading p { max-width: 620px; margin-top: 8px; color: var(--muted); font-size: var(--text-sm); line-height: 1.7; }
 .startup-environment { width: min(720px, 100%); }
 .dependency-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 18px; border-top: 1px solid var(--line); padding: 18px 2px; }
 .dependency-row:last-of-type { border-bottom: 1px solid var(--line); }
-.dependency-label { display: flex; align-items: center; gap: 10px; grid-column: 1; font-size: 14px; font-weight: 500; }
+.dependency-label { display: flex; align-items: center; gap: 10px; grid-column: 1; font-size: var(--ds-text-base); font-weight: 500; }
 .dependency-label>span { margin-left: auto; color: var(--muted); font-size: var(--text-xs); white-space: nowrap; }
 .dependency-row>p { grid-column: 1 / -1; margin: 0 0 0 27px; color: var(--muted); font-size: var(--text-xs); line-height: 1.7; overflow-wrap: anywhere; }
 .dependency-ready { color: var(--green); }
@@ -239,10 +241,10 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer); flow.dis
 .startup-status,.startup-wait { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--text-sm); }
 .startup-wait { min-height: 120px; }
 .startup-platform-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
-.startup-platform { display: grid; grid-template-columns: 32px minmax(0,1fr) 16px; align-items: center; gap: 12px; min-height: 84px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); padding: 14px 16px; text-align: left; transition: background 160ms var(--ease),border-color 160ms var(--ease); }
+.startup-platform { display: grid; grid-template-columns: 32px minmax(0,1fr) 16px; align-items: center; gap: 12px; min-height: 84px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); padding: 14px 16px; text-align: left; transition: background var(--ds-motion-swift),border-color var(--ds-motion-swift); }
 .startup-platform:hover,.startup-platform.selected { border-color: var(--accent); background: var(--accent-soft); }
-.startup-platform strong { display: block; font-size: 14px; font-weight: 500; }
-.startup-platform small { display: block; margin-top: 5px; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
+.startup-platform strong { display: block; font-size: var(--ds-text-base); font-weight: 500; }
+.startup-platform small { display: block; margin-top: 4px; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
 .startup-platform>svg { color: var(--accent); }
 .startup-authorization { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
 .startup-authorization>span { color: var(--muted); font-size: var(--text-xs); }

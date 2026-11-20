@@ -41,7 +41,7 @@ with sync_playwright() as p:
     assert modal.get_by_text("模型页新增「模型 / 统计」", exact=False).count() == 0
     page.keyboard.press("Escape")
     assert modal.count() == 0
-    assert page.get_by_role("button", name="MIT · 无担保").count() == 1
+    assert page.get_by_role("button", name="MIT", exact=True).count() == 1
     assert page.locator("nav.about-links button").count() == 2
     assert not errors, errors
     browser.close()

@@ -42,15 +42,15 @@ const icon = computed(() => current.value.icon);
 </template>
 
 <style scoped>
-.ui-status-badge { display: inline-flex; align-items: center; gap: 5px; width: fit-content; max-width: 100%; border: 1px solid transparent; border-radius: 999px; font-weight: 500; line-height: 1.35; white-space: nowrap; }
+.ui-status-badge { display: inline-flex; align-items: center; gap: 4px; width: fit-content; max-width: 100%; border: 1px solid transparent; border-radius: var(--ds-radius-pill); font-weight: 500; line-height: 1.35; white-space: nowrap; }
 .ui-status-badge > span { overflow: hidden; text-overflow: ellipsis; }
 .size-sm { padding: 2px 6px; font-size: var(--text-xs); }
 .size-md { padding: 4px 8px; font-size: var(--text-xs); }
 .tone-neutral { border-color: var(--line); background: var(--surface-muted); color: var(--muted); }
 .tone-accent { border-color: rgba(var(--accent-rgb),.18); background: var(--accent-soft); color: var(--accent); }
-.tone-success { border-color: rgba(27,117,80,.16); background: var(--green-soft); color: var(--green); }
-.tone-warning { border-color: rgba(148,98,15,.18); background: var(--orange-soft); color: var(--orange); }
-.tone-danger { border-color: rgba(182,65,59,.16); background: var(--red-soft); color: var(--red); }
+.tone-success { border-color: color-mix(in srgb, var(--ds-success) 16%, transparent); background: var(--green-soft); color: var(--green); }
+.tone-warning { border-color: color-mix(in srgb, var(--ds-warning) 18%, transparent); background: var(--orange-soft); color: var(--orange); }
+.tone-danger { border-color: color-mix(in srgb, var(--ds-danger) 16%, transparent); background: var(--red-soft); color: var(--red); }
 .pulse:not(.tone-neutral) { animation: ui-status-pulse 1.8s ease-in-out infinite; }
 .spinning { animation: icon-spin 1s linear infinite; }
 @keyframes ui-status-pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 12%, transparent); } }

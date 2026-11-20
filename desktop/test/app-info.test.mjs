@@ -52,6 +52,42 @@ test("browser and native project links share the same restricted boundary",()=>{
   for(const url of [appInfo.repository,appInfo.repository+"/releases",appInfo.repository+"/releases/tag/v0.6.0",appInfo.legacyRepository,appInfo.legacyRepository+"/releases/tag/v0.5.1"]){assert.equal(allowedProjectLink(url),true);assert.equal(nativeLinks.allowedProjectLink(url),true);}
   for(const url of ["file:///C:/Windows/notepad.exe","javascript:alert(1)","https://github.com.evil.example/ravicc02/Mumu","https://github.com/other/repository",appInfo.repository+"-other",appInfo.repository+"?secret=private"]){assert.equal(allowedProjectLink(url),false);assert.equal(nativeLinks.allowedProjectLink(url),false);}
 });
+test("license links are allowed precisely in browser and desktop",()=>{
+  for (const root of [appInfo.repository,appInfo.legacyRepository]) {
+    for (const suffix of ["/blob/main/LICENSE","/blob/main/LICENSE#license"]) {
+      assert.equal(allowedProjectLink(root+suffix),true);
+      assert.equal(nativeLinks.allowedProjectLink(root+suffix),true);
+    }
+    for (const suffix of ["/blob/main/LICENSE-other","/blob/other/LICENSE","/blob/main/secret","/blob/main/LICENSE?raw=1"]) {
+      assert.equal(allowedProjectLink(root+suffix),false);
+      assert.equal(nativeLinks.allowedProjectLink(root+suffix),false);
+    }
+  }
+});
+test("rate-limit cooldown prevents repeated requests across versions and expires",async()=>{
+  let time=1_800_000_000_000,calls=0;
+  const fetcher=async()=>{calls++;return calls===1?{...response(429),headers:{get:name=>name==="retry-after"?"60":null}}:response(200,release("v0.10.7"));};
+  const now=()=>time;
+  await assert.rejects(checkPublishedRelease({fetcher,now}),/60 秒/);
+  time+=10000;
+  await assert.rejects(checkPublishedRelease({fetcher,now,currentVersion:"0.9.0"}),/50 秒/);
+  assert.equal(calls,1);
+  time+=50001;
+  assert.equal((await checkPublishedRelease({fetcher,now})).status,"current");
+  assert.equal(calls,2);
+});
+test("rate-limit retry date, reset and missing headers all establish cooldown",async()=>{
+  for (const headers of [
+    {"retry-after":new Date(1_800_000_060_000).toUTCString()},
+    {"x-ratelimit-remaining":"0","x-ratelimit-reset":"1800000060"},
+    {},
+  ]) {
+    let calls=0;
+    const fetcher=async()=>{calls++;return {...response(429),headers:{get:name=>headers[name]??null}};};
+    for(let i=0;i<2;i++) await assert.rejects(checkPublishedRelease({fetcher,now:()=>1_800_000_000_000}),/60 秒/);
+    assert.equal(calls,1);
+  }
+});
 test("automatic checks are opt-in and survive a local reload",()=>{
   let value=null;const store={getItem:()=>value,setItem:(_key,next)=>value=next};
   assert.equal(loadUpdatePreference(store),false);saveUpdatePreference(true,store);assert.equal(loadUpdatePreference(store),true);

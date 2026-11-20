@@ -1,5 +1,22 @@
-/* DESIGN.md 的桌面事务型映射。业务列表保留行布局，操作控件使用胶囊形。 */
-body { font-feature-settings: "ss03"; }
+/* DESIGNS.md 的桌面事务型映射。业务列表保留行布局，操作控件使用胶囊形；颜色只来自 tokens.css。 */
+/* 页面、导航、模块与字段有不同表面；蓝色只强化当前选择和交互。 */
+body .side-nav,
+body .application-settings-dialog .application-settings-sidebar { background: var(--surface-rail); }
+body .application-settings-dialog .application-settings-search,
+body .application-settings-dialog .settings-field input,
+body .application-settings-dialog .settings-field select { background: var(--surface-inset); }
+body .nav-item.active,
+body .application-settings-dialog .settings-section-button.active,
+body .application-settings-dialog .provider-list button.active,
+body .learning-course-list article.selected,
+body .account-item.active { color: var(--selected-ink); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--selected-border); }
+body .application-settings-dialog .model-subtabs button[aria-selected="true"],
+body .application-settings-dialog .usage-periods button[aria-pressed="true"],
+body .usage-tabs button.active,
+body .company-room-nav button.active { color: var(--selected-ink); box-shadow: inset 0 0 0 1px var(--selected-border); }
+body .town-panel-group > header,
+body .course-heading,
+body .usage-table-wrap thead { background: var(--surface-muted); }
 /* 增加宿主作用域，避免业务组件的 scoped 规则改回旧的控件形状。 */
 body .application-settings-dialog button:not(.provider-list button),
 body .startup-header nav button { border-radius: var(--radius-pill); }
@@ -16,22 +33,24 @@ button.account-more, button.job-more-button, button.assignment-view,
 .application-settings-dialog .settings-section-button,
 .startup-header nav button, .company-room-nav, .company-room-nav button,
 button.collect-all-accounts { border-radius: var(--radius-pill); }
-.button { padding-inline: 18px; box-shadow: none; }
-.button.dark { background: var(--ink); color: var(--on-accent); box-shadow: none; }
-.button.dark:hover:not(:disabled) { background: var(--accent-hover); }
-.button.light { border-color: var(--line-strong); box-shadow: none; }
-.button.light:hover:not(:disabled) { border-color: var(--ink); background: var(--bg); }
-.button.ghost:hover:not(:disabled), .icon-button:hover:not(:disabled) { background: var(--surface-muted); }
-button:disabled:not(.platform-live-image) { opacity: .6; }
-.button.dark:disabled, .button.danger-button:disabled { opacity: 1; }
+.button { padding-inline: var(--ds-space-3); box-shadow: none; font-weight: var(--ds-weight-control); line-height: var(--ds-leading-none); }
+/* 实心变体悬停只改不透明度，保持品牌色相。 */
+.button.dark { background: var(--ds-brand-primary); color: var(--ds-brand-primary-text); box-shadow: none; }
+.button.dark:hover:not(:disabled), .button.danger-button:hover:not(:disabled) { opacity: .8; }
+.button.dark:active:not(:disabled), .button.danger-button:active:not(:disabled) { opacity: .7; transform: none; }
+.button.light { border-color: var(--ds-border-strong); box-shadow: none; }
+.button.light:hover:not(:disabled) { background: var(--ds-on-surface); }
+.button.ghost:hover:not(:disabled), .icon-button:hover:not(:disabled) { background: var(--ds-ghost-hover-bg); }
+button:disabled:not(.platform-live-image) { opacity: .5; }
+.button.dark:disabled, .button.danger-button:disabled { opacity: .5; }
 .text-button { padding-inline: 8px; }
 .topbar { height: 64px; flex-basis: 64px; padding-inline: 24px; }
-.brand h1 { font-size: 18px; font-weight: 550; }
-.side-nav { background: var(--bg); padding-inline: 8px; }
+.brand h1 { font-size: var(--ds-text-lg); font-weight: 600; }
+.side-nav { background: var(--surface-rail); padding-inline: 8px; }
 .nav-item.active { background: var(--accent-soft); color: var(--ink); }
 .page-heading h2, .platform-accounts-heading h1,
 .attendance-page-heading h1, .learning-title h2 {
-  font-family: var(--font-display); font-size: var(--page-title); font-weight: 330; line-height: 1.28;
+  font-family: var(--font-display); font-size: var(--page-title); font-weight: 600; line-height: 1.28;
 }
 .dashboard-main, .platform-accounts, .assignment-board { background: var(--surface); }
 .app-shell .dashboard-heading { padding-block: 24px 16px; }
@@ -44,9 +63,9 @@ button:disabled:not(.platform-live-image) { opacity: .6; }
 .job-card-status, .job-badge, .assignment-job-state, .status-tag,
 .attendance-auto-state, .application-settings-dialog .settings-scope,
 .application-settings-dialog .settings-state { border-radius: var(--radius-pill); }
-.search-field, .town-search, .learning-search { min-height: 40px; border-radius: var(--radius-control); border-color: var(--line-strong); }
-.search-field:focus-within, .town-search:focus-within, .learning-search:focus-within { border-color: var(--ink); box-shadow: 0 0 0 2px var(--focus); }
-.application-settings-dialog .application-settings-sidebar { background: var(--bg); }
+.search-field, .town-search, .learning-search { min-height: var(--ds-space-8); border-radius: var(--radius-control); border-color: var(--line-strong); }
+.search-field:focus-within, .town-search:focus-within, .learning-search:focus-within { border-color: var(--ds-selected-border); box-shadow: var(--ds-input-shadow-focus); }
+.application-settings-dialog .application-settings-sidebar { background: var(--surface-rail); }
 .application-settings-dialog .application-settings-search { background: var(--surface); }
 .application-settings-dialog .application-settings-main,
 .application-settings-dialog .application-settings-content { background: var(--bg); }
@@ -67,8 +86,8 @@ body #model-stats-panel .settings-loading { grid-column: 1 / -1; min-width: 0; }
 body #model-stats-panel .usage-metrics { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; align-items: stretch; }
 body #model-stats-panel .usage-toolbar-actions { gap: 8px; }
 body #model-stats-panel .usage-periods button { padding: 8px 10px; }
-body #model-stats-panel .usage-metrics strong { font-size: 24px; line-height: 34px; }
-body #model-stats-panel .usage-metrics small { font-size: 12px; overflow-wrap: anywhere; }
+body #model-stats-panel .usage-metrics strong { font-size: var(--ds-text-2xl); line-height: 34px; }
+body #model-stats-panel .usage-metrics small { font-size: var(--ds-text-sm); overflow-wrap: anywhere; }
 body #model-stats-panel #usage-content { margin-top: 0; }
 /* 容器查询使用真实统计区宽度，不受外层窗口或设置侧栏宽度误导。 */
 body #model-stats-panel { display: block; grid-column: 1 / -1; grid-row: 1 / span 4; min-width: 0; }
@@ -89,28 +108,28 @@ body #model-stats-panel .usage-query-panel { grid-column: 1; min-width: 0; }
 @media (max-width: 1100px) {
   body #model-stats-panel .usage-periods button { padding-inline: 8px; }
   body #model-stats-panel .usage-metrics section { padding: 14px; }
-  body #model-stats-panel .usage-metrics strong { font-size: 21px; }
+  body #model-stats-panel .usage-metrics strong { font-size: var(--ds-text-xl); }
 }
-.application-settings-dialog .application-settings-title h2 { font-family: var(--font-display); font-size: 24px; font-weight: 330; }
+.application-settings-dialog .application-settings-title h2 { font-family: var(--font-display); font-size: var(--ds-text-2xl); font-weight: 600; }
 .application-settings-dialog .application-settings-title-icon { background: var(--accent-wash); border-color: transparent; border-radius: 50%; }
 .application-settings-dialog .settings-card-heading { background: var(--surface); padding-block: 20px; }
-.application-settings-dialog .settings-card-title h3 { font-size: 18px; font-weight: 500; }
+.application-settings-dialog .settings-card-title h3 { font-size: var(--ds-text-lg); font-weight: 500; }
 .application-settings-dialog .settings-section-button.active { background: var(--accent-soft); border-color: transparent; }
-.application-settings-dialog .settings-section-button[aria-current="page"] { font-weight: 550; }
+.application-settings-dialog .settings-section-button[aria-current="page"] { font-weight: 600; }
 .application-settings-dialog .settings-field input,
 .application-settings-dialog .settings-field select,
 .application-settings-dialog .settings-number,
-.application-settings-dialog .settings-select { min-height: 44px; font-size: 14px; }
+.application-settings-dialog .settings-select { min-height: 44px; font-size: var(--ds-text-base); }
 .application-settings-dialog .settings-card .preference-row { min-height: 76px; }
-.application-settings-dialog .settings-card .preference-row small { font-size: 13px; }
+.application-settings-dialog .settings-card .preference-row small { font-size: var(--ds-text-base); }
 .application-settings-dialog .settings-action-bar,
 .application-settings-dialog .preferences-save-bar { padding-inline: 0; flex-wrap: wrap; }
 .application-settings-dialog .settings-section-stack { gap: 24px; }
 .town-panel { gap: 16px; padding: 16px 24px 24px; background: var(--bg); }
 .town-panel-group > header { min-height: 56px; padding: 16px; }
-.town-panel-group h3 { font-size: 16px; font-weight: 500; }
-.town-panel-task strong { font-size: 14px; }
-.town-panel-task small { font-size: 12px; }
+.town-panel-group h3 { font-size: var(--ds-text-lg); font-weight: 500; }
+.town-panel-task strong { font-size: var(--ds-text-base); }
+.town-panel-task small { font-size: var(--ds-text-sm); }
 .town-panel-task { border-radius: 0; padding-block: 16px; }
 .town-panel-task:hover { background: var(--bg); }
 .town-connection { color: var(--green); }
@@ -122,10 +141,10 @@ body #model-stats-panel .usage-query-panel { grid-column: 1; min-width: 0; }
 .town-task-card::after { background: var(--surface); }
 .town-task-card h3, .town-card-top > span { color: var(--ink); }
 .town-card-top small, .town-card-result, .town-card-status small { color: var(--muted); }
-.town-hover-card { background: #0a0a0a; color: #fff; border-color: #1e2c31; }
-.town-hover-card span { color: #d4d4d8; }
+.town-hover-card { background: var(--ds-menu-bg); color: var(--ds-text-primary); border-color: var(--ds-border); box-shadow: var(--ds-elevation-300); }
+.town-hover-card span { color: var(--ds-text-secondary); }
 .learning-courses { background: var(--bg); }
-.learning-run-heading h2 { font-size: 24px; font-weight: 400; }
+.learning-run-heading h2 { font-size: var(--ds-text-2xl); font-weight: 400; }
 .learning-course-list article.selected { border-radius: var(--radius-card); }
 .learning-controls { flex-wrap: wrap; }
 .platform-record-actions { flex-wrap: wrap; }
@@ -133,13 +152,13 @@ body #model-stats-panel .usage-query-panel { grid-column: 1; min-width: 0; }
 body .assignment-board .page-heading h2,
 body .assignment-board .board-heading h2,
 body .learning-workspace .learning-title h2 {
-  font-family: var(--font-display); font-size: var(--page-title); font-weight: 330;
+  font-family: var(--font-display); font-size: var(--page-title); font-weight: 600;
 }
-body .learning-workspace .learning-run-heading h2 { font-size: 24px; font-weight: 400; }
+body .learning-workspace .learning-run-heading h2 { font-size: var(--ds-text-2xl); font-weight: 400; }
 body .application-settings-dialog .model-usage select,
-body .application-settings-dialog .usage-pricing-form input { min-height: var(--field-height); font-size: 14px; }
+body .application-settings-dialog .usage-pricing-form input { min-height: var(--field-height); font-size: var(--ds-text-base); }
 body .attendance-config-warning { border: 1px solid var(--orange); border-radius: var(--radius-control); }
-body .attendance-workspace .attendance-page-heading h1 { font-weight: 330; }
+body .attendance-workspace .attendance-page-heading h1 { font-weight: 600; }
 body .app-shell .nav-motion-track { border-radius: var(--radius-pill); }
 body .learning-workspace .learning-course-select { border-radius: var(--radius-pill); }
 body .application-settings-dialog .model-add-trigger:hover { background: var(--surface-muted); }
@@ -151,15 +170,15 @@ body .application-settings-dialog .usage-periods button[aria-pressed="true"] { b
 body .modal-shell-close { border-radius: var(--radius-pill); }
 body .modal-heading h2, body .modal-shell-heading h2,
 body .authorization-body h2, body .task-details-heading h2,
-body .learning-result-heading h2 { font-family: var(--font-display); font-size: 24px; font-weight: 330; }
+body .learning-result-heading h2 { font-family: var(--font-display); font-size: var(--ds-text-2xl); font-weight: 600; }
 body .modal-actions { flex-wrap: wrap; }
 body .modal-card .field-label input, body .modal-card .field-label select { min-height: var(--field-height); }
 body .authorization-stages li > span { border-radius: 50%; }
-body .connector-copy strong { font-size: 18px; }
-body .connector-copy small { font-size: 14px; }
+body .connector-copy strong { font-size: var(--ds-text-lg); }
+body .connector-copy small { font-size: var(--ds-text-base); }
 body .task-details-heading .agent-heading-meta { flex-wrap: wrap; max-width: 45%; }
 /* 启动、初始化与场景浮层使用同一套类型和操作语汇。 */
-body .launch-copy h1, body .startup-heading h1 { font-family: var(--font-display); font-weight: 330; }
+body .launch-copy h1, body .startup-heading h1 { font-family: var(--font-display); font-weight: 600; }
 body .startup-experience .startup-header nav button.active { background: var(--accent-soft); border-color: transparent; border-radius: var(--radius-pill); }
 body .startup-platform { border-radius: var(--radius-card); }
 body .startup-platform.selected { background: var(--accent-soft); }
@@ -185,27 +204,27 @@ body .learning-workspace, body .attendance-workspace { background: var(--bg); }
 body .dashboard-main.town-dashboard { padding: 24px; gap: 16px; }
 body .town-dashboard .dashboard-heading { padding: 0; margin: 0; }
 body .task-town { margin-inline: 0; gap: 20px; }
-body .town-toolbar { border: 1px solid var(--line); border-radius: var(--radius-card); padding: 16px 20px; }
+body .town-toolbar { border: 0; box-shadow: var(--ds-elevation-100); border-radius: var(--ds-radius-lg); padding: 16px 20px; }
 body .town-panel { padding: 0; gap: 20px; }
-body .town-stage { border: 1px solid var(--line); border-radius: var(--radius-card); }
+body .town-stage { border: 0; box-shadow: var(--ds-elevation-100); border-radius: var(--ds-radius-lg); }
 /* 标题留在页面层，记录的筛选与列表共享一个内容表面。 */
 body .platform-accounts { gap: var(--module-gap); padding: var(--page-inset); }
 body .platform-accounts-heading { padding-bottom: 0; border: 0; }
-body .platform-record-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
+body .platform-record-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; border: 0; box-shadow: var(--ds-elevation-100); border-radius: var(--ds-radius-lg); background: var(--surface); }
 body .platform-account-tools { padding: var(--module-inset); border-bottom: 1px solid var(--line); }
 body .platform-records { padding: 0; border-radius: 0 0 var(--radius-card) var(--radius-card); }
 body .assignment-board .board-heading { gap: 24px; padding-bottom: 24px; }
-body .assignment-tools { border: 1px solid var(--line); border-radius: var(--radius-card); padding: 16px; background: var(--surface); }
+body .assignment-tools { border: 0; box-shadow: var(--ds-elevation-100); border-radius: var(--ds-radius-lg); padding: 16px; background: var(--surface); }
 body .selection-toolbar { margin-top: 16px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface); }
-body .course-group { margin-top: 24px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
+body .course-group { margin-top: 24px; padding: 20px; border: 0; box-shadow: var(--ds-elevation-100); border-radius: var(--ds-radius-lg); background: var(--surface); }
 body .course-heading { padding-bottom: 16px; }
 /* 分栏工作区用真实沟槽分开，栏内列表仍是行，不再逐行套卡。 */
 body .learning-workspace { gap: 24px; padding: 24px; grid-template-columns: 280px minmax(0,1fr); }
-body .learning-courses, body .learning-detail { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); padding: 20px; }
+body .learning-courses, body .learning-detail { border: 0; box-shadow: var(--ds-elevation-100); border-radius: var(--ds-radius-lg); background: var(--surface); padding: 20px; }
 body .learning-detail { gap: 24px; }
 body .learning-course-list article { padding-block: 16px; }
 body .attendance-workspace { gap: 20px; padding: 20px; grid-template-columns: 220px minmax(0,1fr) 320px; }
-body .attendance-rail, body .attendance-center, body .attendance-run-panel { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); padding: 20px; }
+body .attendance-rail, body .attendance-center, body .attendance-run-panel { border: 0; box-shadow: var(--ds-elevation-100); border-radius: var(--ds-radius-lg); background: var(--surface); padding: 20px; }
 body .attendance-config-center { gap: 24px; }
 body .attendance-config-section + .attendance-config-section { margin-top: 24px; }
 body .connector-grid { gap: 24px; }
@@ -227,20 +246,20 @@ body .application-settings-dialog .settings-action-bar,
 body .application-settings-dialog .preferences-save-bar { background: transparent; margin-top: 24px; }
 body .application-settings-dialog .model-sheet { border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: visible; }
 body .application-settings-dialog .model-layout { grid-template-columns: 260px minmax(0,1fr); gap: 24px; align-items: start; }
-body .application-settings-dialog .provider-rail { padding: 20px 16px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
+body .application-settings-dialog .provider-rail { padding: 20px 16px; border: 0; box-shadow: var(--ds-elevation-100); border-radius: var(--ds-radius-lg); background: var(--surface); }
 body .application-settings-dialog .provider-detail { background: transparent; }
 body .application-settings-dialog .detail-head { padding: 0 0 20px; border: 0; }
-body .application-settings-dialog .detail-section { margin-bottom: 24px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
+body .application-settings-dialog .detail-section { margin-bottom: 24px; border: 0; box-shadow: var(--ds-elevation-100); border-radius: var(--ds-radius-lg); background: var(--surface); }
 body .application-settings-dialog .detail-section-head { padding: 20px 20px 0; }
 body .application-settings-dialog .detail-section-body { padding: 16px 20px 20px; }
 body .application-settings-dialog .model-priority-box { border: 0; background: transparent; }
-body .usage-query-panel { padding: var(--module-inset); border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
+body .usage-query-panel { padding: var(--module-inset); border: 0; box-shadow: var(--ds-elevation-100); border-radius: var(--ds-radius-lg); background: var(--surface); }
 body #model-stats-panel .usage-tabs { margin-bottom: 20px; background: transparent; border: 0; padding: 0; border-radius: 0; gap: 4px; }
 body .usage-query-panel .usage-table-wrap { border: 0; border-top: 1px solid var(--line); border-radius: 0; }
 body .usage-query-panel h4 { margin: 24px 0 12px; }
 body .usage-query-panel .usage-note { margin-top: 0; }
 body .startup-content { background: var(--bg); }
-body .startup-environment { padding: 24px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
+body .startup-environment { padding: 24px; border: 0; box-shadow: var(--ds-elevation-100); border-radius: var(--ds-radius-lg); background: var(--surface); }
 body .modal-actions { gap: 12px; padding-top: 20px; margin-top: 24px; }
 @media (max-width: 1250px) {
   body .learning-workspace { gap: 16px; padding: 16px; grid-template-columns: 260px minmax(0,1fr); }
@@ -250,4 +269,32 @@ body .modal-actions { gap: 12px; padding-top: 20px; margin-top: 24px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .button, .nav-item, .platform-chip, .settings-section-button { transition: none; }
+}
+
+/* 规范层：字体、输入框状态、曲率、焦点与动效。放在文件末尾，覆盖业务组件的同级默认值。 */
+body { font-size: var(--ds-text-base); font-weight: var(--ds-weight-body); }
+h1, h2, h3 { font-weight: var(--ds-weight-strong); }
+.button, .icon-button, .text-button, .nav-item, .ui-tabs button, .settings-section-button,
+.company-room-nav button, .startup-header nav button { font-weight: var(--ds-weight-control); }
+small, time, .count, td, th, .usage-metrics strong, .stat-item strong,
+[class*="count"], [class*="percent"], [class*="progress"], [class*="elapsed"] { font-variant-numeric: tabular-nums; }
+code, pre, kbd, samp { font-family: var(--ds-font-mono); }
+
+/* 输入框：悬停与焦点使用品牌色双层光晕，禁用态不响应。 */
+body input:not([type="checkbox"], [type="radio"], [type="range"], .switch-native):not(:disabled):hover,
+body select:not(:disabled):hover, body textarea:not(:disabled):hover { box-shadow: var(--ds-input-shadow-hover); }
+body input:not([type="checkbox"], [type="radio"], [type="range"], .switch-native):focus,
+body select:focus, body textarea:focus { border-color: var(--ds-selected-border); box-shadow: var(--ds-input-shadow-focus); outline: 0; }
+
+/* 鼠标操作不显示焦点框；键盘操作保留。常驻内描边不是焦点框，不被清除。 */
+:root[data-pointer-focus] :focus:not([data-ds-inset-outline="true"]) { outline: none; outline-color: transparent; }
+
+/* 矩形控件使用连续曲率；浏览器不支持时退化为普通圆角。 */
+@supports (corner-shape: superellipse(1.5)) {
+  input, select, textarea, .platform-chip, .settings-card, .modal-card, .connector-card, .course-group,
+  .detail-section, .provider-rail, .usage-query-panel, .platform-record-panel, .learning-courses,
+  .learning-detail, .attendance-rail, .attendance-center, .attendance-run-panel, .town-toolbar,
+  .town-stage, .assignment-tools, .selection-toolbar, .application-settings-dialog, .startup-environment,
+  .account-menu, .about-hero, .changelog-dialog, .town-task-card, .town-hover-card { corner-shape: superellipse(1.5); }
+  .town-district, .company-boss-interact, .authorization-stages li > span { corner-shape: round; }
 }

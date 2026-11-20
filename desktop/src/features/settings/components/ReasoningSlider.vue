@@ -31,8 +31,8 @@ onMounted(load);
 </template>
 <style scoped>
 .reasoning-slider{padding:16px 20px;border-bottom:1px solid var(--line);}
-header{display:flex;justify-content:space-between;font-size:13px;margin-bottom:12px;}output{color:var(--accent);}
+header{display:flex;justify-content:space-between;font-size: var(--ds-text-base);margin-bottom:12px;}output{color:var(--accent);}
 input{display:block;width:100%;height:20px;accent-color:var(--accent);padding:0;cursor:ew-resize;}input:disabled{cursor:default;opacity:.5;}
-.reasoning-scale{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin-top:4px;}
-p{font-size:12px;color:var(--red);overflow-wrap:anywhere;}.reasoning-feedback{display:block;min-height:16px;color:var(--muted);font-size:11px;margin-top:4px;}
+.reasoning-scale{display:flex;justify-content:space-between;color:var(--muted);font-size: var(--ds-text-xs);margin-top:4px;}
+p{font-size: var(--ds-text-sm);color:var(--red);overflow-wrap:anywhere;}.reasoning-feedback{display:block;min-height:16px;color:var(--muted);font-size: var(--ds-text-xs);margin-top:4px;}
 </style>

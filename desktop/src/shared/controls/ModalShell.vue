@@ -80,19 +80,19 @@ onBeforeUnmount(() => restoreFocus());
 </template>
 
 <style scoped>
-.modal-shell-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 24px; background: var(--overlay); }
+.modal-shell-backdrop { position: fixed; inset: 0; z-index: var(--ds-z-dialog-top); display: grid; place-items: center; padding: 24px; background: var(--overlay); }
 .modal-shell-card { position: relative; width: min(520px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); overflow-y: auto; border: 1px solid var(--line-strong); border-radius: var(--radius-panel); background: var(--surface); box-shadow: var(--shadow-modal); padding: 24px; }
 .modal-shell-card.size-small { width: min(420px, calc(100vw - 48px)); }
 .modal-shell-card.size-large { width: min(760px, calc(100vw - 48px)); }
 .modal-shell-card.size-wide { width: min(1040px, calc(100vw - 48px)); }
 .modal-shell-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
-.modal-shell-heading h2 { min-width: 0; margin: 0; color: var(--ink); font-size: 20px; line-height: 1.4; font-weight: 500; overflow-wrap: anywhere; }
+.modal-shell-heading h2 { min-width: 0; margin: 0; color: var(--ink); font-size: var(--ds-text-xl); line-height: 1.4; font-weight: 500; overflow-wrap: anywhere; }
 .modal-shell-content { min-width: 0; }
-.modal-shell-close { display: inline-grid; place-items: center; flex: none; width: 32px; height: 32px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); font-size: 24px; line-height: 1; }
+.modal-shell-close { display: inline-grid; place-items: center; flex: none; width: 32px; height: 32px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); font-size: var(--ds-text-2xl); line-height: 1; }
 .modal-shell-close:hover:not(:disabled) { background: var(--surface-muted); color: var(--ink); }
 .modal-shell-close.standalone { position: absolute; top: 14px; right: 14px; }
 .modal-shell-enter-active, .modal-shell-leave-active { transition: opacity 160ms ease; }
-.modal-shell-enter-active .modal-shell-card, .modal-shell-leave-active .modal-shell-card { transition: transform 180ms var(--ease), opacity 140ms ease; }
+.modal-shell-enter-active .modal-shell-card, .modal-shell-leave-active .modal-shell-card { transition: transform var(--ds-motion-swift), opacity 140ms ease; }
 .modal-shell-enter-from, .modal-shell-leave-to { opacity: 0; }
 .modal-shell-enter-from .modal-shell-card, .modal-shell-leave-to .modal-shell-card { opacity: 0; transform: translateY(8px) scale(.985); }
 @media (prefers-reduced-motion: reduce) { .modal-shell-enter-active, .modal-shell-leave-active, .modal-shell-enter-active .modal-shell-card, .modal-shell-leave-active .modal-shell-card { transition: none; } .modal-shell-enter-from .modal-shell-card, .modal-shell-leave-to .modal-shell-card { transform: none; } }

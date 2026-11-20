@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("desktopApi", {
   platform: process.platform,
+  writeClipboardText: value => ipcRenderer.invoke("app:write-clipboard-text", value),
   bootstrapState: () => ipcRenderer.invoke("app:bootstrap:get"),
   checkDependencies: () => ipcRenderer.invoke("app:bootstrap:check"),
   installDependencies: () => ipcRenderer.invoke("app:bootstrap:install"),

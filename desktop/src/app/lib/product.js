@@ -22,7 +22,7 @@ export function allowedProjectLink(value) {
   try {
     const url = new URL(value);
     return url.protocol === "https:" && url.hostname === "github.com" && !url.port && !url.username && !url.password
-      && projectRoots.some(root => url.pathname === root || url.pathname === root + "/releases" || url.pathname.startsWith(root + "/releases/"))
+      && projectRoots.some(root => url.pathname === root || url.pathname === root + "/releases" || url.pathname.startsWith(root + "/releases/") || url.pathname === root + "/blob/main/LICENSE")
       && !url.search;
   } catch { return false; }
 }
@@ -32,32 +32,45 @@ function stableVersion(value) {
   return match.slice(1).map(Number);
 }
 const updateRequests = new WeakMap();
+const updateCooldowns = new WeakMap();
+function rateLimitError(retryAt, now) {
+  const error = new Error(`更新检查频率受限，请在 ${Math.max(1, Math.ceil((retryAt - now) / 1000))} 秒后重试。`);
+  error.retryAt = retryAt;
+  return error;
+}
 export async function checkPublishedRelease(options = {}) {
-  const { currentVersion = appInfo.version, fetcher = fetch, checkedAt = new Date().toISOString() } = options;
+  const { currentVersion = appInfo.version, fetcher = fetch, checkedAt = new Date().toISOString(), now = Date.now } = options;
+  const retryAt = updateCooldowns.get(fetcher);
+  if (retryAt > now()) throw rateLimitError(retryAt, now());
   let requests = updateRequests.get(fetcher);
   if (!requests) { requests = new Map(); updateRequests.set(fetcher, requests); }
   const cached = requests.get(currentVersion);
-  if (cached && cached.expires > Date.now()) return { ...await cached.promise, checkedAt };
-  const entry = { expires: Date.now() + 60000 };
-  entry.promise = fetchPublishedRelease({ currentVersion, fetcher, checkedAt }).catch(error => {
+  if (cached && cached.expires > now()) return { ...await cached.promise, checkedAt };
+  const entry = { expires: now() + 60000 };
+  entry.promise = fetchPublishedRelease({ currentVersion, fetcher, checkedAt, now }).catch(error => {
     requests.delete(currentVersion);
     throw error;
   });
   requests.set(currentVersion, entry);
   return entry.promise;
 }
-async function fetchPublishedRelease({ currentVersion, fetcher, checkedAt }) {
+async function fetchPublishedRelease({ currentVersion, fetcher, checkedAt, now }) {
   const response = await fetcher(appInfo.releaseApi, { headers: { Accept: "application/vnd.github+json" }, credentials: "omit", signal: AbortSignal.timeout(12000) });
   if (response.status === 404) return { status: "unpublished", checkedAt, message: "暂未找到可用的发布版本。" };
   if ([403,429].includes(response.status)) {
     const remaining = response.headers?.get("x-ratelimit-remaining");
     const retry = response.headers?.get("retry-after");
     if (response.status === 429 || remaining === "0" || retry) {
-      const seconds = Number(retry);
-      const reset = Number(response.headers?.get("x-ratelimit-reset"));
-      const wait = retry && Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds)
-        : reset > Date.now() / 1000 ? Math.ceil(reset - Date.now() / 1000) : 0;
-      throw new Error("更新检查频率受限，" + (wait ? `请在 ${wait} 秒后重试。` : "请稍后重试。"));
+      const current = now(), seconds = Number(retry);
+      const retryDate = retry && !Number.isFinite(seconds) ? Date.parse(retry) : NaN;
+      const reset = Number(response.headers?.get("x-ratelimit-reset")) * 1000;
+      const deadlines = [current + 60000];
+      if (retry && Number.isFinite(seconds) && seconds > 0) deadlines.push(current + seconds * 1000);
+      if (Number.isFinite(retryDate)) deadlines.push(retryDate);
+      if (Number.isFinite(reset)) deadlines.push(reset);
+      const retryAt = Math.max(...deadlines);
+      updateCooldowns.set(fetcher, retryAt);
+      throw rateLimitError(retryAt, current);
     }
     throw new Error("GitHub 拒绝访问更新信息，请检查代理或网络，或到项目主页查看。");
   }

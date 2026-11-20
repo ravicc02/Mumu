@@ -1,0 +1,273 @@
+/* 设计 token：L1 语义色随主题变化，L2 结构 token 在主题间恒定，L3 组件 token 只引用 L1/L2。 */
+:root {
+  color-scheme: light;
+
+  /* L1 语义色 */
+  --ds-brand-primary: #2557a7;
+  --ds-brand-primary-text: #fbfeff;
+  --ds-accent: #2557a7;
+  --ds-accent-text: #fbfeff;
+  --ds-glow-rgb: 37, 87, 167;
+  --ds-selected-ink: #173f7a;
+
+  --ds-text-rgb: 23, 43, 70;
+  --ds-text-primary: rgba(var(--ds-text-rgb), .92);
+  --ds-text-secondary: rgba(var(--ds-text-rgb), .74);
+  --ds-text-tertiary: rgba(var(--ds-text-rgb), .7);
+  --ds-icon: #6f7e92;
+
+  --ds-danger: #b6413b;
+  --ds-success: #1b7550;
+  --ds-warning: #94620f;
+  --ds-state-mix: 8%;
+
+  --ds-surface-100: #ffffff;
+  --ds-surface-200: #eaf0f8;
+  --ds-surface-300: #e0e8f3;
+  --ds-surface-400: #d6e0ee;
+  --ds-surface-input: color-mix(in srgb, var(--ds-surface-200) 30%, var(--ds-surface-100));
+  --ds-on-surface: rgba(37, 60, 94, .06);
+  --ds-on-surface-active: rgba(37, 60, 94, .1);
+  --ds-divider-mix: 14%;
+  --ds-border-strong-mix: 70%;
+  --ds-overlay: rgba(19, 39, 67, .38);
+  --ds-popover: var(--ds-surface-100);
+  --ds-menu-bg: color-mix(in oklch, var(--ds-popover) 96%, white);
+  --ds-disabled-bg: #dce4ee;
+  --ds-disabled-ink: #526982;
+  --ds-browser-canvas: #ffffff;
+  --ds-media-bg: var(--ds-surface-300);
+
+  /* L1 派生色，随上方 token 自动适配 */
+  --ds-danger-bg: color-mix(in srgb, var(--ds-danger) var(--ds-state-mix), var(--ds-surface-100));
+  --ds-success-bg: color-mix(in srgb, var(--ds-success) var(--ds-state-mix), var(--ds-surface-100));
+  --ds-warning-bg: color-mix(in srgb, var(--ds-warning) var(--ds-state-mix), var(--ds-surface-100));
+  --ds-divider: color-mix(in srgb, var(--ds-text-primary) 6%, transparent);
+  --ds-border: color-mix(in srgb, var(--ds-text-primary) var(--ds-divider-mix), transparent);
+  --ds-border-strong: color-mix(in srgb, var(--ds-text-primary) var(--ds-border-strong-mix), transparent);
+  --ds-selected-surface: color-mix(in srgb, var(--ds-brand-primary) 16%, var(--ds-surface-100));
+  --ds-selected-wash: color-mix(in srgb, var(--ds-brand-primary) 8%, var(--ds-surface-100));
+  --ds-selected-border: color-mix(in srgb, var(--ds-brand-primary) 55%, var(--ds-surface-100));
+  --ds-pill-bg: color-mix(in srgb, var(--ds-brand-primary) 12%, transparent);
+  --ds-surface-muted: color-mix(in srgb, var(--ds-surface-200) 45%, var(--ds-surface-100));
+  --ds-ghost-hover-bg: var(--ds-on-surface);
+
+  /* L2 形状 */
+  --ds-corner-radius-scale: 1;
+  --ds-radius-sm: calc(8px * var(--ds-corner-radius-scale, 1));
+  --ds-radius-md: calc(12px * var(--ds-corner-radius-scale, 1));
+  --ds-radius-lg: calc(18px * var(--ds-corner-radius-scale, 1));
+  --ds-radius-xl: calc(24px * var(--ds-corner-radius-scale, 1));
+  --ds-radius-pill: 9999px;
+  --ds-corner-shape-rect: superellipse(1.5);
+
+  /* L2 阴影 */
+  --ds-elevation-100: inset 0.5px 0.5px 0.5px #ffffff, 0 0 0.5px 0.5px rgba(0,0,0,.04), 0.5px 0.5px 1px rgba(0,0,0,.08);
+  --ds-elevation-200: 0 0 0 .5px rgba(var(--ds-glow-rgb), .12), 0 9px 4px rgba(0,0,0,.01), 0 5px 3px rgba(0,0,0,.02), 0 2px 2px rgba(0,0,0,.03), 0 1px 1px rgba(0,0,0,.04), inset .5px .5px .5px rgba(255,255,255,.85);
+  --ds-elevation-300: inset 0 0 .5px .5px rgba(255,255,255,.8), 0 0 0 .5px rgba(0,0,0,.04), 0 3px 6px rgba(0,0,0,.04), 0 11px 11px rgba(0,0,0,.03), 0 24px 15px rgba(0,0,0,.02), 0 43px 17px rgba(0,0,0,.01), 0 68px 19px rgba(0,0,0,0);
+  --ds-input-shadow: 0 0 .5px .5px rgba(0,0,0,.1), .5px .5px 1px rgba(0,0,0,.18);
+  --ds-input-shadow-hover: 0 0 .5px .5px rgba(0,0,0,.04), 0 0 0 .5px color-mix(in srgb, var(--ds-brand-primary) 24%, transparent), .5px .5px 1px rgba(0,0,0,.08);
+  --ds-input-shadow-focus: 0 0 .5px .5px rgba(0,0,0,.04), 0 0 0 3px color-mix(in srgb, var(--ds-brand-primary) 10%, transparent), 0 0 0 1px color-mix(in srgb, var(--ds-brand-primary) 24%, transparent);
+
+  /* L2 动效 */
+  --ds-duration-fast: 180ms;
+  --ds-duration-base: 240ms;
+  --ds-duration-slow: 350ms;
+  --ds-duration-layout: 500ms;
+  --ds-duration-bounce: 700ms;
+  --ds-ease-swift: cubic-bezier(.33, 1, .68, 1);
+  --ds-ease-soft: cubic-bezier(.22, 1, .36, 1);
+  --ds-ease-spring: cubic-bezier(.34, 1.3, .64, 1);
+  --ds-ease-spring-gentle: cubic-bezier(.34, 1.15, .64, 1);
+  --ds-ease-bounce: cubic-bezier(.68, -.55, .265, 1.55);
+  --ds-motion-swift: var(--ds-duration-fast) var(--ds-ease-swift);
+  --ds-motion-soft: var(--ds-duration-base) var(--ds-ease-soft);
+  --ds-motion-spring: var(--ds-duration-base) var(--ds-ease-spring);
+  --ds-motion-layout: var(--ds-duration-layout) var(--ds-ease-soft);
+  --ds-motion-bounce: var(--ds-duration-bounce) var(--ds-ease-bounce);
+
+  /* L2 字体 */
+  --ds-font-sans: "Inter Variable", Inter, "Noto Sans SC Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --ds-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --ds-font-display-number: "Spline Sans Mono", ui-monospace, monospace;
+  --ds-text-2xs: 10px;
+  --ds-text-xs: 11px;
+  --ds-text-sm: 12px;
+  --ds-text-base: 13px;
+  --ds-text-md: 14px;
+  --ds-text-lg: 16px;
+  --ds-text-xl: 20px;
+  --ds-text-2xl: 24px;
+  --ds-text-3xl: 28px;
+  --ds-text-4xl: 36px;
+  --ds-leading-none: 1;
+  --ds-leading-tight: 1.25;
+  --ds-leading-normal: 1.5;
+  --ds-leading-relaxed: 1.625;
+  --ds-weight-body: 400;
+  --ds-weight-control: 500;
+  --ds-weight-strong: 600;
+
+  /* L2 间距，4px 栅格，允许 2px 微调 */
+  --ds-space-0-5: 2px;
+  --ds-space-1: 4px;
+  --ds-space-1-5: 6px;
+  --ds-space-2: 8px;
+  --ds-space-2-5: 10px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-6: 24px;
+  --ds-space-8: 32px;
+
+  --ds-viewer-canvas: #151719;
+
+  /* L2 层级：沿用层级表的顺序，层与层之间预留空隙以容纳嵌套浮层。 */
+  --ds-z-behind: -1;
+  --ds-z-content: 1;
+  --ds-z-raised: 5;
+  --ds-z-sticky: 10;
+  --ds-z-sidebar: 20;
+  --ds-z-embedded: 30;
+  --ds-z-popover: 40;
+  --ds-z-floating: 45;
+  --ds-z-dock: 52;
+  --ds-z-modal: 60;
+  --ds-z-modal-nested: 70;
+  --ds-z-dialog: 90;
+  --ds-z-flight: 100;
+  --ds-z-dialog-top: 120;
+  --ds-z-menu: 160;
+  --ds-z-tooltip: 180;
+  --ds-z-system: 9999;
+
+  /* 旧变量别名，仅用于尚未迁移的组件；新代码直接使用 --ds- token。 */
+  --bg: var(--ds-surface-200);
+  --surface: var(--ds-surface-100);
+  --surface-muted: var(--ds-surface-muted);
+  --surface-rail: var(--ds-surface-300);
+  --surface-inset: var(--ds-surface-input);
+  --ink: var(--ds-text-primary);
+  --muted: var(--ds-text-secondary);
+  --subtle: var(--ds-text-tertiary);
+  --line: var(--ds-border);
+  --line-strong: var(--ds-border-strong);
+  --accent-rgb: var(--ds-glow-rgb);
+  --accent: var(--ds-brand-primary);
+  --accent-hover: var(--ds-brand-primary);
+  --accent-soft: var(--ds-selected-surface);
+  --accent-wash: var(--ds-selected-wash);
+  --accent-glow: var(--ds-brand-primary);
+  --selected-ink: var(--ds-selected-ink);
+  --selected-border: var(--ds-selected-border);
+  --green: var(--ds-success);
+  --green-soft: var(--ds-success-bg);
+  --orange: var(--ds-warning);
+  --orange-soft: var(--ds-warning-bg);
+  --red: var(--ds-danger);
+  --red-soft: var(--ds-danger-bg);
+  --on-accent: var(--ds-brand-primary-text);
+  --media-bg: var(--ds-media-bg);
+  --focus: color-mix(in srgb, var(--ds-brand-primary) 18%, transparent);
+  --overlay: var(--ds-overlay);
+  --disabled-bg: var(--ds-disabled-bg);
+  --disabled-ink: var(--ds-disabled-ink);
+  --status-neutral: var(--ds-text-secondary);
+  --status-accent: var(--ds-brand-primary);
+  --status-success: var(--ds-success);
+  --status-warning: var(--ds-warning);
+  --status-danger: var(--ds-danger);
+  --duration-fast: var(--ds-duration-fast);
+  --duration-standard: var(--ds-duration-base);
+  --duration-slow: var(--ds-duration-slow);
+  --ease: var(--ds-ease-soft);
+  --ease-standard: var(--ds-ease-swift);
+  --control-height: 32px;
+  --field-height: 36px;
+  --radius-control: var(--ds-radius-sm);
+  --radius-card: var(--ds-radius-md);
+  --radius-panel: var(--ds-radius-xl);
+  --radius-pill: var(--ds-radius-pill);
+  --space-xs: var(--ds-space-1);
+  --space-sm: var(--ds-space-2);
+  --space-md: var(--ds-space-3);
+  --space-lg: var(--ds-space-4);
+  --space-xl: var(--ds-space-6);
+  --space-xxl: var(--ds-space-8);
+  --text-xs: var(--ds-text-sm);
+  --text-sm: var(--ds-text-base);
+  --text-md: var(--ds-text-md);
+  --text-lg: var(--ds-text-lg);
+  --page-title: var(--ds-text-3xl);
+  --shadow: var(--ds-elevation-100);
+  --shadow-raised: var(--ds-elevation-200);
+  --shadow-menu: var(--ds-elevation-300);
+  --shadow-modal: var(--ds-elevation-300);
+  --font-ui: var(--ds-font-sans);
+  --font-display: var(--ds-font-sans);
+
+  font-family: var(--ds-font-sans);
+  font-feature-settings: "ss01", "cv11";
+  font-weight: var(--ds-weight-body);
+  font-size: var(--ds-text-base);
+  line-height: var(--ds-leading-normal);
+  color: var(--ds-text-primary);
+  background: var(--ds-surface-200);
+  font-synthesis: none;
+}
+
+html.dark {
+  color-scheme: dark;
+
+  --ds-brand-primary: #7db1ff;
+  --ds-brand-primary-text: rgba(0, 0, 0, .9);
+  --ds-accent: #7db1ff;
+  --ds-accent-text: rgba(0, 0, 0, .9);
+  --ds-glow-rgb: 82, 140, 232;
+  --ds-selected-ink: #b7d3ff;
+
+  --ds-text-rgb: 255, 255, 255;
+  --ds-text-primary: rgba(255, 255, 255, .9);
+  --ds-text-secondary: rgba(255, 255, 255, .62);
+  --ds-text-tertiary: rgba(255, 255, 255, .54);
+  --ds-icon: #8a96a8;
+
+  --ds-danger: #ff8a80;
+  --ds-success: #4ade80;
+  --ds-warning: #e0a830;
+  --ds-state-mix: 12%;
+
+  --ds-surface-100: #0f1319;
+  --ds-surface-200: #151a22;
+  --ds-surface-300: #1e2530;
+  --ds-surface-400: #252d3a;
+  --ds-surface-input: var(--ds-surface-300);
+  --ds-on-surface: rgba(168, 184, 210, .08);
+  --ds-on-surface-active: rgba(168, 184, 210, .16);
+  --ds-divider-mix: 16%;
+  --ds-border-strong-mix: 62%;
+  --ds-overlay: rgba(0, 0, 0, .6);
+  --ds-popover: var(--ds-surface-300);
+  --ds-menu-bg: var(--ds-surface-400);
+  --ds-disabled-bg: #232b38;
+  --ds-disabled-ink: #8f9db0;
+  --ds-browser-canvas: #1c1c1c;
+  --ds-divider: color-mix(in srgb, var(--ds-text-primary) 12%, transparent);
+  --ds-selected-surface: color-mix(in srgb, var(--ds-brand-primary) 22%, var(--ds-surface-100));
+  --ds-selected-wash: color-mix(in srgb, var(--ds-brand-primary) 12%, var(--ds-surface-100));
+  --ds-selected-border: color-mix(in srgb, var(--ds-brand-primary) 52%, var(--ds-surface-100));
+
+  --ds-elevation-100: 0 0 0 .5px rgba(255,255,255,.08);
+  --ds-elevation-200: inset 0 0 0 .5px rgba(255,255,255,.12), 0 0 9px -4px rgba(0,0,0,.4), 0 0 32px -8px rgba(0,0,0,.16);
+  --ds-elevation-300: inset 0 0 0 .5px rgba(255,255,255,.12), 0 2px 12px -6px rgba(0,0,0,.44), 0 5px 36px -12px rgba(0,0,0,.2);
+  --ds-input-shadow: 0 0 0 .5px rgba(255,255,255,.12);
+  --ds-input-shadow-hover: 0 0 0 .5px rgba(255,255,255,.16);
+  --ds-input-shadow-focus: 0 0 1px .5px color-mix(in srgb, var(--ds-brand-primary) 56%, transparent), 0 0 0 4px color-mix(in srgb, var(--ds-brand-primary) 10%, transparent);
+}
+
+/* 切换主题的一帧内关闭过渡，避免带 transition 的 background/color 保留旧主题的值。 */
+html.ds-theme-switching, html.ds-theme-switching *, html.ds-theme-switching *::before, html.ds-theme-switching *::after { transition: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+}
+html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after { animation: none !important; transition: none !important; }

@@ -163,10 +163,10 @@ onMounted(load);
 
 .attendance-relay-mode {
   display: inline-flex;
-  gap: 3px;
-  padding: 3px;
+  gap: 4px;
+  padding: 4px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-sm);
   background: var(--surface-muted);
 }
 
@@ -174,14 +174,14 @@ onMounted(load);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 8px;
   min-height: 34px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   padding: 0 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   cursor: pointer;
 }
 
@@ -201,10 +201,10 @@ onMounted(load);
 .attendance-feedback {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   margin-top: 14px;
   color: var(--green);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
 }
 
 .attendance-feedback.error {
@@ -223,7 +223,7 @@ onMounted(load);
 
 .attendance-card-actions > span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
 }
 
 .attendance-card-actions > div {

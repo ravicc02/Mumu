@@ -43,18 +43,18 @@ function trapFocus(event) {
 /* finesse · component: account-authorization · register=product
  * states: default · hover · focus-visible · active · disabled · loading · error · success
  * tokens: inherited from workbench.css */
-.authorization-backdrop { z-index: 75; }
+.authorization-backdrop { z-index: var(--ds-z-modal-nested); }
 .account-authorization { padding: 22px 24px; outline: none; }
 .authorization-heading,.authorization-heading > span { display: flex; align-items: center; gap: 10px; }
-.authorization-heading { justify-content: space-between; color: var(--muted); font-size: 14px; }
-.authorization-body { min-height: 208px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 22px 0; gap: 15px; }
+.authorization-heading { justify-content: space-between; color: var(--muted); font-size: var(--ds-text-base); }
+.authorization-body { min-height: 208px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 22px 0; gap: 16px; }
 .authorization-status-icon { display: grid; place-items: center; width: 56px; height: 56px; border: 1px solid var(--line); border-radius: var(--radius-card); color: var(--accent); background: var(--accent-soft); }
 .authorization-status-icon.success { color: var(--green); background: var(--green-soft); }
 .authorization-status-icon.error { color: var(--red); background: var(--red-soft); }
-.authorization-body h2 { font-size: 22px; line-height: 1.4; text-align: center; }
+.authorization-body h2 { font-size: var(--ds-text-2xl); line-height: 1.4; text-align: center; }
 .authorization-hint,.authorization-error { min-height: 20px; color: var(--muted); font-size: var(--text-sm); line-height: 1.7; text-align: center; overflow-wrap: anywhere; }
 .authorization-error { color: var(--red); }
-.authorized-account { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.authorized-account { display: flex; align-items: center; gap: 10px; font-size: var(--ds-text-base); }
 .authorized-account .account-avatar { width: 32px; height: 32px; }
 .authorized-account > svg { color: var(--green); }
 .authorization-stages { display: flex; align-items: center; justify-content: space-between; list-style: none; padding: 0; gap: 8px; }

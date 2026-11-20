@@ -39,7 +39,7 @@ onBeforeUnmount(() => clearTimeout(hideTimer));
 <style scoped>
 .ui-tooltip { position: relative; display: inline-flex; max-width: 100%; vertical-align: middle; }
 .ui-tooltip-trigger { display: inline-flex; min-width: 0; max-width: 100%; }
-.ui-tooltip-content { position: absolute; z-index: 180; width: max-content; max-width: min(280px, 42vw); border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: var(--ink); color: var(--surface); padding: 6px 8px; font-size: var(--text-xs); line-height: 1.45; overflow-wrap: anywhere; pointer-events: auto; box-shadow: var(--shadow-menu); }
+.ui-tooltip-content { position: absolute; z-index: var(--ds-z-tooltip); width: max-content; max-width: min(280px, 42vw); border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: var(--ink); color: var(--surface); padding: 6px 8px; font-size: var(--text-xs); line-height: 1.45; overflow-wrap: anywhere; pointer-events: auto; box-shadow: var(--shadow-menu); }
 .ui-tooltip-content::after { position: absolute; width: 7px; height: 7px; border: 1px solid var(--ink); background: var(--ink); content: ""; transform: rotate(45deg); }
 .placement-top .ui-tooltip-content { left: 50%; bottom: calc(100% + 9px); transform: translateX(-50%); }
 .placement-top .ui-tooltip-content::after { left: 50%; bottom: -5px; margin-left: -4px; border-top: 0; border-left: 0; }

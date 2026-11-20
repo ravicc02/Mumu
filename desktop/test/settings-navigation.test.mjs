@@ -29,8 +29,8 @@ test("about settings keeps update and logs without a reinitialization action",as
   assert.match(source,/查看更新日志/);
   assert.match(source,/changelogOpen = true/);
   assert.doesNotMatch(source,/openLink\(appInfo.repository \+ '\/releases'\)/);
-  assert.match(source,/MIT · 无担保/);
-  assert.match(source,/无担保/);
+  assert.match(source,/>MIT<\/button>/);
+  assert.doesNotMatch(source,/无担保/);
   assert.match(source,/日志目录/);
   assert.match(source,/检查更新/);
   assert.doesNotMatch(source,/重新初始化/);

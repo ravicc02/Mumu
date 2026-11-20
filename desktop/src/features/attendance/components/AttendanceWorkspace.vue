@@ -22,6 +22,7 @@ import {
 } from '@lucide/vue';
 import QRCode from 'qrcode';
 import { api } from '../../../app/api.js';
+import { copyText } from '../../../app/lib/clipboard.js';
 import Tabs from '../../../shared/controls/Tabs.vue';
 import AccountAvatar from '../../accounts/components/AccountAvatar.vue';
 import { accountsForBusiness } from '../../platforms/lib/catalog.js';
@@ -359,7 +360,8 @@ async function saveLink() {
 }
 
 async function copy(value) {
-  try { await navigator.clipboard.writeText(value); message.value = '链接已复制'; }
+  error.value = ''; message.value = '';
+  try { await copyText(value); message.value = '链接已复制'; }
   catch { error.value = '未能复制，请选中链接手动复制'; }
 }
 

@@ -84,16 +84,16 @@ const percent = computed(() => Math.max(0, Math.min(100, Math.round(props.progre
 }
 
 .launch-copy h1 {
-  margin-top: 7px;
+  margin-top: 8px;
   color: var(--ink);
-  font-size: 26px;
+  font-size: var(--ds-text-3xl);
   font-weight: 500;
   line-height: 1.4;
 }
 
 .launch-copy > p {
   max-width: 360px;
-  margin-top: 9px;
+  margin-top: 8px;
   color: var(--muted);
   font-size: var(--text-sm);
   line-height: 1.7;
@@ -102,7 +102,7 @@ const percent = computed(() => Math.max(0, Math.min(100, Math.round(props.progre
 .launch-error {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
+  gap: 8px;
   color: var(--red) !important;
   text-align: left;
 }
@@ -141,7 +141,7 @@ const percent = computed(() => Math.max(0, Math.min(100, Math.round(props.progre
   justify-content: space-between;
   gap: 16px;
   width: min(340px, 100%);
-  margin-top: 9px;
+  margin-top: 8px;
   color: var(--muted);
   font-size: var(--text-xs);
 }

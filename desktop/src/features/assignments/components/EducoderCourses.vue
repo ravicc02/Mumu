@@ -67,7 +67,7 @@ onUnmounted(() => { generation++; });
 .educoder-course-toolbar { display:flex; align-items:center; justify-content:space-between; margin:12px 0; color:var(--muted); font-size: var(--text-sm); }
 .educoder-course-list { max-height:380px; overflow:auto; border-top:1px solid var(--line); }
 .educoder-course-list label { display:flex; align-items:center; gap:12px; padding:16px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
-.educoder-course-list strong { flex:1; min-width:0; overflow-wrap:anywhere; font-size:13px; }
+.educoder-course-list strong { flex:1; min-width:0; overflow-wrap:anywhere; font-size: var(--ds-text-base); }
 .educoder-course-list svg { color:var(--accent); }
 .educoder-course-list span,.educoder-course-count { color:var(--muted); font-size: var(--text-xs); }
 .educoder-course-count { margin-right:auto; }.educoder-course-list .unavailable { color:var(--muted); }

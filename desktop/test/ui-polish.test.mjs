@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { completionSnapshot, newlyCompleted } from "../src/features/brand/lib/droplet.js";
+import { contrast, loadTokens, resolve } from "./helpers/tokens.mjs";
 
 const read = path => readFile(new URL(path, import.meta.url), "utf8");
 
@@ -40,10 +41,6 @@ test("总控中心待处理列表只定位任务，不执行业务动作", async
 });
 
 test("新主色在白底上满足 4.5:1 对比度", async () => {
-  const styles = await read("../src/styles/workbench.css");
-  const hex = styles.match(/--accent: (#[0-9a-f]{6});/)[1];
-  const channel = value => { const c = parseInt(value, 16) / 255; return c <= .03928 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; };
-  const [r, g, b] = [1, 3, 5].map(index => channel(hex.slice(index, index + 2)));
-  const luminance = .2126 * r + .7152 * g + .0722 * b;
-  assert.ok(1.05 / (luminance + .05) >= 4.5);
+  const { light } = await loadTokens();
+  assert.ok(contrast(resolve("--ds-brand-primary", light), [255, 255, 255]) >= 4.5);
 });

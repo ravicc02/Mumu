@@ -59,12 +59,12 @@ function onKeydown(event) {
 </template>
 
 <style scoped>
-.changelog-backdrop{position:fixed;inset:0;z-index:110;display:grid;place-items:center;padding:24px;background:rgba(23,31,42,.48)}
-.changelog-dialog{display:flex;flex-direction:column;width:min(760px,100%);max-height:min(840px,calc(100dvh - 48px));overflow:hidden;border-radius:16px;background:var(--surface);box-shadow:0 24px 80px rgba(20,30,42,.25);outline:none}
-.changelog-header{display:flex;align-items:center;justify-content:space-between;padding:24px 28px 12px}.changelog-header h2{font-size:24px;font-weight:600}
+.changelog-backdrop{position:fixed;inset:0;z-index: var(--ds-z-dialog-top);display:grid;place-items:center;padding:24px;background:var(--ds-overlay)}
+.changelog-dialog{display:flex;flex-direction:column;width:min(760px,100%);max-height:min(840px,calc(100dvh - 48px));overflow:hidden;border-radius: var(--ds-radius-lg);background:var(--surface);box-shadow:0 24px 80px rgba(0, 0, 0, .25);outline:none}
+.changelog-header{display:flex;align-items:center;justify-content:space-between;padding:24px 28px 12px}.changelog-header h2{font-size: var(--ds-text-2xl);font-weight:600}
 .changelog-content{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:12px 28px 24px;color:var(--ink)}
-.changelog-version{display:flex;align-items:center;gap:10px;font-weight:600}.changelog-version select{max-width:220px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}.changelog-version time{font-size:13px;color:var(--muted);font-weight:400}
-.changelog-group{margin-top:22px}.changelog-group h3{font-size:15px;font-weight:600}.changelog-group ol{margin:12px 0 0;padding-left:24px}.changelog-group li{padding-left:4px;margin:0 0 10px;line-height:1.65;overflow-wrap:anywhere}
+.changelog-version{display:flex;align-items:center;gap:10px;font-weight:600}.changelog-version select{max-width:220px;padding:6px 10px;border:1px solid var(--line);border-radius: var(--ds-radius-sm);background:var(--surface)}.changelog-version time{font-size: var(--ds-text-base);color:var(--muted);font-weight:400}
+.changelog-group{margin-top:22px}.changelog-group h3{font-size: var(--ds-text-md);font-weight:600}.changelog-group ol{margin:12px 0 0;padding-left:24px}.changelog-group li{padding-left:4px;margin:0 0 10px;line-height:1.65;overflow-wrap:anywhere}
 .changelog-actions{display:flex;justify-content:flex-end;padding:16px 28px;border-top:1px solid var(--line)}
 .changelog-dialog button:focus-visible,.changelog-dialog select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </style>

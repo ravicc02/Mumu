@@ -20,6 +20,7 @@ import {
   ShieldCheck, Trash2
 } from "@lucide/vue";
 import { api } from "./api.js";
+import { copyText } from "./lib/clipboard.js";
 import { buildWorkflowStages, canJobAction, mergeJobState, reconcileEvents } from "../features/tasks/lib/state.js";
 import PlatformLogo from "../features/platforms/components/PlatformLogo.vue";
 import ScreenshotViewer from "../features/tasks/components/ScreenshotViewer.vue";
@@ -2105,7 +2106,7 @@ async function confirmDeleteTask() {
 async function refreshTaskOverview() { await Promise.all([loadAccounts(), loadJobs()]); }
 
 async function copyValue(value, message = "已复制") {
-  try { await navigator.clipboard.writeText(value); notice.value = message; return true; }
+  try { await copyText(value); notice.value = message; return true; }
   catch { setError("无法访问剪贴板，请从页面选择并复制文本。"); return false; }
 }
 

@@ -14,7 +14,7 @@
 .application-settings-dialog .settings-card {
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-md);
   background: var(--surface);
   box-shadow: none;
 }
@@ -37,16 +37,16 @@
 }
 
 .application-settings-dialog .settings-card-title h3 {
-  font-size: 15px;
+  font-size: var(--ds-text-md);
   line-height: 1.35;
   font-weight: 500;
 }
 
 .application-settings-dialog .settings-card-title p {
   max-width: 620px;
-  margin-top: 3px;
+  margin-top: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   line-height: 1.55;
 }
 
@@ -88,12 +88,12 @@
 }
 
 .application-settings-dialog .settings-card .preference-row strong {
-  font-size: 14px;
+  font-size: var(--ds-text-base);
 }
 
 .application-settings-dialog .settings-card .preference-row small {
   max-width: 580px;
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   line-height: 1.55;
 }
 
@@ -101,14 +101,14 @@
 .application-settings-dialog .settings-state {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-height: 28px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
   padding: 4px 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--ds-text-xs);
   line-height: 1.35;
   white-space: nowrap;
 }
@@ -181,18 +181,18 @@
 
 .application-settings-dialog .settings-control-copy {
   display: grid;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
 .application-settings-dialog .settings-control-copy strong {
-  font-size: 14px;
+  font-size: var(--ds-text-base);
   font-weight: 500;
 }
 
 .application-settings-dialog .settings-control-copy small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   line-height: 1.5;
 }
 
@@ -200,10 +200,10 @@
 .application-settings-dialog .settings-select {
   height: 36px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-sm);
   background: var(--surface);
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--ds-text-base);
   font-variant-numeric: tabular-nums;
 }
 
@@ -223,7 +223,7 @@
 .application-settings-dialog .settings-field input:focus {
   border-color: var(--accent);
   outline: 0;
-  box-shadow: 0 0 0 2px var(--focus);
+  box-shadow: var(--ds-input-shadow-focus);
 }
 
 .application-settings-dialog .settings-unit,
@@ -233,7 +233,7 @@
   gap: 8px;
   flex: none;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   font-variant-numeric: tabular-nums;
 }
 
@@ -254,7 +254,7 @@
 
 .application-settings-dialog .settings-range-wrap output {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -263,7 +263,7 @@
   border-top: 1px solid var(--line);
   padding: 12px 0 16px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   line-height: 1.65;
 }
 
@@ -274,7 +274,7 @@
   gap: 16px;
   padding: 24px 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--ds-text-base);
 }
 
 .application-settings-dialog .settings-action-bar,
@@ -287,7 +287,7 @@
   min-height: 64px;
   margin-top: 16px;
   border-top: 1px solid var(--line);
-  background: #fbfcfd;
+  background: var(--ds-surface-100);
   padding: 14px 32px;
 }
 
@@ -296,7 +296,7 @@
   min-width: 0;
   flex: 1;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
 }
 
 .application-settings-dialog .settings-feedback-dot {
@@ -321,11 +321,11 @@
 
 .application-settings-dialog .settings-field {
   display: grid;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
   margin-top: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
 }
 
 .application-settings-dialog .settings-field > span:first-child {
@@ -338,11 +338,11 @@
   min-width: 0;
   height: 40px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-sm);
   background: var(--surface);
   padding: 0 12px;
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--ds-text-base);
 }
 
 .application-settings-dialog .settings-form-grid {
@@ -362,15 +362,15 @@
   gap: 10px;
   min-height: 160px;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background: #fdfefe;
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-surface-100);
   padding: 24px 32px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--ds-text-base);
 }
 
 .application-settings-dialog .settings-load-error {
-  border-color: rgba(182, 65, 59, .22);
+  border-color: color-mix(in srgb, var(--ds-danger) 22%, transparent);
   background: var(--red-soft);
   color: var(--red);
 }
@@ -395,12 +395,12 @@
 
 .application-settings-dialog .settings-path-copy {
   display: grid;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
 }
 
 .application-settings-dialog .settings-path-copy strong {
-  font-size: 13px;
+  font-size: var(--ds-text-base);
   font-weight: 500;
 }
 
@@ -421,13 +421,13 @@
 
 .application-settings-dialog .settings-subsection-title h4 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--ds-text-base);
   font-weight: 500;
 }
 
 .application-settings-dialog .settings-subsection-title span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   font-variant-numeric: tabular-nums;
 }
 
@@ -442,11 +442,11 @@
   min-width: 0;
   height: 38px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-sm);
   background: var(--surface);
-  padding: 0 11px;
+  padding: 0 12px;
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--ds-text-base);
 }
 
 .application-settings-dialog .automation-list {
@@ -459,7 +459,7 @@
   align-items: center;
   gap: 24px;
   border-bottom: 1px solid var(--line);
-  padding: 15px 0;
+  padding: 16px 0;
 }
 
 .application-settings-dialog .automation-account:last-child {
@@ -481,14 +481,14 @@
 
 .application-settings-dialog .automation-account-name > div {
   display: grid;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
 .application-settings-dialog .automation-account-name strong {
   overflow: hidden;
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--ds-text-base);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -497,7 +497,7 @@
 .application-settings-dialog .automation-account-state {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--ds-text-xs);
   line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -509,7 +509,7 @@
 
 .application-settings-dialog .automation-enabled {
   color: var(--green);
-  font-size: 11px;
+  font-size: var(--ds-text-xs);
   line-height: 1.4;
 }
 
@@ -524,15 +524,15 @@
 .application-settings-dialog .automation-control {
   display: grid;
   align-content: end;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--ds-text-xs);
 }
 
 .application-settings-dialog .automation-control > .switch-input {
   justify-self: start;
-  margin-bottom: 9px;
+  margin-bottom: 8px;
 }
 
 .application-settings-dialog .automation-control .interval-control {
@@ -547,11 +547,11 @@
   min-width: 0;
   height: 36px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-sm);
   background: var(--surface);
-  padding: 0 9px;
+  padding: 0 8px;
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   font-variant-numeric: tabular-nums;
 }
 

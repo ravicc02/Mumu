@@ -1,7 +1,18 @@
 <script setup>
 import ToggleSwitch from "../../../shared/controls/ToggleSwitch.vue";
 import { onMounted, ref } from "vue";
-import { LoaderCircle } from "@lucide/vue";
+import { LoaderCircle, Monitor, Moon, Sun } from "@lucide/vue";
+import { applyAppearance, loadAppearance, saveAppearance } from "../../../app/lib/appearance.js";
+
+const themeModes = [{ id: "system", label: "跟随系统", icon: Monitor }, { id: "light", label: "亮色", icon: Sun }, { id: "dark", label: "暗色", icon: Moon }];
+const appearance = ref(loadAppearance());
+function commitAppearance(next) {
+  appearance.value = next;
+  saveAppearance(next);
+  applyAppearance(next);
+}
+function setTheme(theme) { commitAppearance({ ...appearance.value, theme }); }
+function setReduceMotion(event) { commitAppearance({ ...appearance.value, reduceMotion: Boolean(event.target.checked) }); }
 
 const props=defineProps({
   autoCheck:{type:Boolean,default:true},
@@ -71,6 +82,43 @@ onMounted(loadAutoLaunch);
       <header class="settings-card-heading">
         <span class="settings-card-index">01</span>
         <div class="settings-card-title">
+          <h3>外观</h3>
+        </div>
+      </header>
+      <div class="settings-card-body">
+        <div class="preference-row">
+          <span>
+            <strong>主题</strong>
+          </span>
+          <div class="appearance-choice" role="radiogroup" aria-label="主题">
+            <button
+              v-for="mode in themeModes"
+              :key="mode.id"
+              type="button"
+              role="radio"
+              :aria-checked="appearance.theme === mode.id"
+              :class="{ active: appearance.theme === mode.id }"
+              @click="setTheme(mode.id)">
+              <component :is="mode.icon" :size="14" />{{ mode.label }}
+            </button>
+          </div>
+        </div>
+        <label class="preference-row">
+          <span>
+            <strong>减少动效</strong>
+          </span>
+          <ToggleSwitch
+            role="switch"
+            aria-label="减少动效"
+            :checked="appearance.reduceMotion"
+            @change="setReduceMotion" />
+        </label>
+      </div>
+    </section>
+    <section class="settings-card">
+      <header class="settings-card-heading">
+        <span class="settings-card-index">02</span>
+        <div class="settings-card-title">
           <h3>启动</h3>
         </div>
       </header>
@@ -114,8 +162,33 @@ onMounted(loadAutoLaunch);
 .common-settings {
   display: grid;
   gap: 12px;
-  width: min(860px,100%);
+  width: 100%;
 }
+
+.appearance-choice {
+  display: inline-flex;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1);
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-surface-300);
+}
+
+.appearance-choice button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1-5);
+  height: 28px;
+  padding: 0 var(--ds-space-3);
+  border: 0;
+  border-radius: var(--ds-radius-pill);
+  background: transparent;
+  color: var(--ds-text-secondary);
+  font-size: var(--ds-text-sm);
+  font-weight: var(--ds-weight-control);
+}
+
+.appearance-choice button:hover:not(.active) { background: var(--ds-on-surface); }
+.appearance-choice button.active { background: var(--ds-surface-100); color: var(--ds-selected-ink); box-shadow: var(--ds-elevation-100); }
 
 .common-switch {
   display: inline-flex;
@@ -125,12 +198,12 @@ onMounted(loadAutoLaunch);
 
 .common-settings-error {
   margin: 0;
-  border: 1px solid rgba(182,65,59,.18);
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--ds-danger) 18%, transparent);
+  border-radius: var(--ds-radius-sm);
   background: var(--red-soft);
   padding: 10px 12px;
   color: var(--red);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   line-height: 1.6;
 }
 

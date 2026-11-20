@@ -1,10 +1,11 @@
-const { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } = require("electron");
+const { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, shell, Tray } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const http = require("node:http");
 const product = require("../product.json");
 const { resolveDataRoot } = require("./data-root.cjs");
 const { allowedProjectLink } = require("./external-links.cjs");
+const { registerClipboard } = require("./clipboard.cjs");
 const { createBootstrap, verifyBackendHealth } = require("./bootstrap.cjs");
 const { readWindowsLocation } = require("./windows-location.cjs");
 const { executableName, createLinuxAutoLaunch } = require("./platform/index.cjs");
@@ -150,7 +151,7 @@ async function createWindow() {
     height: 960,
     minWidth: 1180,
     minHeight: 760,
-    backgroundColor: "#f3f5f2",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#151a22" : "#eaf0f8",
     title: product.name,
     icon: path.join(__dirname, "..", "build", "icon.png"),
     webPreferences: {
@@ -224,6 +225,8 @@ app.on("before-quit", () => {
     backendProcess = null;
   }
 });
+
+registerClipboard(ipcMain, clipboard, () => mainWindow);
 
 ipcMain.handle("app:open-project-link", async (_event,url) => {
   if(!allowedProjectLink(url)) throw new Error("项目链接无效");

@@ -214,7 +214,7 @@ onBeforeUnmount(()=>{
 
 <style scoped>
 .avatar-crop-backdrop {
-  z-index: 90;
+  z-index: var(--ds-z-dialog);
 }
 
 .avatar-crop-dialog {
@@ -235,7 +235,7 @@ onBeforeUnmount(()=>{
 .avatar-crop-heading h3 {
   margin: 0;
   color: var(--ink);
-  font-size: 16px;
+  font-size: var(--ds-text-lg);
   font-weight: 600;
 }
 
@@ -254,7 +254,7 @@ onBeforeUnmount(()=>{
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.18);
   border-radius: 50%;
-  background: #17202a;
+  background: var(--ds-viewer-canvas);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
   cursor: grab;
   touch-action: none;
@@ -295,7 +295,7 @@ onBeforeUnmount(()=>{
 
 .avatar-crop-zoom output {
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -313,7 +313,7 @@ onBeforeUnmount(()=>{
 .avatar-crop-load-error,
 .avatar-crop-error {
   color: var(--red);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   line-height: 1.6;
 }
 

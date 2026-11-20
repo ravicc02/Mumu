@@ -100,7 +100,7 @@ function toggleAutoCheck(event) {
       </nav>
 
       <p class="about-copyright">© {{ year }} {{ appInfo.name }}. All rights reserved.</p>
-      <button class="about-license" type="button" @click="openLink(appInfo.repository + '/blob/main/LICENSE')"><Scale :size="13" />MIT · 无担保</button>
+      <button class="about-license" type="button" @click="openLink(appInfo.repository + '/blob/main/LICENSE')"><Scale :size="13" />MIT</button>
     </div>
 
     <footer class="about-actions">
@@ -141,45 +141,45 @@ function toggleAutoCheck(event) {
   place-items: center;
   width: 88px;
   height: 88px;
-  border: 1px solid rgba(24, 33, 44, .10);
-  border-radius: 20px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-lg);
   background: var(--surface);
-  box-shadow: 0 1px 3px rgba(20, 30, 42, .04);
+  box-shadow: var(--ds-elevation-100);
 }
 
 .about-hero h3 {
   margin: 16px 0 0;
   color: var(--ink);
-  font-size: 28px;
+  font-size: var(--ds-text-3xl);
   line-height: 1.15;
   font-weight: 500;
   letter-spacing: -.01em;
 }
 
 .about-version {
-  margin: 7px 0 0;
+  margin: 8px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--ds-text-base);
   font-variant-numeric: tabular-nums;
 }
 
 .about-home-link {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   margin-top: 12px;
   border: 0;
   background: transparent;
   padding: 0;
   color: var(--accent);
-  font-size: 13px;
+  font-size: var(--ds-text-base);
 }
 
 .about-update-card {
   width: min(560px, 100%);
   margin-top: 34px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--ds-radius-md);
   background: var(--surface);
   padding: 18px 20px 16px;
 }
@@ -198,14 +198,14 @@ function toggleAutoCheck(event) {
 .about-update-copy strong {
   display: block;
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--ds-text-base);
   font-weight: 500;
 }
 
 .about-update-copy p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--ds-text-sm);
   line-height: 1.5;
 }
 
@@ -220,10 +220,10 @@ function toggleAutoCheck(event) {
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 4px;
   margin: 12px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   line-height: 1.5;
   text-align: center;
 }
@@ -239,12 +239,12 @@ function toggleAutoCheck(event) {
 .about-inline-link {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   border: 0;
   background: transparent;
   padding: 0;
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
 }
 
 .about-links {
@@ -259,22 +259,22 @@ function toggleAutoCheck(event) {
 .about-links button {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   border: 0;
   background: transparent;
   padding: 2px 0;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--ds-text-sm);
 }
 
 .about-copyright {
   margin: 46px 0 0;
   color: var(--subtle);
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
   text-align: center;
 }
 
-.about-license{display:inline-flex;align-items:center;gap:5px;margin-top:8px;border:0;background:transparent;color:var(--subtle);font-size:11px}
+.about-license{display:inline-flex;align-items:center;gap:4px;margin-top:8px;border:0;background:transparent;color:var(--subtle);font-size: var(--ds-text-xs)}
 .about-license:hover{color:var(--ink)}
 .about-actions {
   display: flex;
@@ -285,11 +285,11 @@ function toggleAutoCheck(event) {
 
 .about-error {
   margin-top: 12px;
-  border: 1px solid rgba(182, 65, 59, .18);
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--ds-danger) 18%, transparent);
+  border-radius: var(--ds-radius-sm);
   background: var(--red-soft);
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: var(--ds-text-sm);
 }
 
 @media (hover: hover) {
