@@ -161,7 +161,7 @@ onMounted(loadAutoLaunch);
 <style scoped>
 .common-settings {
   display: grid;
-  gap: 12px;
+  gap: var(--module-gap, 24px);
   width: 100%;
 }
 

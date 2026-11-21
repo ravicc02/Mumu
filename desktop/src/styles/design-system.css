@@ -29,7 +29,7 @@ input::placeholder, textarea::placeholder { color: var(--subtle); opacity: 1; }
 button.button, button.icon-button, button.text-button, button.modal-close,
 button.account-more, button.job-more-button, button.assignment-view,
 .ui-tabs, .ui-tabs button, .ui-tabs-indicator,
-.app-shell .nav-item, .preferences-nav nav button,
+.preferences-nav nav button,
 .application-settings-dialog .settings-section-button,
 .startup-header nav button, .company-room-nav, .company-room-nav button,
 button.collect-all-accounts { border-radius: var(--radius-pill); }
@@ -159,7 +159,8 @@ body .application-settings-dialog .model-usage select,
 body .application-settings-dialog .usage-pricing-form input { min-height: var(--field-height); font-size: var(--ds-text-base); }
 body .attendance-config-warning { border: 1px solid var(--orange); border-radius: var(--radius-control); }
 body .attendance-workspace .attendance-page-heading h1 { font-weight: 600; }
-body .app-shell .nav-motion-track { border-radius: var(--radius-pill); }
+/* 侧栏导航项为 64px 见方的块，用圆角矩形，不用胶囊（会变成圆形）。 */
+body .app-shell .nav-item, body .app-shell .nav-motion-track { border-radius: var(--radius-card); }
 body .learning-workspace .learning-course-select { border-radius: var(--radius-pill); }
 body .application-settings-dialog .model-add-trigger:hover { background: var(--surface-muted); }
 body .application-settings-dialog .model-subtabs,

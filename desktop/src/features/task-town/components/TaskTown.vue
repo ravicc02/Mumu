@@ -152,7 +152,7 @@ onUnmounted(() => { mounted = false; bootGeneration++; screenFeed?.dispose(); co
 </script>
 
 <template>
-  <section class="task-town company-workspace" aria-label="总控中心">
+  <section class="task-town company-workspace" :class="{ 'is-office': view === 'office' }" aria-label="总控中心">
     <div class="town-toolbar">
       <div class="town-filters">
         <label class="town-search"><Search :size="15" /><input v-model="query" aria-label="搜索公司任务" placeholder="搜索任务、课程、账号"><button v-if="query" class="icon-button" type="button" title="清除搜索" aria-label="清除搜索" @click="query = ''"><X :size="13" /></button></label>

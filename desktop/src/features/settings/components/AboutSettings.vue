@@ -100,7 +100,7 @@ function toggleAutoCheck(event) {
       </nav>
 
       <p class="about-copyright">© {{ year }} {{ appInfo.name }}. All rights reserved.</p>
-      <button class="about-license" type="button" @click="openLink(appInfo.repository + '/blob/main/LICENSE')"><Scale :size="13" />MIT</button>
+      <button class="about-license" type="button" @click="openLink(appInfo.repository + '/blob/main/LICENSE')"><Scale :size="13" />MIT 许可证</button>
     </div>
 
     <footer class="about-actions">

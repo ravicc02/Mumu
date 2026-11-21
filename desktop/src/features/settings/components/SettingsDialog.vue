@@ -15,8 +15,11 @@ const filtered=computed(()=>filterSettingsNavigation(query.value));
 const groups=computed(()=>[...new Set(filtered.value.map(item=>item.group))]);
 const isConfiguration=computed(()=>["model","assignments","learning","attendance","system"].includes(current.value.id));
 const isData=computed(()=>current.value.id==="data");
+const navEl=ref(null),indicator=ref({top:0,height:0,show:false,animate:false});
+function moveIndicator(){const active=navEl.value?.querySelector(".settings-section-button.active");if(!active||!active.offsetHeight){indicator.value={...indicator.value,show:false,animate:false};return;}const first=!indicator.value.show;indicator.value={top:active.offsetTop,height:active.offsetHeight,show:true,animate:!first};}
 let trigger;
-watch(()=>props.open,async open=>{if(open){trigger=document.activeElement;initialized.value=true;query.value="";await nextTick();dialog.value?.focus();}else if(trigger?.isConnected)trigger.focus();},{immediate:true});
+watch(()=>props.open,async open=>{if(open){trigger=document.activeElement;initialized.value=true;query.value="";await nextTick();dialog.value?.focus();moveIndicator();}else{indicator.value={...indicator.value,show:false,animate:false};if(trigger?.isConnected)trigger.focus();}},{immediate:true});
+watch([()=>props.section,filtered],async()=>{await nextTick();if(props.open)moveIndicator();},{flush:"post"});
 watch(()=>props.section,async section=>{if(["model","assignments","learning","attendance","system"].includes(section))configurationSection.value=section;feedback.value="";await nextTick();if(content.value)content.value.scrollTop=0;},{immediate:true});
 watch(query,()=>{if(filtered.value.length&&!filtered.value.some(item=>item.id===props.section))emit("update:section",filtered.value[0].id);});
 function trap(event){const items=[...dialog.value.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),a[href],textarea:not(:disabled)')].filter(item=>item.getClientRects().length);const first=items[0],last=items.at(-1);if(event.shiftKey&&[first,dialog.value].includes(document.activeElement)){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}
@@ -36,7 +39,8 @@ async function directory(kind){feedback.value="";feedbackError.value=false;try{c
               <Search :size="15" />
               <input v-model="query" type="search" placeholder="搜索设置" aria-label="搜索设置">
             </label>
-            <nav aria-label="设置分类">
+            <nav ref="navEl" class="settings-nav" aria-label="设置分类">
+              <span class="settings-nav-indicator" :class="{shown:indicator.show,animate:indicator.animate}" :style="{transform:`translateY(${indicator.top}px)`,height:indicator.height+'px'}" aria-hidden="true"></span>
               <section v-for="group in groups" :key="group || 'primary'">
                 <h3 v-if="group">{{group}}</h3>
                 <button

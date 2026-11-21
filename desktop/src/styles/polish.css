@@ -1,0 +1,130 @@
+/* 动效与层次层：只加间距节奏、悬停反馈与入场过渡，不改业务布局与状态语义。
+ * 全部动画受 workbench.css 末尾的 prefers-reduced-motion 全局规则约束。 */
+:root {
+  --ease-out: cubic-bezier(.16,1,.3,1);
+  --rise-distance: 8px;
+  --stagger: 45ms;
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(var(--rise-distance)); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---- 左侧主导航：图标随悬停轻微上浮，按下有回弹 ---- */
+body .app-shell .nav-item > svg { transition: transform 200ms var(--ease-out); }
+body .app-shell .nav-item:active { transform: scale(.96); }
+@media (hover:hover) {
+  body .app-shell .nav-item:not(.active):hover > svg { transform: translateY(-2px); }
+}
+
+/* ---- 主页面板：状态列按序入场，悬停时抬起，行内箭头位移 ---- */
+body .town-panel-group {
+  animation: rise-in 360ms var(--ease-out) both;
+  transition: border-color 200ms var(--ease-out), box-shadow 240ms var(--ease-out), transform 240ms var(--ease-out);
+}
+body .town-panel-group:nth-child(2) { animation-delay: calc(var(--stagger) * 1); }
+body .town-panel-group:nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+body .town-panel-group:nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+body .town-panel-group:nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
+body .town-panel-group:nth-child(6) { animation-delay: calc(var(--stagger) * 5); }
+body .town-panel-group > header > span { transition: background 200ms var(--ease-out), color 200ms var(--ease-out); }
+@media (hover:hover) {
+  body .town-panel-group:hover { border-color: var(--line-strong); box-shadow: 0 6px 18px rgba(0,0,0,.06); transform: translateY(-2px); }
+  body .town-panel-group:hover > header > span { background: var(--accent-soft); color: var(--accent); }
+}
+body .town-panel-task { border-radius: var(--radius-control); transition: background 160ms var(--ease-out); }
+body .town-panel-task > svg:last-child { opacity: .35; transition: transform 200ms var(--ease-out), opacity 200ms var(--ease-out); }
+body .town-panel-task:active { background: var(--surface-muted); }
+@media (hover:hover) {
+  body .town-panel-task:hover > svg:last-child { opacity: 1; transform: translate(2px,-2px); }
+}
+body .town-toolbar { transition: border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out); }
+body .town-toolbar:focus-within { border-color: var(--line-strong); box-shadow: 0 2px 10px rgba(0,0,0,.04); }
+
+/* ---- 通用按钮与输入：按下回弹、聚焦环渐入 ---- */
+body .button { transition: background 160ms var(--ease-out), color 160ms var(--ease-out), border-color 160ms var(--ease-out), box-shadow 200ms var(--ease-out), transform 160ms var(--ease-out); }
+body .button:active:not(:disabled) { transform: scale(.97); }
+@media (hover:hover) {
+  body .button.dark:hover:not(:disabled) { box-shadow: 0 4px 12px rgba(0,0,0,.16); }
+  body .button.light:hover:not(:disabled) { box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+}
+body input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), body select, body textarea {
+  transition: border-color 160ms var(--ease-out), box-shadow 200ms var(--ease-out), background 160ms var(--ease-out);
+}
+body .icon-button { transition: color 160ms var(--ease-out), background 160ms var(--ease-out), transform 160ms var(--ease-out); }
+body .icon-button:active:not(:disabled) { transform: scale(.92); }
+
+/* ---- 设置：左侧高亮条滑动，不再整块淡入淡出 ---- */
+body .application-settings-dialog .settings-nav { position: relative; }
+body .application-settings-dialog .settings-nav-indicator {
+  position: absolute; top: 0; left: 2px; right: 2px; z-index: 0;
+  border-radius: var(--radius-pill); background: var(--accent-soft);
+  opacity: 0; pointer-events: none;
+}
+body .application-settings-dialog .settings-nav-indicator.shown { opacity: 1; }
+body .application-settings-dialog .settings-nav-indicator.animate {
+  transition: transform 320ms var(--ease-out), height 240ms var(--ease-out), opacity 160ms var(--ease-out);
+}
+body .application-settings-dialog .settings-section-button { position: relative; z-index: 1; }
+body .application-settings-dialog .settings-section-button.active { background: transparent; }
+body .application-settings-dialog .settings-nav-icon { transition: color 200ms var(--ease-out), transform 200ms var(--ease-out); }
+@media (hover:hover) {
+  body .application-settings-dialog .settings-section-button:not(.active):hover .settings-nav-icon { transform: translateX(2px); color: var(--ink); }
+}
+
+/* ---- 设置：内容区切换时卡片逐张升起；所有分类共用同一列宽与卡片间距 ---- */
+body .application-settings-dialog .settings-section-stack,
+body .application-settings-dialog .common-settings,
+body .application-settings-dialog .local-account-settings { gap: var(--module-gap); }
+body .application-settings-dialog .settings-section-stack > *,
+body .application-settings-dialog .common-settings > *,
+body .application-settings-dialog .local-account-settings > *,
+body .application-settings-dialog .about-body > * {
+  animation: rise-in 320ms var(--ease-out) both;
+}
+body .application-settings-dialog .settings-section-stack > :nth-child(2),
+body .application-settings-dialog .common-settings > :nth-child(2) { animation-delay: calc(var(--stagger) * 1); }
+body .application-settings-dialog .settings-section-stack > :nth-child(3),
+body .application-settings-dialog .common-settings > :nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+body .application-settings-dialog .settings-section-stack > :nth-child(4),
+body .application-settings-dialog .common-settings > :nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+body .application-settings-dialog .settings-card {
+  transition: border-color 200ms var(--ease-out), box-shadow 240ms var(--ease-out);
+}
+body .application-settings-dialog .settings-card:focus-within { border-color: var(--line-strong); box-shadow: 0 4px 16px rgba(0,0,0,.05); }
+@media (hover:hover) {
+  body .application-settings-dialog .settings-card:hover { border-color: var(--line-strong); }
+  body .application-settings-dialog .preference-row { transition: background 160ms var(--ease-out); }
+  body .application-settings-dialog .settings-card .preference-row:hover { background: var(--bg); }
+}
+body .application-settings-dialog .settings-card-body:not(.flush) .preference-row { margin-inline: -12px; padding-inline: 12px; border-radius: var(--radius-control); }
+
+/* 设置弹窗开合：遮罩和面板分层，面板略带缩放 */
+body .settings-dialog-enter-active .application-settings-dialog,
+body .settings-dialog-leave-active .application-settings-dialog { transition: transform 300ms var(--ease-out), opacity 200ms var(--ease-out); }
+body .settings-dialog-enter-from .application-settings-dialog,
+body .settings-dialog-leave-to .application-settings-dialog { transform: translateY(12px) scale(.985); opacity: 0; }
+
+/* ---- 设置表单：fieldset 默认边框、未定义的主按钮样式、控件宽度与单位位置 ---- */
+body .application-settings-dialog fieldset.settings-card-body { margin: 0; min-width: 0; border: 0; }
+body .application-settings-dialog .settings-number-wrap { position: relative; display: inline-flex; flex: none; }
+body .application-settings-dialog .settings-number-wrap[data-unit]::after {
+  content: attr(data-unit); position: absolute; top: 50%; right: 14px; transform: translateY(-50%);
+  color: var(--muted); font-size: 12px; pointer-events: none;
+}
+body .application-settings-dialog .settings-number,
+body .application-settings-dialog .settings-select {
+  width: 136px; min-width: 136px; height: var(--field-height); min-height: var(--field-height);
+  border-radius: var(--radius-control);
+}
+body .application-settings-dialog .settings-number { padding: 0 44px 0 12px; -moz-appearance: textfield; appearance: textfield; }
+body .application-settings-dialog .settings-number::-webkit-inner-spin-button,
+body .application-settings-dialog .settings-number::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; }
+body .application-settings-dialog .settings-select { padding: 0 32px 0 12px; }
+body .application-settings-dialog .settings-card-footer { display: flex; justify-content: flex-end; padding: 16px 0 20px; }
+body .application-settings-dialog .settings-card-footer .button { min-width: 112px; }
+body .application-settings-dialog .settings-select {
+  background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2353646d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center;
+  appearance: none; cursor: pointer;
+}

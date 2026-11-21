@@ -5,6 +5,7 @@ import "../styles/workbench.css";
 import "../styles/mascot.css";
 import "../styles/settings.css";
 import "../styles/design-system.css";
+import "../styles/polish.css";
 import { applyAppearance, loadAppearance, watchSystemTheme } from "./lib/appearance.js";
 
 applyAppearance(loadAppearance());

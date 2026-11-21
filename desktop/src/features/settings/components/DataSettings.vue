@@ -264,7 +264,7 @@ onMounted(() => { refresh(); loadBackups(); loadDataPreferences(); });
         <label><input v-model="backupOptions.include_accounts" type="checkbox" />账号与偏好</label>
         <label><input v-model="backupOptions.include_artifacts" type="checkbox" />任务产物</label>
         <label class="data-sensitive-option"><input v-model="backupOptions.include_browser_profile" type="checkbox" />浏览器 Profile（含 Cookie）</label>
-        <button class="button primary compact" type="button" :disabled="backupLoading" @click="createBackup">
+        <button class="button dark compact" type="button" :disabled="backupLoading" @click="createBackup">
           <LoaderCircle v-if="backupLoading" class="spinning" :size="14" />
           <Database v-else :size="14" />
           {{ backupLoading ? "正在创建" : "立即备份" }}
@@ -284,13 +284,13 @@ onMounted(() => { refresh(); loadBackups(); loadDataPreferences(); });
       <header class="settings-card-heading"><div class="settings-card-title"><h3>数据保留与自动备份</h3></div></header>
       <fieldset class="settings-card-body" :disabled="saving">
         <div class="settings-control-grid">
-          <label class="settings-control-cell"><span>现场记录保留时间</span><input v-model.number="retention.log_retention_days" class="settings-number" type="number" required min="1" max="365" aria-label="现场记录保留天数" />天</label>
-          <label class="settings-control-cell"><span>现场记录空间上限</span><input v-model.number="retention.log_size_mb" class="settings-number" type="number" required min="20" max="4096" aria-label="现场记录空间上限" />MiB</label>
+          <label class="settings-control-cell"><span>现场记录保留时间</span><span class="settings-number-wrap" data-unit="天"><input v-model.number="retention.log_retention_days" class="settings-number" type="number" required min="1" max="365" aria-label="现场记录保留天数" /></span></label>
+          <label class="settings-control-cell"><span>现场记录空间上限</span><span class="settings-number-wrap" data-unit="MiB"><input v-model.number="retention.log_size_mb" class="settings-number" type="number" required min="20" max="4096" aria-label="现场记录空间上限" /></span></label>
           <label class="settings-control-cell"><span>自动备份</span><select v-model="policy.frequency" class="settings-select"><option value="off">关闭</option><option value="daily">每天</option><option value="weekly">每周</option></select></label>
-          <label class="settings-control-cell"><span>自动备份保留份数</span><input v-model.number="policy.keep" class="settings-number" type="number" required min="1" max="10" /></label>
+          <label class="settings-control-cell"><span>自动备份保留份数</span><span class="settings-number-wrap" data-unit="份"><input v-model.number="policy.keep" class="settings-number" type="number" required min="1" max="10" aria-label="自动备份保留份数" /></span></label>
         </div>
         <p class="settings-note">自动备份仅在启动时检查周期，不含 Profile 和产物；只轮转自动备份，手动备份与恢复前快照保留。</p>
-        <button class="button primary compact" type="submit">{{ saving ? "正在保存" : "保存设置" }}</button>
+        <div class="settings-card-footer"><button class="button dark compact" type="submit">{{ saving ? "正在保存" : "保存设置" }}</button></div>
       </fieldset>
     </form>
 
